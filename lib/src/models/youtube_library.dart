@@ -1,0 +1,213 @@
+import 'package:flutter/foundation.dart';
+
+@immutable
+class SavedCredential {
+  const SavedCredential({required this.kind, required this.value});
+
+  factory SavedCredential.fromJson(Map<String, Object?> json) {
+    return SavedCredential(
+      kind: json['kind']! as String,
+      value: json['value']!,
+    );
+  }
+
+  final String kind;
+  final Object value;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': kind,
+    'value': value,
+  };
+}
+
+@immutable
+class YouTubePlaylist {
+  const YouTubePlaylist({
+    required this.id,
+    required this.title,
+    this.owner,
+    this.itemCount,
+    this.thumbnailUrl,
+    this.description,
+  });
+
+  factory YouTubePlaylist.fromJson(Map<String, Object?> json) {
+    return YouTubePlaylist(
+      id: json['id']! as String,
+      title: json['title']! as String,
+      owner: json['owner'] as String?,
+      itemCount: json['itemCount'] as String?,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+      description: json['description'] as String?,
+    );
+  }
+
+  final String id;
+  final String title;
+  final String? owner;
+  final String? itemCount;
+  final String? thumbnailUrl;
+  final String? description;
+}
+
+@immutable
+class YouTubeTrack {
+  const YouTubeTrack({
+    required this.videoId,
+    required this.title,
+    required this.artists,
+    required this.durationSeconds,
+    this.album,
+    this.thumbnailUrl,
+  });
+
+  factory YouTubeTrack.fromJson(Map<String, Object?> json) {
+    return YouTubeTrack(
+      videoId: json['videoId']! as String,
+      title: json['title']! as String,
+      artists: (json['artists']! as List<Object?>).cast<String>(),
+      durationSeconds: json['durationSeconds']! as int,
+      album: json['album'] as String?,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+    );
+  }
+
+  final String videoId;
+  final String title;
+  final List<String> artists;
+  final int durationSeconds;
+  final String? album;
+  final String? thumbnailUrl;
+}
+
+@immutable
+class YouTubePlaylistDetail {
+  const YouTubePlaylistDetail({required this.playlist, required this.tracks});
+
+  factory YouTubePlaylistDetail.fromJson(Map<String, Object?> json) {
+    return YouTubePlaylistDetail(
+      playlist: YouTubePlaylist.fromJson(
+        (json['playlist']! as Map<Object?, Object?>).cast<String, Object?>(),
+      ),
+      tracks: (json['tracks']! as List<Object?>)
+          .map(
+            (item) => YouTubeTrack.fromJson(
+              (item! as Map<Object?, Object?>).cast<String, Object?>(),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  final YouTubePlaylist playlist;
+  final List<YouTubeTrack> tracks;
+}
+
+@immutable
+class YouTubeFeedSection {
+  const YouTubeFeedSection({required this.title, required this.items});
+
+  factory YouTubeFeedSection.fromJson(Map<String, Object?> json) {
+    return YouTubeFeedSection(
+      title: json['title']! as String,
+      items: (json['items']! as List<Object?>)
+          .map(
+            (item) => YouTubeFeedItem.fromJson(
+              (item! as Map<Object?, Object?>).cast<String, Object?>(),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  final String title;
+  final List<YouTubeFeedItem> items;
+}
+
+@immutable
+class YouTubeFeedBrowseDetail {
+  const YouTubeFeedBrowseDetail({
+    required this.source,
+    required this.title,
+    required this.sections,
+  });
+
+  final String source;
+  final String title;
+  final List<YouTubeFeedSection> sections;
+}
+
+@immutable
+class YouTubeFeedCollectionDetail {
+  const YouTubeFeedCollectionDetail({
+    required this.source,
+    required this.title,
+    required this.itemType,
+    required this.tracks,
+    this.artists = const <String>[],
+    this.thumbnailUrl,
+  });
+
+  final String source;
+  final String title;
+  final String itemType;
+  final List<YouTubeTrack> tracks;
+  final List<String> artists;
+  final String? thumbnailUrl;
+}
+
+@immutable
+class YouTubeFeedItem {
+  const YouTubeFeedItem({
+    required this.id,
+    required this.itemType,
+    required this.title,
+    required this.artists,
+    required this.durationSeconds,
+    this.subtitle,
+    this.videoId,
+    this.browseParams,
+    this.album,
+    this.thumbnailUrl,
+  });
+
+  factory YouTubeFeedItem.fromJson(Map<String, Object?> json) {
+    return YouTubeFeedItem(
+      id: json['id']! as String,
+      itemType: json['itemType']! as String,
+      title: json['title']! as String,
+      subtitle: json['subtitle'] as String?,
+      videoId: json['videoId'] as String?,
+      browseParams: json['browseParams'] as String?,
+      artists: (json['artists']! as List<Object?>).cast<String>(),
+      album: json['album'] as String?,
+      durationSeconds: json['durationSeconds']! as int,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+    );
+  }
+
+  final String id;
+  final String itemType;
+  final String title;
+  final String? subtitle;
+  final String? videoId;
+  final String? browseParams;
+  final List<String> artists;
+  final String? album;
+  final int durationSeconds;
+  final String? thumbnailUrl;
+
+  bool get isPlayable =>
+      const <String>{'song', 'video', 'non_music_track'}.contains(itemType) &&
+      videoId != null;
+  bool get isPlaylist => itemType == 'playlist';
+  bool get isCollection => isPlaylist || itemType == 'album';
+  bool get isBrowsable => const <String>{
+    'artist',
+    'category',
+    'channel',
+    'subscriber',
+  }.contains(itemType);
+  bool get isProfile =>
+      const <String>{'artist', 'channel', 'subscriber'}.contains(itemType);
+}
