@@ -4,53 +4,76 @@
 *.pyc
 *.swp
 .DS_Store
-.atom/
-.build/
 .buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+.history/
 
-# IntelliJ related
+# IDE files
+.idea/
 *.iml
 *.ipr
 *.iws
-.idea/
+.vscode/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# Local agent tooling
+.agents/
+.pi-subagents/
+skills-lock.json
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
-/sidecar/node_modules/
-/sidecar/.cache/
-
-# Local agent tooling and credentials
-/.agents/
-/.pi-subagents/
-/skills-lock.json
+# Local credentials
 .env
 .env.*
 !.env.example
 *.secret
 
-# Symbolication related
-app.*.symbols
+# Flutter and Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub-preload-cache/
+.pub/
+build/
+coverage/
+**/doc/api/
+**/generated_plugin_registrant.dart
+flutter_*.png
+linked_*.ds
+unlinked.ds
+unlinked_spec.ds
 
-# Obfuscation related
+# Generated desktop plugin integration
+linux/flutter/generated_plugin_registrant.cc
+linux/flutter/generated_plugin_registrant.h
+linux/flutter/generated_plugins.cmake
+macos/Flutter/GeneratedPluginRegistrant.swift
+windows/flutter/generated_plugin_registrant.cc
+windows/flutter/generated_plugin_registrant.h
+windows/flutter/generated_plugins.cmake
+
+# Node sidecar
+**/node_modules/
+sidecar/.cache/
+npm-debug.log*
+
+# Android local and signing files
+.gradle/
+**/android/local.properties
+**/android/key.properties
+**/*.jks
+**/*.keystore
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Apple build products
+**/Pods/
+**/DerivedData/
+**/xcuserdata/
+**/Flutter/ephemeral/
+ios/Flutter/.last_build_id
+
+# Release artifacts
+dist/
+*.symbols
 app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
