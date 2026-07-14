@@ -5,7 +5,7 @@
 <h1 align="center">Otoha</h1>
 
 <p align="center">
-  A dark-first desktop music player built with Flutter.
+  A native YouTube Music desktop player built with Flutter.
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ Downloads depend on upstream YouTube format availability and should be considere
 | macOS | Supported | `.dmg` |
 | Android, iOS, Web | Not supported | Generated Flutter runners only |
 
-Tagged releases bundle the production sidecar and a Node.js runtime, so end users do not need to install Node separately. Installers are published on the [GitHub Releases](https://github.com/1Yie/otoha/releases) page when a `v*` tag is pushed.
+Tagged releases bundle the production sidecar and a Node.js runtime, so end users do not need to install Node separately. Installers are published on the [GitHub Releases](https://github.com/1Yie/otoha/releases) page when a stable SemVer tag such as `1.0.1` is pushed.
 
 ## Requirements
 
@@ -153,7 +153,17 @@ flutter build macos
 flutter build windows
 ```
 
-GitHub Actions runs static analysis, Flutter tests, sidecar tests, and a Linux build on pushes and pull requests. Tags matching `v*` trigger native installer builds for all three desktop platforms and publish a GitHub Release.
+Prepare a version commit and annotated tag from a clean `main` branch:
+
+```bash
+# Create the local release commit and tag.
+./tool/release/version.sh 1.0.1
+
+# Create and atomically push both the commit and tag.
+./tool/release/version.sh 1.0.1 --push
+```
+
+The script updates `pubspec.yaml`, automatically increments its build number, creates a `chore(release)` commit, and tags that commit with the version exactly as provided. GitHub Actions runs static analysis, Flutter tests, sidecar tests, and a Linux build on pushes and pull requests. Stable SemVer tags trigger native installer builds for all three desktop platforms and publish a GitHub Release.
 
 ## Architecture
 

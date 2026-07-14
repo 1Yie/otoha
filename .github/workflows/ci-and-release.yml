@@ -6,7 +6,7 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
   contents: read
@@ -60,15 +60,15 @@ jobs:
         run: flutter build linux --release
 
       - name: Check release tag version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           version="$(awk '$1 == "version:" { print $2; exit }' pubspec.yaml)"
-          test "v${version%%+*}" = "$GITHUB_REF_NAME"
+          test "${version%%+*}" = "$GITHUB_REF_NAME"
 
   build-release:
     name: Build ${{ matrix.platform }} release
     needs: verify
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
@@ -129,7 +129,7 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           flutter build linux --release
-          version="${GITHUB_REF_NAME#v}"
+          version="$GITHUB_REF_NAME"
           bash tool/release/package_linux.sh \
             "$GITHUB_WORKSPACE/build/linux/x64/release/bundle" \
             "$version" \
@@ -152,7 +152,7 @@ jobs:
           }
           choco install innosetup --yes --no-progress
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $version = $env:GITHUB_REF_NAME
           $output = (Resolve-Path dist).Path
           & $iscc "/DMyAppVersion=$version" "/DSourceDir=$release" "/DOutputDir=$output" "packaging/windows/otoha.iss"
 
@@ -171,7 +171,7 @@ jobs:
           if [ -f "$node_directory/../LICENSE" ]; then
             cp "$node_directory/../LICENSE" "$resources/node/LICENSE"
           fi
-          version="${GITHUB_REF_NAME#v}"
+          version="$GITHUB_REF_NAME"
           dmg_root="$(mktemp -d)"
           cp -R "$app" "$dmg_root/Otoha.app"
           ln -s /Applications "$dmg_root/Applications"
@@ -190,7 +190,7 @@ jobs:
   publish-release:
     name: Publish GitHub release
     needs: build-release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

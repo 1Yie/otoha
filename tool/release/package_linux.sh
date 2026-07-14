@@ -60,7 +60,7 @@ printf '%s\n' \
   "Version: $rpm_version" \
   'Release: 1%{?dist}' \
   'Summary: Otoha desktop music player' \
-  'License: Proprietary' \
+  'License: MIT' \
   'BuildArch: x86_64' \
   '' \
   '%description' \
