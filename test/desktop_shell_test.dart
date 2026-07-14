@@ -21,6 +21,7 @@ import 'package:otoha/src/state/offline_library_controller.dart';
 import 'package:otoha/src/state/youtube_library_controller.dart';
 import 'package:otoha/src/widgets/player_bar.dart';
 import 'package:otoha/src/widgets/expanded_lyrics.dart';
+import 'package:otoha/src/widgets/search_palette.dart';
 
 void main() {
   testWidgets('production startup does not expose mock player data', (
@@ -395,6 +396,55 @@ void main() {
       expect(find.text('Room for Light'), findsWidgets);
     },
   );
+
+  testWidgets('search palette rows support scaled desktop text', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final workspaceController = WorkspaceController();
+    final playerController = PlayerController(MockCatalog.tracks);
+    final shellController = ShellController();
+    final libraryController = _signedOutLibraryController();
+    addTearDown(workspaceController.dispose);
+    addTearDown(playerController.dispose);
+    addTearDown(shellController.dispose);
+    addTearDown(libraryController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildOtohaTheme(),
+        supportedLocales: AppLocaleController.supportedLocales,
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.25)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Stack(
+            children: <Widget>[
+              SearchPalette(
+                workspaceController: workspaceController,
+                playerController: playerController,
+                shellController: shellController,
+                youtubeLibraryController: libraryController,
+                reduceMotion: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('queue panel opens without removing the shell', (tester) async {
     await _setDesktopSurface(tester);

@@ -19,6 +19,7 @@ class DesktopShell extends StatelessWidget {
     required this.workspaceController,
     required this.playerController,
     required this.shellController,
+    required this.focusNode,
     required this.youtubeLibraryController,
     required this.offlineLibraryController,
     required this.localeController,
@@ -28,6 +29,7 @@ class DesktopShell extends StatelessWidget {
   final WorkspaceController workspaceController;
   final PlayerController playerController;
   final ShellController shellController;
+  final FocusNode focusNode;
   final YouTubeLibraryController youtubeLibraryController;
   final OfflineLibraryController offlineLibraryController;
   final AppLocaleController localeController;
@@ -48,6 +50,7 @@ class DesktopShell extends StatelessWidget {
             workspaceController.goForward,
       },
       child: Focus(
+        focusNode: focusNode,
         autofocus: true,
         onKeyEvent: _handlePlaybackShortcut,
         child: Scaffold(

@@ -306,8 +306,8 @@ class _SearchResultRow extends StatelessWidget {
       child: InkWell(
         onTap: onPressed,
         child: Container(
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          constraints: const BoxConstraints(minHeight: 64),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: selected ? OtohaColors.surfaceRaised : Colors.transparent,
           child: Row(
             children: <Widget>[
@@ -351,11 +351,15 @@ class _SearchResultRow extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       item.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],

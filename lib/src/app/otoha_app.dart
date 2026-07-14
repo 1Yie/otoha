@@ -46,6 +46,7 @@ class _OtohaAppState extends State<OtohaApp> {
   late final WorkspaceController _workspaceController;
   late final PlayerController _playerController;
   late final ShellController _shellController;
+  late final FocusNode _shellFocusNode;
   late final YouTubeLibraryController _youtubeLibraryController;
   late final OfflineLibraryController _offlineLibraryController;
   late final AppLocaleController _localeController;
@@ -79,6 +80,7 @@ class _OtohaAppState extends State<OtohaApp> {
           : MediaKitAudioPlaybackEngine(sidecarClient),
     );
     _shellController = ShellController();
+    _shellFocusNode = FocusNode(debugLabel: 'desktop-shell');
     _youtubeLibraryController =
         widget.youtubeLibraryController ??
         YouTubeLibraryController(
@@ -105,17 +107,20 @@ class _OtohaAppState extends State<OtohaApp> {
       unawaited(_playerController.restoreSession());
     }
     if (widget.desktopTrayController case final desktopTrayController?) {
+      desktopTrayController.setWindowShownCallback(_restoreShellFocus);
       unawaited(desktopTrayController.initialize(_playerController));
     }
   }
 
   @override
   void dispose() {
+    widget.desktopTrayController?.setWindowShownCallback(null);
     widget.desktopTrayController?.dispose();
     _workspaceController.dispose();
     _playerController.removeListener(_prefetchLyricsForCurrentTrack);
     _playerController.dispose();
     _shellController.dispose();
+    _shellFocusNode.dispose();
     if (_ownsOfflineLibraryController) {
       _offlineLibraryController.dispose();
     }
@@ -153,6 +158,7 @@ class _OtohaAppState extends State<OtohaApp> {
                 workspaceController: _workspaceController,
                 playerController: _playerController,
                 shellController: _shellController,
+                focusNode: _shellFocusNode,
                 youtubeLibraryController: _youtubeLibraryController,
                 offlineLibraryController: _offlineLibraryController,
                 localeController: _localeController,
@@ -162,6 +168,14 @@ class _OtohaAppState extends State<OtohaApp> {
         );
       },
     );
+  }
+
+  void _restoreShellFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_shellFocusNode.hasFocus) {
+        _shellFocusNode.requestFocus();
+      }
+    });
   }
 
   void _updateTrayLabels(AppLocalizations localizations) {

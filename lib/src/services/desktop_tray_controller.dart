@@ -8,6 +8,8 @@ import 'package:window_manager/window_manager.dart';
 
 import '../state/desktop_shell_controllers.dart';
 
+const desktopMinimumWindowSize = Size(1120, 720);
+
 class TrayLabels {
   const TrayLabels({
     required this.showWindow,
@@ -39,6 +41,11 @@ class DesktopTrayController with WindowListener, TrayListener {
   bool _isInitialized = false;
   bool _isExiting = false;
   bool? _wasPlaying;
+  void Function()? _windowShownCallback;
+
+  void setWindowShownCallback(void Function()? callback) {
+    _windowShownCallback = callback;
+  }
 
   Future<void> initialize(PlayerController playerController) async {
     if (_isInitialized) {
@@ -70,6 +77,7 @@ class DesktopTrayController with WindowListener, TrayListener {
   }
 
   void dispose() {
+    _windowShownCallback = null;
     final playerController = _playerController;
     if (playerController != null) {
       playerController.removeListener(_handlePlayerChanged);
@@ -116,7 +124,9 @@ class DesktopTrayController with WindowListener, TrayListener {
 
   Future<void> _showWindow() async {
     await windowManager.show();
+    await windowManager.setMinimumSize(desktopMinimumWindowSize);
     await windowManager.focus();
+    _windowShownCallback?.call();
   }
 
   Future<void> _quit() async {
