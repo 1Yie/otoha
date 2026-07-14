@@ -154,7 +154,8 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           $version = $env:GITHUB_REF_NAME
           $output = (Resolve-Path dist).Path
-          & $iscc "/DMyAppVersion=$version" "/DSourceDir=$release" "/DOutputDir=$output" "packaging/windows/otoha.iss"
+          $icon = (Resolve-Path "windows/runner/resources/app_icon.ico").Path
+          & $iscc "/DMyAppVersion=$version" "/DSourceDir=$release" "/DOutputDir=$output" "/DInstallerIcon=$icon" "packaging/windows/otoha.iss"
 
       - name: Build macOS disk image
         if: matrix.target == 'macos'

@@ -10,6 +10,10 @@
   #error MyAppVersion must be supplied by the release workflow.
 #endif
 
+#ifndef InstallerIcon
+  #error InstallerIcon must point to the Windows ICO file.
+#endif
+
 [Setup]
 AppId={{E7A9AF50-1F6D-4E78-AB47-2C3BFD8BDE58}
 AppName=Otoha
@@ -20,7 +24,7 @@ DefaultGroupName=Otoha
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
 OutputBaseFilename=Otoha-setup-{#MyAppVersion}-x64
-SetupIconFile={#SourceDir}\resources\app_icon.ico
+SetupIconFile={#InstallerIcon}
 UninstallDisplayIcon={app}\otoha.exe
 Compression=lzma2
 SolidCompression=yes
