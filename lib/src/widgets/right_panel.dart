@@ -204,7 +204,7 @@ class _QueueTrackRow extends StatelessWidget {
           Radius.circular(AppMetrics.radius),
         ),
         child: Container(
-          height: 64,
+          constraints: const BoxConstraints(minHeight: 64),
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: selected ? OtohaColors.surfaceRaised : Colors.transparent,
@@ -246,6 +246,8 @@ class _QueueTrackRow extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],

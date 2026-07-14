@@ -407,6 +407,40 @@ void main() {
     expect(find.byKey(const Key('player-track')), findsOneWidget);
   });
 
+  testWidgets('queue rows contain long artist names without overflow', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController();
+    addTearDown(libraryController.dispose);
+    const longArtist =
+        'A very long artist name with multiple collaborators and guests';
+    await tester.pumpWidget(
+      OtohaApp(
+        youtubeLibraryController: libraryController,
+        initialTracks: const <Track>[
+          Track(
+            id: 'long-queue-track',
+            title: 'A track with constrained queue metadata',
+            artist: longArtist,
+            album: 'Queue regression',
+            artworkAsset: 'assets/artwork/cover_01.png',
+            durationSeconds: 180,
+            lyrics: <String>[],
+          ),
+        ],
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('player-queue')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final artistText = tester.widget<Text>(find.text(longArtist));
+    expect(artistText.maxLines, 1);
+    expect(artistText.overflow, TextOverflow.ellipsis);
+  });
+
   testWidgets('volume adjustment opens from the player control', (
     tester,
   ) async {
