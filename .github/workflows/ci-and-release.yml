@@ -1,0 +1,214 @@
+name: CI and release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Flutter and sidecar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: 3.44.6
+
+      - name: Set up Node.js
+        # zizmor: ignore[cache-poisoning] No package-manager cache is enabled.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libayatana-appindicator3-dev libgtk-3-dev libsecret-1-dev
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Resolve sidecar dependencies
+        run: npm --prefix sidecar ci
+
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze Flutter source
+        run: flutter analyze
+
+      - name: Test Flutter application
+        run: flutter test
+
+      - name: Test YouTube sidecar
+        run: npm --prefix sidecar test
+
+      - name: Build Linux bundle
+        run: flutter build linux --release
+
+      - name: Check release tag version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(awk '$1 == "version:" { print $2; exit }' pubspec.yaml)"
+          test "v${version%%+*}" = "$GITHUB_REF_NAME"
+
+  build-release:
+    name: Build ${{ matrix.platform }} release
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            runner: ubuntu-latest
+            target: linux
+            artifact_name: Linux installers
+          - platform: Windows
+            runner: windows-latest
+            target: windows
+            artifact_name: Windows installer
+          - platform: macOS
+            runner: macos-latest
+            target: macos
+            artifact_name: macOS installer
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: 3.44.6
+
+      - name: Set up Node.js
+        # zizmor: ignore[cache-poisoning] No package-manager cache is enabled.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Install Linux build dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libayatana-appindicator3-dev libgtk-3-dev libsecret-1-dev rpm
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Resolve production sidecar dependencies
+        run: npm --prefix sidecar ci --omit=dev
+
+      - name: Prepare release directory
+        if: matrix.target != 'windows'
+        run: mkdir -p dist
+
+      - name: Prepare Windows release directory
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: New-Item -ItemType Directory -Path dist -Force | Out-Null
+
+      - name: Build Linux bundle
+        if: matrix.target == 'linux'
+        run: |
+          flutter build linux --release
+          version="${GITHUB_REF_NAME#v}"
+          bash tool/release/package_linux.sh \
+            "$GITHUB_WORKSPACE/build/linux/x64/release/bundle" \
+            "$version" \
+            "$(command -v node)" \
+            "$GITHUB_WORKSPACE/dist"
+
+      - name: Build Windows installer
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          flutter build windows --release
+          $release = (Resolve-Path "build/windows/x64/runner/Release").Path
+          Copy-Item -Path sidecar -Destination "$release\sidecar" -Recurse -Force
+          $node = (Get-Command node).Source
+          New-Item -ItemType Directory -Path "$release\node" -Force | Out-Null
+          Copy-Item -Path $node -Destination "$release\node\node.exe"
+          $nodeLicense = Join-Path (Split-Path $node -Parent) "LICENSE"
+          if (Test-Path $nodeLicense) {
+            Copy-Item -Path $nodeLicense -Destination "$release\node\LICENSE"
+          }
+          choco install innosetup --yes --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $output = (Resolve-Path dist).Path
+          & $iscc "/DMyAppVersion=$version" "/DSourceDir=$release" "/DOutputDir=$output" "packaging/windows/otoha.iss"
+
+      - name: Build macOS disk image
+        if: matrix.target == 'macos'
+        run: |
+          flutter build macos --release
+          app="$(find build/macos/Build/Products/Release -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          resources="$app/Contents/Resources"
+          ditto sidecar "$resources/sidecar"
+          mkdir -p "$resources/node/bin"
+          cp -L "$(command -v node)" "$resources/node/bin/node"
+          chmod +x "$resources/node/bin/node"
+          node_directory="$(dirname "$(command -v node)")"
+          if [ -f "$node_directory/../LICENSE" ]; then
+            cp "$node_directory/../LICENSE" "$resources/node/LICENSE"
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          dmg_root="$(mktemp -d)"
+          cp -R "$app" "$dmg_root/Otoha.app"
+          ln -s /Applications "$dmg_root/Applications"
+          hdiutil create -volname Otoha -srcfolder "$dmg_root" -ov -format UDZO \
+            "dist/Otoha_${version}_macos.dmg"
+          rm -rf "$dmg_root"
+
+      - name: Upload release installers
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    name: Publish GitHub release
+    needs: build-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "Otoha $GITHUB_REF_NAME" \
+              --generate-notes
+          fi

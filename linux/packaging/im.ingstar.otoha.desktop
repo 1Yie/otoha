@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Otoha
+Comment=Desktop music player
+Exec=otoha
+Icon=im.ingstar.otoha
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=true
