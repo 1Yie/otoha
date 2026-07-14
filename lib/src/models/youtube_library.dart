@@ -81,6 +81,61 @@ class YouTubeTrack {
 }
 
 @immutable
+class YouTubeLyricLine {
+  const YouTubeLyricLine({required this.text, this.startSeconds});
+
+  factory YouTubeLyricLine.fromJson(Map<String, Object?> json) {
+    return YouTubeLyricLine(
+      text: json['text']! as String,
+      startSeconds: (json['startSeconds'] as num?)?.toDouble(),
+    );
+  }
+
+  final String text;
+  final double? startSeconds;
+}
+
+enum YouTubeRating {
+  none('none'),
+  liked('like'),
+  disliked('dislike');
+
+  const YouTubeRating(this.protocolValue);
+
+  final String protocolValue;
+}
+
+@immutable
+class YouTubeComment {
+  const YouTubeComment({
+    required this.id,
+    required this.author,
+    required this.text,
+    this.publishedTime,
+    this.avatarUrl,
+    this.likeCount,
+  });
+
+  factory YouTubeComment.fromJson(Map<String, Object?> json) {
+    return YouTubeComment(
+      id: json['id']! as String,
+      author: json['author']! as String,
+      text: json['text']! as String,
+      publishedTime: json['publishedTime'] as String?,
+      avatarUrl: json['avatarUrl'] as String?,
+      likeCount: json['likeCount'] as String?,
+    );
+  }
+
+  final String id;
+  final String author;
+  final String text;
+  final String? publishedTime;
+  final String? avatarUrl;
+  final String? likeCount;
+}
+
+@immutable
 class YouTubePlaylistDetail {
   const YouTubePlaylistDetail({required this.playlist, required this.tracks});
 
@@ -196,6 +251,8 @@ class YouTubeFeedItem {
   final String? album;
   final int durationSeconds;
   final String? thumbnailUrl;
+
+  String get browseIdentity => browseParams == null ? id : '$id:$browseParams';
 
   bool get isPlayable =>
       const <String>{'song', 'video', 'non_music_track'}.contains(itemType) &&

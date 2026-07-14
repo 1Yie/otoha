@@ -1,4 +1,4 @@
-package com.example.otoha
+package im.ingstar.otoha
 
 import io.flutter.embedding.android.FlutterActivity
 

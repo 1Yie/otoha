@@ -1,6 +1,8 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../services/artwork_cache.dart';
 
 class ArtworkImage extends StatelessWidget {
   const ArtworkImage({
@@ -24,16 +26,27 @@ class ArtworkImage extends StatelessWidget {
     }
 
     if (assetPath.startsWith('http://') || assetPath.startsWith('https://')) {
-      return Image.network(
-        assetPath,
-        fit: BoxFit.cover,
-        semanticLabel: semanticLabel,
-        errorBuilder: errorBuilder,
+      return CachedNetworkImage(
+        imageUrl: assetPath,
+        cacheManager: OtohaArtworkCache.instance,
+        imageBuilder: (context, imageProvider) => Image(
+          image: imageProvider,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
+          semanticLabel: semanticLabel,
+        ),
+        placeholder: (context, url) =>
+            const ColoredBox(color: OtohaColors.surfaceRaised),
+        errorWidget: (context, url, error) =>
+            errorBuilder(context, error, null),
       );
     }
     return Image.asset(
       assetPath,
       fit: BoxFit.cover,
+      filterQuality: FilterQuality.high,
+      gaplessPlayback: true,
       semanticLabel: semanticLabel,
       errorBuilder: errorBuilder,
     );

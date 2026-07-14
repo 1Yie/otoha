@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:otoha/src/models/youtube_library.dart';
 import 'package:otoha/src/services/credential_store.dart';
+import 'package:otoha/src/services/lyric_cache.dart';
+import 'package:otoha/src/services/remote_metadata_cache.dart';
 import 'package:otoha/src/services/youtube_sidecar_client.dart';
 import 'package:otoha/src/state/youtube_library_controller.dart';
 
@@ -91,6 +93,175 @@ void main() {
     expect(controller.selectedPlaylist?.tracks.first.title, 'Night drive');
   });
 
+  test(
+    'reloads signed-in YouTube Music data in the selected language',
+    () async {
+      final client = _FakeSidecarClient();
+      final controller = YouTubeLibraryController(
+        client: client,
+        credentialStore: _MemoryCredentialStore(),
+      );
+      addTearDown(controller.dispose);
+      await controller.signInWithCookie('SID=test-cookie');
+
+      await controller.setLocale('zh');
+
+      expect(controller.locale, 'zh-CN');
+      final localeRequest = client.requests.singleWhere(
+        (request) => request.method == 'session.setLocale',
+      );
+      expect(localeRequest.params, <String, Object?>{'locale': 'zh-CN'});
+      expect(client.methods.sublist(client.methods.length - 4), <String>[
+        'session.setLocale',
+        'library.playlists',
+        'feed.home',
+        'feed.explore',
+      ]);
+    },
+  );
+
+  test('loads authenticated playback history only when requested', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    expect(controller.historyTracks, isEmpty);
+    await controller.loadHistory();
+
+    expect(controller.historyTracks.single.title, 'History track');
+    expect(controller.hasLoadedHistory, isTrue);
+    expect(
+      client.methods.where((method) => method == 'history.get'),
+      hasLength(1),
+    );
+
+    await controller.loadHistory();
+    expect(
+      client.methods.where((method) => method == 'history.get'),
+      hasLength(1),
+    );
+  });
+
+  test('restores the saved Cookie session after the sidecar exits', () async {
+    final client = _FakeSidecarClient();
+    final store = _MemoryCredentialStore();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: store,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+    await Future<void>.delayed(Duration.zero);
+    final methodsBeforeExit = client.methods.length;
+
+    client.emit(SidecarEvent('sidecar.exit', <String, Object?>{'exitCode': 1}));
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.status, YouTubeAccountStatus.signedIn);
+    expect(client.methods.sublist(methodsBeforeExit), <String>[
+      'session.restore',
+      'library.playlists',
+      'feed.home',
+      'feed.explore',
+    ]);
+  });
+
+  test('appends real Home continuation sections without duplicates', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    expect(controller.hasMoreHome, isTrue);
+    await controller.loadMoreHome();
+
+    expect(controller.homeSections.map((section) => section.title), <String>[
+      'Listen again',
+      'More for you',
+    ]);
+    expect(controller.hasMoreHome, isFalse);
+    expect(client.methods.last, 'feed.home.more');
+
+    await controller.loadMoreHome();
+    expect(
+      client.methods.where((method) => method == 'feed.home.more'),
+      hasLength(1),
+    );
+  });
+
+  test('appends Explore continuation sections without duplicates', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    expect(controller.hasMoreExplore, isTrue);
+    await controller.loadMoreExplore();
+
+    expect(controller.exploreSections.map((section) => section.title), <String>[
+      'New releases',
+      'More to explore',
+    ]);
+    expect(controller.hasMoreExplore, isFalse);
+    expect(client.methods.last, 'feed.explore.more');
+
+    await controller.loadMoreExplore();
+    expect(
+      client.methods.where((method) => method == 'feed.explore.more'),
+      hasLength(1),
+    );
+  });
+
+  test('uses fresh remote metadata before requesting Home again', () async {
+    final client = _FakeSidecarClient();
+    final cache = _MemoryMetadataCache()
+      ..entries['feed.home'] = RemoteMetadataCacheEntry(
+        cachedAt: DateTime.now(),
+        data: client._feed('Cached Home', 'Cached recommendation', 'song'),
+      );
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+      metadataCache: cache,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.signInWithCookie('SID=test-cookie');
+
+    expect(controller.homeSections.single.title, 'Cached Home');
+    expect(client.methods.where((method) => method == 'feed.home'), isEmpty);
+  });
+
+  test('does not send a rapid second account write', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await controller.rateVideo('video-1', YouTubeRating.liked);
+    await controller.rateVideo('video-1', YouTubeRating.disliked);
+
+    expect(
+      client.methods.where((method) => method == 'interaction.rate'),
+      hasLength(1),
+    );
+    expect(controller.isAccountWriteCoolingDown, isTrue);
+  });
+
   test('loads a feed album as a simulated playback collection', () async {
     final client = _FakeSidecarClient();
     final controller = YouTubeLibraryController(
@@ -122,6 +293,12 @@ void main() {
       addTearDown(controller.dispose);
       await controller.signInWithCookie('SID=test-cookie');
 
+      expect(controller.exploreCategories.map((item) => item.title), <String>[
+        'Chill',
+        'Pop',
+      ]);
+      expect(controller.exploreSections.single.title, 'New releases');
+
       await controller.openFeedCollection(
         controller.exploreSections.single.items.single,
         source: 'explore',
@@ -151,6 +328,14 @@ void main() {
       expect(controller.selectedFeedCollection, isNull);
       expect(controller.selectedFeedBrowse, isNull);
       expect(controller.exploreSections.single.title, 'Chill picks');
+      expect(controller.exploreCategories.map((item) => item.title), <String>[
+        'Chill',
+        'Pop',
+      ]);
+      expect(
+        controller.selectedExploreCategoryId,
+        'FEmusic_moods_and_genres_category:chill-params',
+      );
       expect(client.methods.last, 'feed.browse');
     },
   );
@@ -213,19 +398,139 @@ void main() {
     expect(controller.searchResults.single.isPlayable, isTrue);
     expect(client.methods.last, 'search.music');
   });
+
+  test('loads remote lyrics through the sidecar', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await controller.loadLyrics(
+      videoId: 'dQw4w9WgXcQ',
+      title: 'Track title',
+      artist: 'Artist',
+      album: 'Album',
+      durationSeconds: 213,
+    );
+
+    expect(controller.lyricsVideoId, 'dQw4w9WgXcQ');
+    expect(controller.lyricsLines.map((line) => line.text), <String>[
+      'First line',
+      'Second line',
+    ]);
+    expect(controller.isLoadingLyrics, isFalse);
+    expect(client.methods.last, 'lyrics.get');
+  });
+
+  test('uses the persistent lyric cache before calling the sidecar', () async {
+    final client = _FakeSidecarClient();
+    final cache = _MemoryLyricCache()
+      ..entries['dQw4w9WgXcQ'] = const <YouTubeLyricLine>[
+        YouTubeLyricLine(text: 'Cached line', startSeconds: 1),
+      ];
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+      lyricCache: cache,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+    client.methods.clear();
+
+    await controller.loadLyrics(
+      videoId: 'dQw4w9WgXcQ',
+      title: 'Track title',
+      artist: 'Artist',
+      album: 'Album',
+      durationSeconds: 213,
+    );
+
+    expect(controller.lyricsLines.single.text, 'Cached line');
+    expect(client.methods, isNot(contains('lyrics.get')));
+  });
+
+  test('uses official untimed lyrics without persisting them', () async {
+    final client = _FakeSidecarClient(
+      lyricsResult: <String, Object?>{
+        'source': 'youtube_music',
+        'lines': <Object?>[
+          <String, Object?>{
+            'text': 'Official lyric line',
+            'startSeconds': null,
+          },
+        ],
+      },
+    );
+    final cache = _MemoryLyricCache();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+      lyricCache: cache,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await controller.loadLyrics(
+      videoId: 'dQw4w9WgXcQ',
+      title: 'Track title',
+      artist: 'Artist',
+      album: 'Album',
+      durationSeconds: 213,
+    );
+
+    expect(controller.lyricsLines.single.text, 'Official lyric line');
+    expect(controller.lyricsLines.single.startSeconds, isNull);
+    expect(cache.entries, isEmpty);
+  });
+
+  test('updates an account rating and loads then posts comments', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+      accountWriteCooldown: Duration.zero,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await controller.rateVideo('video-1', YouTubeRating.liked);
+    await controller.loadComments('video-1');
+    final posted = await controller.postComment('video-1', 'Great track');
+
+    expect(controller.ratingFor('video-1'), YouTubeRating.liked);
+    expect(controller.comments.single.author, 'Commenter');
+    expect(controller.comments.single.text, 'Great track');
+    expect(posted, isTrue);
+    expect(
+      client.methods,
+      containsAllInOrder(<String>[
+        'interaction.rate',
+        'comments.get',
+        'comments.create',
+        'comments.get',
+      ]),
+    );
+  });
 }
 
 class _FakeSidecarClient extends YouTubeSidecarClient {
-  _FakeSidecarClient({this.singleCollection = false})
+  _FakeSidecarClient({this.singleCollection = false, this.lyricsResult})
     : super(entryPath: 'unused');
 
   final bool singleCollection;
+  final Map<String, Object?>? lyricsResult;
   final StreamController<SidecarEvent> _controller =
       StreamController<SidecarEvent>.broadcast(sync: true);
   final List<String> methods = <String>[];
+  final List<_SidecarRequest> requests = <_SidecarRequest>[];
 
   @override
   Stream<SidecarEvent> get events => _controller.stream;
+
+  void emit(SidecarEvent event) => _controller.add(event);
 
   @override
   Future<Map<String, Object?>> call(
@@ -233,7 +538,17 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
     Map<String, Object?> params = const <String, Object?>{},
   ]) async {
     methods.add(method);
+    requests.add(_SidecarRequest(method, Map<String, Object?>.of(params)));
     switch (method) {
+      case 'session.restore':
+        return <String, Object?>{
+          'authenticated': true,
+          'mode': 'cookie',
+          'profile': <String, Object?>{
+            'displayName': 'Test listener',
+            'avatarUrl': 'https://example.test/avatar.jpg',
+          },
+        };
       case 'auth.cookie.signIn':
         _controller.add(
           SidecarEvent('auth.credentials', <String, Object?>{
@@ -285,10 +600,60 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
             },
           ],
         };
+      case 'history.get':
+        return <String, Object?>{
+          'tracks': <Object?>[
+            <String, Object?>{
+              'videoId': 'history-video',
+              'title': 'History track',
+              'artists': <String>['History artist'],
+              'album': 'History album',
+              'durationSeconds': 213,
+              'thumbnailUrl': 'https://example.test/history.jpg',
+            },
+          ],
+        };
       case 'feed.home':
-        return _feed('Listen again', 'Live recommendation', 'song');
+        return _feed(
+          'Listen again',
+          'Live recommendation',
+          'song',
+          hasMore: true,
+        );
+      case 'feed.home.more':
+        return _feed('More for you', 'Another recommendation', 'song');
       case 'feed.explore':
-        return _feed('New releases', 'Fresh album', 'album');
+        return <String, Object?>{
+          'sections': <Object?>[
+            <String, Object?>{
+              'title': 'Moods & genres',
+              'items': <Object?>[
+                <String, Object?>{
+                  'id': 'FEmusic_moods_and_genres_category',
+                  'itemType': 'category',
+                  'title': 'Chill',
+                  'artists': <String>[],
+                  'durationSeconds': 0,
+                  'browseParams': 'chill-params',
+                },
+                <String, Object?>{
+                  'id': 'FEmusic_moods_and_genres_category',
+                  'itemType': 'category',
+                  'title': 'Pop',
+                  'artists': <String>[],
+                  'durationSeconds': 0,
+                  'browseParams': 'pop-params',
+                },
+              ],
+            },
+            (_feed('New releases', 'Fresh album', 'album')['sections']!
+                    as List<Object?>)
+                .single,
+          ],
+          'hasMore': true,
+        };
+      case 'feed.explore.more':
+        return _feed('More to explore', 'Another discovery', 'album');
       case 'feed.collection':
         return <String, Object?>{
           'tracks': <Object?>[
@@ -334,6 +699,32 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
             },
           ],
         };
+      case 'lyrics.get':
+        return lyricsResult ??
+            <String, Object?>{
+              'source': 'lrclib',
+              'lines': <Object?>[
+                <String, Object?>{'text': 'First line', 'startSeconds': 1.0},
+                <String, Object?>{'text': 'Second line', 'startSeconds': 2.0},
+              ],
+            };
+      case 'interaction.rate':
+        return <String, Object?>{'rating': params['rating']!};
+      case 'comments.get':
+        return <String, Object?>{
+          'comments': <Object?>[
+            <String, Object?>{
+              'id': 'comment-1',
+              'author': 'Commenter',
+              'text': 'Great track',
+              'publishedTime': 'now',
+              'avatarUrl': 'https://example.test/commenter.jpg',
+              'likeCount': '1',
+            },
+          ],
+        };
+      case 'comments.create':
+        return const <String, Object?>{'posted': true};
       default:
         return const <String, Object?>{};
     }
@@ -342,7 +733,12 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
   @override
   Future<void> dispose() => _controller.close();
 
-  Map<String, Object?> _feed(String section, String title, String itemType) {
+  Map<String, Object?> _feed(
+    String section,
+    String title,
+    String itemType, {
+    bool hasMore = false,
+  }) {
     return <String, Object?>{
       'sections': <Object?>[
         <String, Object?>{
@@ -362,8 +758,16 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
           ],
         },
       ],
+      'hasMore': hasMore,
     };
   }
+}
+
+class _SidecarRequest {
+  const _SidecarRequest(this.method, this.params);
+
+  final String method;
+  final Map<String, Object?> params;
 }
 
 class _MemoryCredentialStore implements CredentialStore {
@@ -377,4 +781,37 @@ class _MemoryCredentialStore implements CredentialStore {
 
   @override
   Future<void> write(String value) async => this.value = value;
+}
+
+class _MemoryMetadataCache implements RemoteMetadataCache {
+  final Map<String, RemoteMetadataCacheEntry> entries =
+      <String, RemoteMetadataCacheEntry>{};
+
+  @override
+  Future<void> clear() async => entries.clear();
+
+  @override
+  Future<RemoteMetadataCacheEntry?> read(String key) async => entries[key];
+
+  @override
+  Future<void> write(String key, Map<String, Object?> data) async {
+    entries[key] = RemoteMetadataCacheEntry(
+      cachedAt: DateTime.now(),
+      data: data,
+    );
+  }
+}
+
+class _MemoryLyricCache implements LyricCache {
+  final Map<String, List<YouTubeLyricLine>> entries =
+      <String, List<YouTubeLyricLine>>{};
+
+  @override
+  Future<List<YouTubeLyricLine>?> read(String videoId) async =>
+      entries[videoId];
+
+  @override
+  Future<void> write(String videoId, List<YouTubeLyricLine> lines) async {
+    entries[videoId] = lines;
+  }
 }

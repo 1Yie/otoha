@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
+import '../app/youtube_library_error_localizations.dart';
 import '../data/mock_catalog.dart';
 import '../models/catalog.dart';
 import '../models/youtube_library.dart';
@@ -43,23 +45,27 @@ class _SearchPaletteState extends State<SearchPalette> {
   }
 
   List<_SearchItem> get _items {
+    final l10n = AppLocalizations.of(context)!;
     final query = _queryController.text;
     final online = widget.youtubeLibraryController.isSignedIn;
     final tracks = online
         ? widget.youtubeLibraryController.searchQuery == query.trim()
               ? widget.youtubeLibraryController.searchResults
-                    .map(_SearchItem.youtube)
+                    .map((item) => _SearchItem.youtube(item, l10n))
                     .toList(growable: false)
               : const <_SearchItem>[]
-        : MockCatalog.search(
-            query,
-          ).map(_SearchItem.track).toList(growable: false);
+        : MockCatalog.search(query)
+              .map((track) => _SearchItem.track(track, l10n))
+              .toList(growable: false);
     final workspaces = WorkspacePage.values
         .where((page) {
           return query.trim().isEmpty ||
-              page.label.toLowerCase().contains(query.trim().toLowerCase());
+              _workspaceLabel(
+                page,
+                l10n,
+              ).toLowerCase().contains(query.trim().toLowerCase());
         })
-        .map(_SearchItem.workspace)
+        .map((page) => _SearchItem.workspace(page, l10n))
         .toList(growable: false);
     return <_SearchItem>[...tracks, ...workspaces];
   }
@@ -74,6 +80,7 @@ class _SearchPaletteState extends State<SearchPalette> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final items = _items;
     return Positioned.fill(
       child: Stack(
@@ -140,10 +147,10 @@ class _SearchPaletteState extends State<SearchPalette> {
                                 controller: _queryController,
                                 autofocus: true,
                                 onChanged: _onQueryChanged,
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                   hintText:
-                                      'Search songs, artists, albums, or commands',
-                                  prefixIcon: Icon(Icons.search_rounded),
+                                      l10n.searchSongsArtistsAlbumsOrCommands,
+                                  prefixIcon: const Icon(Icons.search_rounded),
                                 ),
                               ),
                             ),
@@ -156,7 +163,7 @@ class _SearchPaletteState extends State<SearchPalette> {
                             Padding(
                               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                               child: Text(
-                                message,
+                                localizeYouTubeLibraryError(message, l10n),
                                 style: TextStyle(
                                   color: Theme.of(context).colorScheme.error,
                                 ),
@@ -169,8 +176,8 @@ class _SearchPaletteState extends State<SearchPalette> {
                                     padding: EdgeInsets.all(24),
                                     child: Text(
                                       widget.youtubeLibraryController.isSignedIn
-                                          ? 'No YouTube Music matches'
-                                          : 'No local matches',
+                                          ? l10n.noYouTubeMusicMatches
+                                          : l10n.noLocalMatches,
                                       style: TextStyle(
                                         color: OtohaColors.mutedText,
                                       ),
@@ -293,6 +300,7 @@ class _SearchResultRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -310,7 +318,7 @@ class _SearchResultRow extends StatelessWidget {
                       ? ClipOval(
                           child: ArtworkImage(
                             assetPath: artworkPath,
-                            semanticLabel: '${item.title} profile image',
+                            semanticLabel: l10n.profileImage(item.title),
                           ),
                         )
                       : ClipRRect(
@@ -319,7 +327,7 @@ class _SearchResultRow extends StatelessWidget {
                           ),
                           child: ArtworkImage(
                             assetPath: artworkPath,
-                            semanticLabel: '${item.title} artwork',
+                            semanticLabel: l10n.artwork(item.title),
                           ),
                         ),
                 )
@@ -380,41 +388,44 @@ class _SearchItem {
     this.youtubeItem,
   });
 
-  factory _SearchItem.track(Track track) {
+  factory _SearchItem.track(Track track, AppLocalizations l10n) {
     return _SearchItem._(
       id: 'track-${track.id}',
       title: track.title,
       subtitle: '${track.artist} - ${track.album}',
-      kind: 'Song',
+      kind: l10n.song,
       icon: Icons.music_note_rounded,
       track: track,
     );
   }
 
-  factory _SearchItem.workspace(WorkspacePage page) {
+  factory _SearchItem.workspace(WorkspacePage page, AppLocalizations l10n) {
     return _SearchItem._(
       id: 'page-${page.name}',
-      title: page.label,
-      subtitle: 'Open workspace',
-      kind: 'Command',
+      title: _workspaceLabel(page, l10n),
+      subtitle: l10n.openWorkspace,
+      kind: l10n.command,
       icon: switch (page) {
         WorkspacePage.home => Icons.home_outlined,
         WorkspacePage.explore => Icons.explore_outlined,
         WorkspacePage.library => Icons.library_music_outlined,
+        WorkspacePage.history => Icons.history_rounded,
+        WorkspacePage.downloads => Icons.download_outlined,
+        WorkspacePage.playlists => Icons.queue_music_outlined,
         WorkspacePage.settings => Icons.settings_outlined,
       },
       workspace: page,
     );
   }
 
-  factory _SearchItem.youtube(YouTubeFeedItem item) {
+  factory _SearchItem.youtube(YouTubeFeedItem item, AppLocalizations l10n) {
     return _SearchItem._(
       id: 'youtube-${item.itemType}-${item.id}',
       title: item.title,
       subtitle:
           item.subtitle ??
-          (item.artists.isEmpty ? 'YouTube Music' : item.artists.join(', ')),
-      kind: _youtubeKind(item.itemType),
+          (item.artists.isEmpty ? l10n.youtubeMusic : item.artists.join(', ')),
+      kind: _youtubeKind(item.itemType, l10n),
       icon: _youtubeIcon(item.itemType),
       youtubeItem: item,
     );
@@ -442,17 +453,30 @@ Track _asSimulatedTrack(YouTubeTrack track, YouTubeFeedItem source) {
     album: track.album ?? source.album ?? source.title,
     artworkAsset: track.thumbnailUrl ?? source.thumbnailUrl ?? '',
     durationSeconds: track.durationSeconds,
-    lyrics: const <String>['Lyrics unavailable for this track.'],
+    lyrics: const <String>[],
+    youtubeVideoId: track.videoId,
   );
 }
 
-String _youtubeKind(String itemType) => switch (itemType) {
-  'album' => 'Album',
-  'artist' || 'channel' || 'subscriber' => 'Artist',
-  'playlist' => 'Playlist',
-  'category' => 'Genre',
-  _ => 'Song',
-};
+String _workspaceLabel(WorkspacePage page, AppLocalizations l10n) =>
+    switch (page) {
+      WorkspacePage.home => l10n.home,
+      WorkspacePage.explore => l10n.explore,
+      WorkspacePage.library => l10n.library,
+      WorkspacePage.history => l10n.history,
+      WorkspacePage.downloads => l10n.downloads,
+      WorkspacePage.playlists => l10n.playlists,
+      WorkspacePage.settings => l10n.settings,
+    };
+
+String _youtubeKind(String itemType, AppLocalizations l10n) =>
+    switch (itemType) {
+      'album' => l10n.album,
+      'artist' || 'channel' || 'subscriber' => l10n.artist,
+      'playlist' => l10n.playlist,
+      'category' => l10n.genre,
+      _ => l10n.song,
+    };
 
 IconData _youtubeIcon(String itemType) => switch (itemType) {
   'album' => Icons.album_rounded,

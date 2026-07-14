@@ -58,6 +58,15 @@ static void my_application_activate(GApplication* application) {
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 
+  const gchar* assets_path = fl_dart_project_get_assets_path(project);
+  g_autofree gchar* icon_path = g_build_filename(
+      assets_path, "assets", "icon", "icon.png", nullptr);
+  g_autoptr(GError) icon_error = nullptr;
+  gtk_window_set_icon_from_file(window, icon_path, &icon_error);
+  if (icon_error != nullptr) {
+    g_warning("Unable to load application icon: %s", icon_error->message);
+  }
+
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000

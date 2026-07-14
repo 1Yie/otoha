@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
 import '../models/youtube_library.dart';
@@ -13,6 +14,7 @@ class YouTubeTrackListRow extends StatelessWidget {
     this.artworkFallback,
     this.artistFallback = const <String>[],
     this.isSelected = false,
+    this.trailing,
     super.key,
   });
 
@@ -23,27 +25,26 @@ class YouTubeTrackListRow extends StatelessWidget {
   final String? artworkFallback;
   final List<String> artistFallback;
   final bool isSelected;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Material(
-      color: isSelected ? const Color(0x2E9BFF73) : OtohaColors.surfaceRaised,
-      borderRadius: BorderRadius.circular(AppMetrics.radius),
+      color: isSelected
+          ? OtohaColors.accent.withValues(alpha: 0.10)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(4),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         key: rowKey,
-        borderRadius: BorderRadius.circular(AppMetrics.radius),
+        borderRadius: BorderRadius.circular(4),
         onTap: onTap,
-        child: Container(
+        child: SizedBox(
           key: isSelected
               ? Key('youtube-track-selected-${track.videoId}')
               : null,
           height: 64,
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: isSelected ? OtohaColors.accent : Colors.transparent,
-            ),
-            borderRadius: BorderRadius.circular(AppMetrics.radius),
-          ),
           child: Row(
             children: <Widget>[
               SizedBox(
@@ -63,7 +64,7 @@ class YouTubeTrackListRow extends StatelessWidget {
                       track.thumbnailUrl,
                       artworkFallback,
                     ),
-                    semanticLabel: '${track.title} artwork',
+                    semanticLabel: l10n.artwork(track.title),
                   ),
                 ),
               ),
@@ -81,7 +82,7 @@ class YouTubeTrackListRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _artistText(track.artists, artistFallback),
+                      _artistText(track.artists, artistFallback, l10n),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
@@ -90,10 +91,15 @@ class YouTubeTrackListRow extends StatelessWidget {
                 ),
               ),
               Text(
-                _formatDuration(track.durationSeconds),
+                _formatDuration(track.durationSeconds, l10n),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(width: 16),
+              if (trailing case final trailing?) ...<Widget>[
+                const SizedBox(width: 12),
+                trailing,
+                const SizedBox(width: 8),
+              ] else
+                const SizedBox(width: 16),
             ],
           ),
         ),
@@ -109,19 +115,23 @@ String _artworkPath(String? trackArtwork, String? fallbackArtwork) {
   return fallbackArtwork ?? '';
 }
 
-String _artistText(List<String> artists, List<String> fallback) {
+String _artistText(
+  List<String> artists,
+  List<String> fallback,
+  AppLocalizations l10n,
+) {
   if (artists.isNotEmpty) {
     return artists.join(', ');
   }
   if (fallback.isNotEmpty) {
     return fallback.join(', ');
   }
-  return 'YouTube Music';
+  return l10n.youtubeMusic;
 }
 
-String _formatDuration(int seconds) {
+String _formatDuration(int seconds, AppLocalizations l10n) {
   if (seconds <= 0) {
-    return '--:--';
+    return l10n.unknownDuration;
   }
   final duration = Duration(seconds: seconds);
   return '${duration.inMinutes}:${duration.inSeconds.remainder(60).toString().padLeft(2, '0')}';

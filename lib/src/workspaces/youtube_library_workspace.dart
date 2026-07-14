@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
+import '../app/youtube_library_error_localizations.dart';
 import '../models/catalog.dart';
 import '../models/youtube_library.dart';
 import '../state/desktop_shell_controllers.dart';
 import '../state/youtube_library_controller.dart';
 import '../widgets/artwork_image.dart';
+import '../widgets/playlist_card.dart';
 import '../widgets/youtube_track_list_row.dart';
 
 class YouTubeLibraryWorkspace extends StatelessWidget {
@@ -22,6 +25,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
@@ -29,10 +33,13 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (!controller.isSignedIn) {
-          return _SignedOutLibrary(shellController: shellController);
+          return _SignedOutLibrary(
+            shellController: shellController,
+            signInLabel: l10n.signInToYouTubeMusic,
+          );
         }
         if (controller.selectedPlaylist case final detail?) {
-          return _PlaylistDetailView(
+          return _PlaylistDetailScroll(
             detail: detail,
             isLoading: controller.isLoadingPlaylist,
             onBack: controller.closePlaylist,
@@ -52,9 +59,13 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
 }
 
 class _SignedOutLibrary extends StatelessWidget {
-  const _SignedOutLibrary({required this.shellController});
+  const _SignedOutLibrary({
+    required this.shellController,
+    required this.signInLabel,
+  });
 
   final ShellController shellController;
+  final String signInLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +75,7 @@ class _SignedOutLibrary extends StatelessWidget {
         key: const Key('youtube-library-sign-in'),
         onPressed: () => shellController.togglePanel(SidePanel.account),
         icon: const Icon(Icons.login_rounded),
-        label: const Text('Sign in to YouTube Music'),
+        label: Text(signInLabel),
       ),
     );
   }
@@ -81,69 +92,125 @@ class _PlaylistGrid extends StatelessWidget {
 
   final List<YouTubePlaylist> playlists;
   final bool isLoading;
-  final String? errorMessage;
+  final YouTubeLibraryError? errorMessage;
   final VoidCallback onRefresh;
   final ValueChanged<YouTubePlaylist> onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppMetrics.workspacePadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  'Your playlists',
-                  style: Theme.of(context).textTheme.displaySmall,
-                ),
-              ),
-              Tooltip(
-                message: 'Sync library',
-                child: IconButton(
-                  key: const Key('youtube-library-refresh'),
-                  onPressed: isLoading ? null : onRefresh,
-                  icon: const Icon(Icons.sync_rounded),
-                ),
-              ),
-            ],
+    final l10n = AppLocalizations.of(context)!;
+    return CustomScrollView(
+      key: const Key('youtube-library-scroll'),
+      slivers: <Widget>[
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            AppMetrics.workspacePadding,
+            AppMetrics.workspacePadding,
+            AppMetrics.workspacePadding,
+            0,
           ),
-          if (isLoading) const LinearProgressIndicator(),
-          if (errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 16),
+          sliver: SliverToBoxAdapter(
+            child: _LibraryHeader(isLoading: isLoading, onRefresh: onRefresh),
+          ),
+        ),
+        if (isLoading)
+          const SliverPadding(
+            padding: EdgeInsets.symmetric(
+              horizontal: AppMetrics.workspacePadding,
+              vertical: 16,
+            ),
+            sliver: SliverToBoxAdapter(child: LinearProgressIndicator()),
+          ),
+        if (errorMessage != null)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              0,
+              AppMetrics.workspacePadding,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
               child: Text(
-                errorMessage!,
+                localizeYouTubeLibraryError(errorMessage!, l10n),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          const SizedBox(height: 24),
-          Expanded(
-            child: playlists.isEmpty && !isLoading
-                ? const Center(child: Text('No playlists found'))
-                : GridView.builder(
-                    key: const Key('youtube-playlist-grid'),
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 220,
-                          mainAxisExtent: 244,
-                          crossAxisSpacing: 24,
-                          mainAxisSpacing: 24,
-                        ),
-                    itemCount: playlists.length,
-                    itemBuilder: (context, index) {
-                      final playlist = playlists[index];
-                      return _PlaylistCard(
-                        playlist: playlist,
-                        onTap: () => onOpen(playlist),
-                      );
-                    },
-                  ),
           ),
-        ],
-      ),
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+        if (playlists.isEmpty && !isLoading)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(child: Text(l10n.noPlaylistsFound)),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppMetrics.workspacePadding,
+            ),
+            sliver: SliverGrid(
+              key: const Key('youtube-playlist-grid'),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 220,
+                mainAxisExtent: 244,
+                crossAxisSpacing: 24,
+                mainAxisSpacing: 24,
+              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final playlist = playlists[index];
+                return _PlaylistCard(
+                  playlist: playlist,
+                  onTap: () => onOpen(playlist),
+                );
+              }, childCount: playlists.length),
+            ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 40)),
+      ],
+    );
+  }
+}
+
+class _LibraryHeader extends StatelessWidget {
+  const _LibraryHeader({required this.isLoading, required this.onRefresh});
+
+  final bool isLoading;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                l10n.yourLibrary,
+                style: const TextStyle(
+                  color: OtohaColors.accent,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                l10n.yourPlaylists,
+                style: Theme.of(context).textTheme.displaySmall,
+              ),
+            ],
+          ),
+        ),
+        Tooltip(
+          message: l10n.syncLibrary,
+          child: IconButton(
+            key: const Key('youtube-library-refresh'),
+            onPressed: isLoading ? null : onRefresh,
+            icon: const Icon(Icons.sync_rounded),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -156,48 +223,20 @@ class _PlaylistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      key: Key('youtube-playlist-${playlist.id}'),
+    return PlaylistCard(
+      cardKey: Key('youtube-playlist-${playlist.id}'),
+      title: playlist.title,
+      subtitle: [
+        playlist.owner,
+        playlist.itemCount,
+      ].whereType<String>().join(' · '),
+      artworkPath: playlist.thumbnailUrl ?? '',
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppMetrics.radius),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppMetrics.radius),
-              child: SizedBox.expand(
-                child: ArtworkImage(
-                  assetPath: playlist.thumbnailUrl ?? '',
-                  semanticLabel: '${playlist.title} artwork',
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            playlist.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            [
-              playlist.owner,
-              playlist.itemCount,
-            ].whereType<String>().join(' · '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
-      ),
     );
   }
 }
 
-class _PlaylistDetailView extends StatelessWidget {
+abstract class _PlaylistDetailView extends StatelessWidget {
   const _PlaylistDetailView({
     required this.detail,
     required this.isLoading,
@@ -209,9 +248,19 @@ class _PlaylistDetailView extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onBack;
   final PlayerController playerController;
+}
+
+class _PlaylistDetailScroll extends _PlaylistDetailView {
+  const _PlaylistDetailScroll({
+    required super.detail,
+    required super.isLoading,
+    required super.onBack,
+    required super.playerController,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final playbackTracks = detail.tracks
         .map(
           (track) => _asSimulatedTrack(
@@ -221,91 +270,114 @@ class _PlaylistDetailView extends StatelessWidget {
           ),
         )
         .toList(growable: false);
-    return Padding(
+    return KeyedSubtree(
       key: const Key('youtube-playlist-detail'),
-      padding: const EdgeInsets.all(AppMetrics.workspacePadding),
-      child: Column(
-        children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              IconButton(
-                key: const Key('youtube-playlist-back'),
-                onPressed: onBack,
-                tooltip: 'Back to playlists',
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-              const SizedBox(width: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppMetrics.radius),
-                child: SizedBox.square(
-                  dimension: 144,
-                  child: ArtworkImage(
-                    assetPath: detail.playlist.thumbnailUrl ?? '',
-                    semanticLabel: '${detail.playlist.title} artwork',
+      child: CustomScrollView(
+        key: const Key('youtube-playlist-detail-scroll'),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  IconButton(
+                    key: const Key('youtube-playlist-back'),
+                    onPressed: onBack,
+                    tooltip: l10n.backToPlaylists,
+                    icon: const Icon(Icons.arrow_back_rounded),
                   ),
-                ),
-              ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Text(
-                      'PLAYLIST',
-                      style: TextStyle(
-                        color: OtohaColors.mutedText,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                  const SizedBox(width: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppMetrics.radius),
+                    child: SizedBox.square(
+                      dimension: 144,
+                      child: ArtworkImage(
+                        assetPath: detail.playlist.thumbnailUrl ?? '',
+                        semanticLabel: l10n.artwork(detail.playlist.title),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      detail.playlist.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.displaySmall,
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          l10n.playlist,
+                          style: const TextStyle(
+                            color: OtohaColors.mutedText,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          detail.playlist.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.displaySmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          [
+                            detail.playlist.owner,
+                            detail.playlist.itemCount,
+                          ].whereType<String>().join(' · '),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      [
-                        detail.playlist.owner,
-                        detail.playlist.itemCount,
-                      ].whereType<String>().join(' · '),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 32),
-          if (isLoading) const LinearProgressIndicator(),
-          Expanded(
-            child: ListView.separated(
-              itemCount: detail.tracks.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final track = detail.tracks[index];
+          const SliverToBoxAdapter(child: SizedBox(height: 32)),
+          if (isLoading)
+            const SliverPadding(
+              padding: EdgeInsets.symmetric(
+                horizontal: AppMetrics.workspacePadding,
+                vertical: 16,
+              ),
+              sliver: SliverToBoxAdapter(child: LinearProgressIndicator()),
+            ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppMetrics.workspacePadding,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate((context, index) {
+                if (index.isOdd) {
+                  return const SizedBox(height: 2);
+                }
+                final trackIndex = index ~/ 2;
+                final track = detail.tracks[trackIndex];
                 return AnimatedBuilder(
                   animation: playerController,
                   builder: (context, _) => YouTubeTrackListRow(
                     rowKey: Key('youtube-track-${track.videoId}'),
-                    index: index + 1,
+                    index: trackIndex + 1,
                     track: track,
                     artworkFallback: detail.playlist.thumbnailUrl,
                     isSelected:
-                        playerController.currentTrack.id ==
-                        playbackTracks[index].id,
+                        playerController.currentTrack?.id ==
+                        playbackTracks[trackIndex].id,
                     onTap: () {
                       playerController.playTracks(playbackTracks);
-                      playerController.selectTrack(playbackTracks[index]);
+                      playerController.selectTrack(playbackTracks[trackIndex]);
                     },
                   ),
                 );
-              },
+              }, childCount: detail.tracks.length * 2 - 1),
             ),
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 40)),
         ],
       ),
     );
@@ -326,6 +398,7 @@ Track _asSimulatedTrack(
         ? track.thumbnailUrl!
         : artworkFallback ?? '',
     durationSeconds: track.durationSeconds,
-    lyrics: const <String>['Lyrics unavailable for this track.'],
+    lyrics: const <String>[],
+    youtubeVideoId: track.videoId,
   );
 }

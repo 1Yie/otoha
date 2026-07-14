@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
+import '../services/audio_playback_engine.dart';
 import '../state/desktop_shell_controllers.dart';
+import '../state/offline_library_controller.dart';
 import '../workspaces/workspace_views.dart';
 import 'artwork_image.dart';
 
@@ -9,11 +12,13 @@ class MusicPlayerBar extends StatelessWidget {
   const MusicPlayerBar({
     required this.playerController,
     required this.shellController,
+    this.offlineLibraryController,
     super.key,
   });
 
   final PlayerController playerController;
   final ShellController shellController;
+  final OfflineLibraryController? offlineLibraryController;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +61,12 @@ class MusicPlayerBar extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            _TrackActions(shellController: shellController),
+                            _TrackActions(
+                              playerController: playerController,
+                              shellController: shellController,
+                              offlineLibraryController:
+                                  offlineLibraryController,
+                            ),
                             const SizedBox(width: 8),
                             _PlaybackActions(
                               playerController: playerController,
@@ -99,20 +109,46 @@ class _PlaybackProgress extends StatefulWidget {
   State<_PlaybackProgress> createState() => _PlaybackProgressState();
 }
 
-class _PlaybackProgressState extends State<_PlaybackProgress> {
+class _PlaybackProgressState extends State<_PlaybackProgress>
+    with SingleTickerProviderStateMixin {
   bool _isHovered = false;
   bool _isScrubbing = false;
+  late final AnimationController _bufferPulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _bufferPulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _syncBufferPulse();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlaybackProgress oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncBufferPulse();
+  }
+
+  @override
+  void dispose() {
+    _bufferPulse.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final track = widget.playerController.currentTrack;
-    final progress = track.durationSeconds <= 0
+    final durationSeconds = track?.durationSeconds ?? 0;
+    final progress = durationSeconds <= 0
         ? 0.0
-        : (widget.playerController.positionSeconds / track.durationSeconds)
+        : (widget.playerController.positionSeconds / durationSeconds)
               .clamp(0.0, 1.0)
               .toDouble();
-    final isActive = _isHovered || _isScrubbing;
-    final trackHeight = isActive ? 6.0 : 2.0;
+    final isActive = track != null && (_isHovered || _isScrubbing);
+    final isBuffering = widget.playerController.isBuffering;
+    final trackHeight = isActive ? 6.0 : (isBuffering ? 3.0 : 2.0);
     final thumbDiameter = _isScrubbing ? 18.0 : 14.0;
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -158,16 +194,39 @@ class _PlaybackProgressState extends State<_PlaybackProgress> {
                         color: OtohaColors.border,
                       ),
                     ),
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      width: constraints.maxWidth * progress,
-                      child: Container(
-                        height: trackHeight,
-                        color: OtohaColors.accent,
+                    if (isBuffering)
+                      Positioned(
+                        key: const Key('player-progress-buffering'),
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: AnimatedBuilder(
+                          animation: _bufferPulse,
+                          builder: (context, _) {
+                            final opacity = widget.reduceMotion
+                                ? 0.42
+                                : 0.22 + _bufferPulse.value * 0.55;
+                            return Container(
+                              height: trackHeight,
+                              color: OtohaColors.accent.withValues(
+                                alpha: opacity,
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                    if (isActive)
+                    if (!isBuffering)
+                      Positioned(
+                        key: const Key('player-progress-elapsed'),
+                        top: 0,
+                        left: 0,
+                        width: constraints.maxWidth * progress,
+                        child: Container(
+                          height: trackHeight,
+                          color: OtohaColors.accent,
+                        ),
+                      ),
+                    if (isActive && !isBuffering)
                       Positioned(
                         key: const Key('player-progress-thumb'),
                         top: (trackHeight - thumbDiameter) / 2,
@@ -209,14 +268,21 @@ class _PlaybackProgressState extends State<_PlaybackProgress> {
   }
 
   void _seekToPosition(double position, double width) {
-    if (width == 0 ||
-        widget.playerController.currentTrack.durationSeconds <= 0) {
+    final track = widget.playerController.currentTrack;
+    if (track == null || width == 0 || track.durationSeconds <= 0) {
       return;
     }
     final progress = (position / width).clamp(0.0, 1.0).toDouble();
-    widget.playerController.seekTo(
-      (widget.playerController.currentTrack.durationSeconds * progress).round(),
-    );
+    widget.playerController.seekTo((track.durationSeconds * progress).round());
+  }
+
+  void _syncBufferPulse() {
+    if (widget.playerController.isBuffering && !widget.reduceMotion) {
+      _bufferPulse.repeat(reverse: true);
+    } else {
+      _bufferPulse.stop();
+      _bufferPulse.value = 0;
+    }
   }
 }
 
@@ -228,22 +294,26 @@ class _TransportControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final track = playerController.currentTrack;
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Tooltip(
-          message: 'Previous',
+          message: l10n.shortcutTooltip(l10n.previous, '←'),
           child: IconButton(
-            onPressed: playerController.previous,
+            onPressed: track == null ? null : playerController.previous,
             icon: const Icon(Icons.skip_previous_rounded),
             iconSize: 30,
           ),
         ),
         Tooltip(
-          message: playerController.isPlaying ? 'Pause' : 'Play',
+          message: l10n.shortcutTooltip(
+            playerController.isPlaying ? l10n.pause : l10n.play,
+            'Space',
+          ),
           child: IconButton(
             key: const Key('player-play'),
-            onPressed: playerController.togglePlaying,
+            onPressed: track == null ? null : playerController.togglePlaying,
             icon: Icon(
               playerController.isPlaying
                   ? Icons.pause_rounded
@@ -253,10 +323,10 @@ class _TransportControls extends StatelessWidget {
           ),
         ),
         Tooltip(
-          message: 'Next',
+          message: l10n.shortcutTooltip(l10n.next, '→'),
           child: IconButton(
             key: const Key('player-next'),
-            onPressed: playerController.next,
+            onPressed: track == null ? null : playerController.next,
             icon: const Icon(Icons.skip_next_rounded),
             iconSize: 30,
           ),
@@ -265,13 +335,15 @@ class _TransportControls extends StatelessWidget {
         SizedBox(
           width: 88,
           child: Text(
+            key: const Key('player-time'),
             '${formatDuration(playerController.positionSeconds)} / '
-            '${track.durationSeconds <= 0 ? '--:--' : formatDuration(track.durationSeconds)}',
+            '${track == null || track.durationSeconds <= 0 ? l10n.unknownDuration : formatDuration(track.durationSeconds)}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: OtohaColors.mutedText),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: OtohaColors.mutedText,
+              fontFamily: 'monospace',
+            ),
           ),
         ),
       ],
@@ -291,11 +363,12 @@ class _NowPlaying extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final track = playerController.currentTrack;
+    final l10n = AppLocalizations.of(context)!;
     return Tooltip(
-      message: 'Open full lyrics',
+      message: track == null ? l10n.noTrackSelected : l10n.openFullLyrics,
       child: InkWell(
         key: const Key('player-now-playing'),
-        onTap: onOpenLyrics,
+        onTap: track == null ? null : onOpenLyrics,
         borderRadius: const BorderRadius.all(
           Radius.circular(AppMetrics.radius),
         ),
@@ -310,10 +383,18 @@ class _NowPlaying extends StatelessWidget {
                 child: SizedBox(
                   width: 52,
                   height: 52,
-                  child: ArtworkImage(
-                    assetPath: track.artworkAsset,
-                    semanticLabel: '${track.album} artwork',
-                  ),
+                  child: track == null
+                      ? const ColoredBox(
+                          color: OtohaColors.surfaceRaised,
+                          child: Icon(
+                            Icons.music_note_rounded,
+                            color: OtohaColors.mutedText,
+                          ),
+                        )
+                      : ArtworkImage(
+                          assetPath: track.artworkAsset,
+                          semanticLabel: l10n.artwork(track.album),
+                        ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -323,7 +404,7 @@ class _NowPlaying extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      track.title,
+                      track?.title ?? l10n.noTrackSelected,
                       key: const Key('player-track'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -331,11 +412,21 @@ class _NowPlaying extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${track.artist} - ${track.album}',
+                      track == null
+                          ? ''
+                          : playerController.playbackError == null
+                          ? '${track.artist} - ${track.album}'
+                          : _playbackErrorLabel(
+                              playerController.playbackError!,
+                              l10n,
+                            ),
+                      key: const Key('player-playback-status'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: OtohaColors.mutedText,
+                        color: playerController.playbackError == null
+                            ? OtohaColors.mutedText
+                            : Theme.of(context).colorScheme.error,
                       ),
                     ),
                   ],
@@ -349,18 +440,48 @@ class _NowPlaying extends StatelessWidget {
   }
 }
 
-class _TrackActions extends StatelessWidget {
-  const _TrackActions({required this.shellController});
+String _playbackErrorLabel(AudioPlaybackFailure error, AppLocalizations l10n) =>
+    switch (error) {
+      AudioPlaybackFailure.engineCouldNotPlay => l10n.audioEngineCouldNotPlay,
+      AudioPlaybackFailure.streamUnavailable => l10n.audioStreamUnavailable,
+      AudioPlaybackFailure.startFailed => l10n.unableToStartAudioPlayback,
+    };
 
+class _TrackActions extends StatelessWidget {
+  const _TrackActions({
+    required this.playerController,
+    required this.shellController,
+    required this.offlineLibraryController,
+  });
+
+  final PlayerController playerController;
   final ShellController shellController;
+  final OfflineLibraryController? offlineLibraryController;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = offlineLibraryController;
+    if (controller != null) {
+      return AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => _buildActions(context, l10n, controller),
+      );
+    }
+    return _buildActions(context, l10n, null);
+  }
+
+  Widget _buildActions(
+    BuildContext context,
+    AppLocalizations l10n,
+    OfflineLibraryController? offlineLibraryController,
+  ) {
+    final track = playerController.currentTrack;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Tooltip(
-          message: 'Queue',
+          message: l10n.queue,
           child: IconButton(
             key: const Key('player-queue'),
             color: shellController.activePanel == SidePanel.queue
@@ -370,17 +491,33 @@ class _TrackActions extends StatelessWidget {
             icon: const Icon(Icons.playlist_add_rounded),
           ),
         ),
-        Tooltip(
-          message: 'Lyrics',
-          child: IconButton(
-            key: const Key('player-lyrics'),
-            color: shellController.activePanel == SidePanel.lyrics
-                ? OtohaColors.accent
-                : null,
-            onPressed: () => shellController.togglePanel(SidePanel.lyrics),
-            icon: const Icon(Icons.lyrics_outlined),
+        if (offlineLibraryController case final controller?
+            when track?.youtubeVideoId != null &&
+                controller.youtubeLibraryController.isSignedIn)
+          Tooltip(
+            message: controller.isDownloaded(track!.youtubeVideoId!)
+                ? l10n.downloaded
+                : l10n.downloadCurrentTrack,
+            child: IconButton(
+              key: const Key('player-download'),
+              onPressed:
+                  controller.downloadingVideoId == null &&
+                      !controller.isDownloaded(track.youtubeVideoId!)
+                  ? () => controller.download(track)
+                  : null,
+              icon: controller.downloadingVideoId == track.youtubeVideoId
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      controller.isDownloaded(track.youtubeVideoId!)
+                          ? Icons.download_done_rounded
+                          : Icons.download_rounded,
+                    ),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -397,12 +534,16 @@ class _PlaybackActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         _VolumeButton(playerController: playerController),
         Tooltip(
-          message: 'Output: ${shellController.selectedDevice}',
+          message: l10n.outputDeviceWithValue(
+            l10n.outputDevice,
+            _outputDeviceLabel(playerController, l10n),
+          ),
           child: IconButton(
             key: const Key('player-devices'),
             color: shellController.activePanel == SidePanel.devices
@@ -413,12 +554,17 @@ class _PlaybackActions extends StatelessWidget {
           ),
         ),
         Tooltip(
-          message: _repeatLabel(playerController.repeatMode),
+          message: l10n.shortcutTooltip(
+            _repeatLabel(playerController.repeatMode, l10n),
+            '/',
+          ),
           child: IconButton(
             color: playerController.repeatMode == PlaybackRepeatMode.off
                 ? null
                 : OtohaColors.accent,
-            onPressed: playerController.cycleRepeatMode,
+            onPressed: playerController.currentTrack == null
+                ? null
+                : playerController.cycleRepeatMode,
             icon: Icon(
               playerController.repeatMode == PlaybackRepeatMode.one
                   ? Icons.repeat_one_rounded
@@ -427,10 +573,12 @@ class _PlaybackActions extends StatelessWidget {
           ),
         ),
         Tooltip(
-          message: 'Shuffle',
+          message: l10n.shuffle,
           child: IconButton(
             color: playerController.isShuffled ? OtohaColors.accent : null,
-            onPressed: playerController.toggleShuffle,
+            onPressed: playerController.currentTrack == null
+                ? null
+                : playerController.toggleShuffle,
             icon: const Icon(Icons.shuffle_rounded),
           ),
         ),
@@ -438,11 +586,26 @@ class _PlaybackActions extends StatelessWidget {
     );
   }
 
-  String _repeatLabel(PlaybackRepeatMode mode) => switch (mode) {
-    PlaybackRepeatMode.off => 'Repeat off',
-    PlaybackRepeatMode.all => 'Repeat all',
-    PlaybackRepeatMode.one => 'Repeat one',
-  };
+  String _repeatLabel(PlaybackRepeatMode mode, AppLocalizations l10n) =>
+      switch (mode) {
+        PlaybackRepeatMode.off => l10n.repeatOff,
+        PlaybackRepeatMode.all => l10n.repeatAll,
+        PlaybackRepeatMode.one => l10n.repeatOne,
+      };
+
+  String _outputDeviceLabel(
+    PlayerController playerController,
+    AppLocalizations l10n,
+  ) {
+    final device = playerController.selectedOutputDevice;
+    if (device == null) {
+      return l10n.outputUnavailable;
+    }
+    if (device.isSystemDefault) {
+      return l10n.systemDefault;
+    }
+    return device.description.isEmpty ? device.id : device.description;
+  }
 }
 
 class _VolumeButton extends StatefulWidget {
@@ -512,10 +675,11 @@ class _VolumeButtonState extends State<_VolumeButton> {
   @override
   Widget build(BuildContext context) {
     final volume = widget.playerController.volume;
+    final l10n = AppLocalizations.of(context)!;
     return CompositedTransformTarget(
       link: _layerLink,
       child: Tooltip(
-        message: 'Volume',
+        message: l10n.volume,
         child: IconButton(
           key: const Key('player-volume'),
           color: _menuEntry == null ? null : OtohaColors.accent,
@@ -544,6 +708,7 @@ class _VolumePopup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Material(
       key: const Key('player-volume-popup'),
       color: OtohaColors.surfaceRaised,
@@ -564,11 +729,13 @@ class _VolumePopup extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: <Widget>[
                       Text(
-                        'Volume',
+                        l10n.volume,
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       Text(
-                        '${(playerController.volume * 100).round()}%',
+                        l10n.volumePercentage(
+                          (playerController.volume * 100).round(),
+                        ),
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],

@@ -1,0 +1,159 @@
+{
+  "@@locale": "en",
+  "appTitle": "Otoha",
+  "settings": "Settings",
+  "desktop": "Desktop",
+  "motion": "Motion",
+  "reduceMotion": "Reduce motion",
+  "language": "Language",
+  "english": "English",
+  "simplifiedChinese": "Simplified Chinese",
+  "outputDevice": "Output device",
+  "queue": "Queue",
+  "noTrackSelected": "No track selected",
+  "queueEmpty": "The queue is empty.",
+  "youtubeMusic": "YouTube Music",
+  "closePanel": "Close panel",
+  "systemDefault": "System default",
+  "outputUnavailable": "Unavailable",
+  "noAudioOutputDevices": "No audio output devices are available.",
+  "changeOutputDeviceError": "Unable to change the audio output device."
+  ,"home": "Home"
+  ,"explore": "Explore"
+  ,"library": "Library"
+  ,"history": "History"
+  ,"yourSpace": "YOUR SPACE"
+  ,"downloads": "Downloads"
+  ,"playlists": "Playlists"
+  ,"back": "Back"
+  ,"forward": "Forward"
+  ,"profile": "Profile"
+  ,"minimize": "Minimize"
+  ,"maximize": "Maximize"
+  ,"close": "Close"
+  ,"search": "Search"
+  ,"searchYourMusic": "Search your music"
+  ,"searchShortcut": "Search (Ctrl/Cmd + K)"
+  ,"searchSongsArtistsAlbumsOrCommands": "Search songs, artists, albums, or commands"
+  ,"noYouTubeMusicMatches": "No YouTube Music matches"
+  ,"noLocalMatches": "No local matches"
+  ,"openWorkspace": "Open workspace"
+  ,"command": "Command"
+  ,"previous": "Previous"
+  ,"pause": "Pause"
+  ,"play": "Play"
+  ,"next": "Next"
+  ,"openFullLyrics": "Open full lyrics"
+  ,"shuffle": "Shuffle"
+  ,"repeatOff": "Repeat off"
+  ,"repeatAll": "Repeat all"
+  ,"repeatOne": "Repeat one"
+  ,"volume": "Volume"
+  ,"volumePercentage": "{value}%"
+  ,"@volumePercentage": {"placeholders": {"value": {"type": "int"}}}
+  ,"outputDeviceWithValue": "{device}: {value}"
+  ,"@outputDeviceWithValue": {"placeholders": {"device": {}, "value": {}}}
+  ,"unknownDuration": "--:--"
+  ,"signInToYouTubeMusic": "Sign in to YouTube Music"
+  ,"youtubeMusicSignIn": "YouTube Music sign-in"
+  ,"youtubeCookieHeader": "YouTube Cookie header"
+  ,"signIn": "Sign in"
+  ,"signOut": "Sign out"
+  ,"syncLibrary": "Sync library"
+  ,"fullYouTubeMusicSession": "Full YouTube Music session"
+  ,"playlistCount": "{count} playlists"
+  ,"@playlistCount": {"placeholders": {"count": {"type": "int"}}}
+  ,"yourLibrary": "YOUR LIBRARY"
+  ,"yourPlaylists": "Your playlists"
+  ,"noPlaylistsFound": "No playlists found"
+  ,"backToPlaylists": "Back to playlists"
+  ,"playlist": "PLAYLIST"
+  ,"tracksCount": "{count} tracks"
+  ,"@tracksCount": {"placeholders": {"count": {"type": "int"}}}
+  ,"yourActivity": "YOUR ACTIVITY"
+  ,"refreshHistory": "Refresh history"
+  ,"loadHistoryAgain": "Load history again"
+  ,"noPlaybackHistoryFound": "No playback history found."
+  ,"forYourAccount": "FOR YOUR ACCOUNT"
+  ,"refreshSection": "Refresh {section}"
+  ,"@refreshSection": {"placeholders": {"section": {}}}
+  ,"loadAgain": "Load again"
+  ,"forYou": "For you"
+  ,"scrollMoodsGenresLeft": "Scroll moods and genres left"
+  ,"scrollMoodsGenresRight": "Scroll moods and genres right"
+  ,"scrollSectionLeft": "Scroll {section} left"
+  ,"@scrollSectionLeft": {"placeholders": {"section": {}}}
+  ,"scrollSectionRight": "Scroll {section} right"
+  ,"@scrollSectionRight": {"placeholders": {"section": {}}}
+  ,"album": "Album"
+  ,"artist": "Artist"
+  ,"moodAndGenre": "Mood & genre"
+  ,"episode": "Episode"
+  ,"song": "Song"
+  ,"musicVideo": "Music video"
+  ,"genre": "Genre"
+  ,"closeFullLyrics": "Close full lyrics"
+  ,"previousTrack": "Previous track"
+  ,"nextTrack": "Next track"
+  ,"playbackProgress": "Playback progress"
+  ,"lyricsUnavailable": "Lyrics are not available."
+  ,"lyricsUnavailableForTrack": "Lyrics are not available for this track."
+  ,"artwork": "{title} artwork"
+  ,"@artwork": {"placeholders": {"title": {}}}
+  ,"profileImage": "{title} profile image"
+  ,"@profileImage": {"placeholders": {"title": {}}}
+  ,"backgroundArtwork": "{title} background artwork"
+  ,"@backgroundArtwork": {"placeholders": {"title": {}}}
+  ,"moodAndGenreLabel": "{title} mood and genre"
+  ,"@moodAndGenreLabel": {"placeholders": {"title": {}}}
+  ,"unableToChangeAppLanguage": "Unable to change the app language."
+  ,"youtubeAuthenticationFailed": "YouTube authentication failed."
+  ,"unableToLoadYouTubeMusic": "Unable to load YouTube Music data."
+  ,"unableToCompleteYouTubeMusicAction": "Unable to complete the YouTube Music action."
+  ,"audioEngineCouldNotPlay": "The audio engine could not play this track."
+  ,"audioStreamUnavailable": "YouTube did not provide an audio stream for this track."
+  ,"unableToStartAudioPlayback": "Unable to start audio playback for this track."
+  ,"showWindow": "Show window"
+  ,"quitApplication": "Quit"
+  ,"about": "About"
+  ,"appVersion": "Version {version}"
+  ,"@appVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  }
+  ,"versionUnavailable": "Version unavailable"
+  ,"downloadLocation": "Download location"
+  ,"saveDownloadLocation": "Save download location"
+  ,"downloadCurrentTrack": "Download current track"
+  ,"downloaded": "Downloaded"
+  ,"noDownloads": "No downloads yet."
+  ,"deleteDownload": "Delete download"
+  ,"deleteDownloadConfirmation": "Delete {title} from Downloads? The local file and its references in offline playlists will be removed."
+  ,"@deleteDownloadConfirmation": {
+    "placeholders": {
+      "title": {"type": "String"}
+    }
+  }
+  ,"cancel": "Cancel"
+  ,"shortcutTooltip": "{action} ({shortcut})"
+  ,"@shortcutTooltip": {
+    "placeholders": {
+      "action": {"type": "String"},
+      "shortcut": {"type": "String"}
+    }
+  }
+  ,"newPlaylist": "New playlist"
+  ,"createPlaylist": "Create playlist"
+  ,"playlistName": "Playlist name"
+  ,"addToPlaylist": "Add to playlist"
+  ,"removeFromPlaylist": "Remove from playlist"
+  ,"deletePlaylist": "Delete playlist"
+  ,"deletePlaylistConfirmation": "Delete this playlist? Downloaded songs will remain available."
+  ,"renamePlaylist": "Rename playlist"
+  ,"choosePlaylistCover": "Choose playlist cover"
+  ,"noOfflinePlaylists": "No offline playlists yet."
+  ,"noDownloadedTracksInPlaylist": "No downloaded tracks in this playlist."
+}

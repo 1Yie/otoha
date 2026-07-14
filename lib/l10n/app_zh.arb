@@ -1,0 +1,159 @@
+{
+  "@@locale": "zh",
+  "appTitle": "Otoha",
+  "settings": "设置",
+  "desktop": "Desktop",
+  "motion": "动画",
+  "reduceMotion": "减少动画",
+  "language": "语言",
+  "english": "English",
+  "simplifiedChinese": "简体中文",
+  "outputDevice": "输出设备",
+  "queue": "队列",
+  "noTrackSelected": "未选择歌曲",
+  "queueEmpty": "队列为空。",
+  "youtubeMusic": "YouTube Music",
+  "closePanel": "关闭面板",
+  "systemDefault": "系统默认",
+  "outputUnavailable": "不可用",
+  "noAudioOutputDevices": "没有可用的音频输出设备。",
+  "changeOutputDeviceError": "无法切换音频输出设备。"
+  ,"home": "首页"
+  ,"explore": "探索"
+  ,"library": "音乐库"
+  ,"history": "历史记录"
+  ,"yourSpace": "你的空间"
+  ,"downloads": "下载"
+  ,"playlists": "播放列表"
+  ,"back": "返回"
+  ,"forward": "前进"
+  ,"profile": "个人资料"
+  ,"minimize": "最小化"
+  ,"maximize": "最大化"
+  ,"close": "关闭"
+  ,"search": "搜索"
+  ,"searchYourMusic": "搜索你的音乐"
+  ,"searchShortcut": "搜索（Ctrl/Cmd + K）"
+  ,"searchSongsArtistsAlbumsOrCommands": "搜索歌曲、艺人、专辑或命令"
+  ,"noYouTubeMusicMatches": "没有匹配的 YouTube Music 内容"
+  ,"noLocalMatches": "没有本地匹配项"
+  ,"openWorkspace": "打开工作区"
+  ,"command": "命令"
+  ,"previous": "上一首"
+  ,"pause": "暂停"
+  ,"play": "播放"
+  ,"next": "下一首"
+  ,"openFullLyrics": "打开完整歌词"
+  ,"shuffle": "随机播放"
+  ,"repeatOff": "关闭循环"
+  ,"repeatAll": "循环播放"
+  ,"repeatOne": "单曲循环"
+  ,"volume": "音量"
+  ,"volumePercentage": "{value}%"
+  ,"@volumePercentage": {"placeholders": {"value": {"type": "int"}}}
+  ,"outputDeviceWithValue": "{device}：{value}"
+  ,"@outputDeviceWithValue": {"placeholders": {"device": {}, "value": {}}}
+  ,"unknownDuration": "--:--"
+  ,"signInToYouTubeMusic": "登录 YouTube Music"
+  ,"youtubeMusicSignIn": "登录 YouTube Music"
+  ,"youtubeCookieHeader": "YouTube Cookie 请求头"
+  ,"signIn": "登录"
+  ,"signOut": "退出登录"
+  ,"syncLibrary": "同步音乐库"
+  ,"fullYouTubeMusicSession": "完整 YouTube Music 会话"
+  ,"playlistCount": "{count} 个播放列表"
+  ,"@playlistCount": {"placeholders": {"count": {"type": "int"}}}
+  ,"yourLibrary": "你的音乐库"
+  ,"yourPlaylists": "你的播放列表"
+  ,"noPlaylistsFound": "未找到播放列表"
+  ,"backToPlaylists": "返回播放列表"
+  ,"playlist": "播放列表"
+  ,"tracksCount": "{count} 首歌曲"
+  ,"@tracksCount": {"placeholders": {"count": {"type": "int"}}}
+  ,"yourActivity": "你的活动"
+  ,"refreshHistory": "刷新历史记录"
+  ,"loadHistoryAgain": "重新加载历史记录"
+  ,"noPlaybackHistoryFound": "未找到播放历史记录。"
+  ,"forYourAccount": "为你的帐户推荐"
+  ,"refreshSection": "刷新{section}"
+  ,"@refreshSection": {"placeholders": {"section": {}}}
+  ,"loadAgain": "重新加载"
+  ,"forYou": "为你推荐"
+  ,"scrollMoodsGenresLeft": "向左滚动心情和流派"
+  ,"scrollMoodsGenresRight": "向右滚动心情和流派"
+  ,"scrollSectionLeft": "向左滚动{section}"
+  ,"@scrollSectionLeft": {"placeholders": {"section": {}}}
+  ,"scrollSectionRight": "向右滚动{section}"
+  ,"@scrollSectionRight": {"placeholders": {"section": {}}}
+  ,"album": "专辑"
+  ,"artist": "艺人"
+  ,"moodAndGenre": "心情与流派"
+  ,"episode": "单集"
+  ,"song": "歌曲"
+  ,"musicVideo": "音乐视频"
+  ,"genre": "流派"
+  ,"closeFullLyrics": "关闭完整歌词"
+  ,"previousTrack": "上一首歌曲"
+  ,"nextTrack": "下一首歌曲"
+  ,"playbackProgress": "播放进度"
+  ,"lyricsUnavailable": "暂无歌词。"
+  ,"lyricsUnavailableForTrack": "此歌曲暂无歌词。"
+  ,"artwork": "{title} 封面"
+  ,"@artwork": {"placeholders": {"title": {}}}
+  ,"profileImage": "{title} 头像"
+  ,"@profileImage": {"placeholders": {"title": {}}}
+  ,"backgroundArtwork": "{title} 背景封面"
+  ,"@backgroundArtwork": {"placeholders": {"title": {}}}
+  ,"moodAndGenreLabel": "{title} 心情与流派"
+  ,"@moodAndGenreLabel": {"placeholders": {"title": {}}}
+  ,"unableToChangeAppLanguage": "无法切换应用语言。"
+  ,"youtubeAuthenticationFailed": "YouTube 身份验证失败。"
+  ,"unableToLoadYouTubeMusic": "无法加载 YouTube Music 数据。"
+  ,"unableToCompleteYouTubeMusicAction": "无法完成 YouTube Music 操作。"
+  ,"audioEngineCouldNotPlay": "音频引擎无法播放此歌曲。"
+  ,"audioStreamUnavailable": "YouTube 未提供此歌曲的音频流。"
+  ,"unableToStartAudioPlayback": "无法开始播放此歌曲。"
+  ,"showWindow": "显示窗口"
+  ,"quitApplication": "退出"
+  ,"about": "关于"
+  ,"appVersion": "版本 {version}"
+  ,"@appVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  }
+  ,"versionUnavailable": "版本不可用"
+  ,"downloadLocation": "下载位置"
+  ,"saveDownloadLocation": "保存下载位置"
+  ,"downloadCurrentTrack": "下载当前歌曲"
+  ,"downloaded": "已下载"
+  ,"noDownloads": "还没有下载内容。"
+  ,"deleteDownload": "删除下载"
+  ,"deleteDownloadConfirmation": "确定从下载中删除《{title}》吗？本地文件及其在离线播放列表中的引用都会被移除。"
+  ,"@deleteDownloadConfirmation": {
+    "placeholders": {
+      "title": {"type": "String"}
+    }
+  }
+  ,"cancel": "取消"
+  ,"shortcutTooltip": "{action}（{shortcut}）"
+  ,"@shortcutTooltip": {
+    "placeholders": {
+      "action": {"type": "String"},
+      "shortcut": {"type": "String"}
+    }
+  }
+  ,"newPlaylist": "新建播放列表"
+  ,"createPlaylist": "创建播放列表"
+  ,"playlistName": "播放列表名称"
+  ,"addToPlaylist": "添加到播放列表"
+  ,"removeFromPlaylist": "从播放列表中移除"
+  ,"deletePlaylist": "删除播放列表"
+  ,"deletePlaylistConfirmation": "确定删除此播放列表吗？已下载的歌曲仍会保留。"
+  ,"renamePlaylist": "重命名播放列表"
+  ,"choosePlaylistCover": "选择播放列表封面"
+  ,"noOfflinePlaylists": "还没有离线播放列表。"
+  ,"noDownloadedTracksInPlaylist": "此播放列表中没有已下载歌曲。"
+}

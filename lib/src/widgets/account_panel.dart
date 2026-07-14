@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
+import '../app/youtube_library_error_localizations.dart';
 import '../state/youtube_library_controller.dart';
 
 class AccountPanel extends StatefulWidget {
@@ -48,11 +50,12 @@ class _AccountPanelState extends State<AccountPanel> {
   }
 
   Widget _buildSignedOut(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Text(
-          'YouTube Music sign-in',
+          l10n.youtubeMusicSignIn,
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 16),
@@ -61,8 +64,8 @@ class _AccountPanelState extends State<AccountPanel> {
           controller: _cookieController,
           obscureText: true,
           onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(
-            labelText: 'YouTube Cookie header',
+          decoration: InputDecoration(
+            labelText: l10n.youtubeCookieHeader,
             alignLabelWithHint: true,
           ),
         ),
@@ -74,12 +77,12 @@ class _AccountPanelState extends State<AccountPanel> {
               : () =>
                     widget.controller.signInWithCookie(_cookieController.text),
           icon: const Icon(Icons.login_rounded),
-          label: const Text('Sign in'),
+          label: Text(l10n.signIn),
         ),
         if (widget.controller.errorMessage != null) ...<Widget>[
           const SizedBox(height: 16),
           Text(
-            widget.controller.errorMessage!,
+            localizeYouTubeLibraryError(widget.controller.errorMessage!, l10n),
             key: const Key('youtube-auth-error'),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
@@ -96,29 +99,41 @@ class _ConnectedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       key: const Key('youtube-connected'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        CircleAvatar(
-          radius: 32,
-          backgroundColor: OtohaColors.surfaceRaised,
-          foregroundImage:
-              controller.profileAvatarUrl != null &&
-                  controller.profileAvatarUrl!.isNotEmpty
-              ? NetworkImage(controller.profileAvatarUrl!)
-              : null,
-          child: const Icon(Icons.person_rounded, color: OtohaColors.accent),
+        Center(
+          child: SizedBox(
+            key: const Key('youtube-account-avatar'),
+            width: 64,
+            height: 64,
+            child: CircleAvatar(
+              radius: 32,
+              backgroundColor: OtohaColors.surfaceRaised,
+              foregroundImage:
+                  controller.profileAvatarUrl != null &&
+                      controller.profileAvatarUrl!.isNotEmpty
+                  ? NetworkImage(controller.profileAvatarUrl!)
+                  : null,
+              child: const Icon(
+                Icons.person_rounded,
+                color: OtohaColors.accent,
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         Text(
-          controller.profileName ?? '${controller.playlists.length} playlists',
+          controller.profileName ??
+              l10n.playlistCount(controller.playlists.length),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 6),
         Text(
-          'Full YouTube Music session',
+          l10n.fullYouTubeMusicSession,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall,
         ),
@@ -129,14 +144,14 @@ class _ConnectedView extends StatelessWidget {
               ? null
               : controller.loadPlaylists,
           icon: const Icon(Icons.sync_rounded),
-          label: const Text('Sync library'),
+          label: Text(l10n.syncLibrary),
         ),
         const SizedBox(height: 8),
         TextButton.icon(
           key: const Key('youtube-sign-out'),
           onPressed: controller.signOut,
           icon: const Icon(Icons.logout_rounded),
-          label: const Text('Sign out'),
+          label: Text(l10n.signOut),
         ),
       ],
     );

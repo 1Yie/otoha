@@ -11,12 +11,7 @@ class MockCatalog {
       album: 'Static Bloom',
       artworkAsset: 'assets/artwork/cover_01.png',
       durationSeconds: 232,
-      lyrics: <String>[
-        'A quiet room becomes a frequency',
-        'Every window holds a different blue',
-        'Keep the signal soft enough to stay',
-        'Keep the morning close to you',
-      ],
+      lyrics: <String>[],
     ),
     Track(
       id: 'after-image',
@@ -25,12 +20,7 @@ class MockCatalog {
       album: 'Static Bloom',
       artworkAsset: 'assets/artwork/cover_02.png',
       durationSeconds: 248,
-      lyrics: <String>[
-        'Your shadow kept the colour of the room',
-        'Long after every light had gone',
-        'I held the after image still',
-        'Until the city moved along',
-      ],
+      lyrics: <String>[],
     ),
     Track(
       id: 'room-for-light',
@@ -39,12 +29,7 @@ class MockCatalog {
       album: 'Slow Current',
       artworkAsset: 'assets/artwork/cover_03.png',
       durationSeconds: 205,
-      lyrics: <String>[
-        'Leave a little room for light',
-        'Between the hours and the noise',
-        'A steady pulse, a softer line',
-        'A place to hear your voice',
-      ],
+      lyrics: <String>[],
     ),
     Track(
       id: 'side-street',
@@ -53,12 +38,7 @@ class MockCatalog {
       album: 'Night Geometry',
       artworkAsset: 'assets/artwork/cover_04.png',
       durationSeconds: 219,
-      lyrics: <String>[
-        'Take the side street home tonight',
-        'The quiet one behind the train',
-        'The signs are small, the air is clean',
-        'And every turn remembers your name',
-      ],
+      lyrics: <String>[],
     ),
     Track(
       id: 'slow-meridian',
@@ -67,12 +47,7 @@ class MockCatalog {
       album: 'Night Geometry',
       artworkAsset: 'assets/artwork/cover_05.png',
       durationSeconds: 261,
-      lyrics: <String>[
-        'We crossed a slow meridian',
-        'Where every hour breathed in time',
-        'The night was wide enough for us',
-        'The road was almost kind',
-      ],
+      lyrics: <String>[],
     ),
     Track(
       id: 'clear-weather',
@@ -81,12 +56,7 @@ class MockCatalog {
       album: 'Open Windows',
       artworkAsset: 'assets/artwork/cover_06.png',
       durationSeconds: 186,
-      lyrics: <String>[
-        'Clear weather on the avenue',
-        'A little green between the grey',
-        'The world is moving quietly',
-        'And I can let it stay',
-      ],
+      lyrics: <String>[],
     ),
     Track(
       id: 'paper-constellations',
@@ -95,12 +65,7 @@ class MockCatalog {
       album: 'Open Windows',
       artworkAsset: 'assets/artwork/cover_07.png',
       durationSeconds: 244,
-      lyrics: <String>[
-        'Paper constellations drift',
-        'Across the ceiling after dark',
-        'A map of every place we missed',
-        'A light for every spark',
-      ],
+      lyrics: <String>[],
     ),
     Track(
       id: 'still-moving',
@@ -109,12 +74,7 @@ class MockCatalog {
       album: 'Soft Corners',
       artworkAsset: 'assets/artwork/cover_08.png',
       durationSeconds: 223,
-      lyrics: <String>[
-        'I am still moving through the day',
-        'Even when the room is still',
-        'A small horizon in my hands',
-        'A quiet kind of will',
-      ],
+      lyrics: <String>[],
     ),
   ];
 

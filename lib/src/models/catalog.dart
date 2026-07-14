@@ -10,6 +10,8 @@ class Track {
     required this.artworkAsset,
     required this.durationSeconds,
     required this.lyrics,
+    this.youtubeVideoId,
+    this.localFilePath,
   });
 
   final String id;
@@ -19,6 +21,8 @@ class Track {
   final String artworkAsset;
   final int durationSeconds;
   final List<String> lyrics;
+  final String? youtubeVideoId;
+  final String? localFilePath;
 
   factory Track.fromJson(Map<String, Object?> json) {
     return Track(
@@ -29,6 +33,8 @@ class Track {
       artworkAsset: json['artworkAsset']! as String,
       durationSeconds: json['durationSeconds']! as int,
       lyrics: (json['lyrics']! as List<Object?>).cast<String>(),
+      youtubeVideoId: json['youtubeVideoId'] as String?,
+      localFilePath: json['localFilePath'] as String?,
     );
   }
 
@@ -40,5 +46,7 @@ class Track {
     'artworkAsset': artworkAsset,
     'durationSeconds': durationSeconds,
     'lyrics': lyrics,
+    'youtubeVideoId': youtubeVideoId,
+    'localFilePath': localFilePath,
   };
 }

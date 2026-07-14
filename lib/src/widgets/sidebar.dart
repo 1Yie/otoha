@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
 import '../state/desktop_shell_controllers.dart';
@@ -15,6 +16,7 @@ class AppSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return SizedBox(
       width: AppMetrics.sidebarWidth,
       child: Padding(
@@ -27,7 +29,7 @@ class AppSidebar extends StatelessWidget {
               children: <Widget>[
                 _NavigationItem(
                   icon: Icons.home_outlined,
-                  label: 'Home',
+                  label: l10n.home,
                   key: const Key('sidebar-home'),
                   selected: workspaceController.current == WorkspacePage.home,
                   reduceMotion: reduceMotion,
@@ -37,7 +39,7 @@ class AppSidebar extends StatelessWidget {
                 const SizedBox(height: 8),
                 _NavigationItem(
                   icon: Icons.explore_outlined,
-                  label: 'Explore',
+                  label: l10n.explore,
                   key: const Key('sidebar-explore'),
                   selected:
                       workspaceController.current == WorkspacePage.explore,
@@ -48,7 +50,7 @@ class AppSidebar extends StatelessWidget {
                 const SizedBox(height: 8),
                 _NavigationItem(
                   icon: Icons.library_music_outlined,
-                  label: 'Library',
+                  label: l10n.library,
                   key: const Key('sidebar-library'),
                   selected:
                       workspaceController.current == WorkspacePage.library,
@@ -56,9 +58,20 @@ class AppSidebar extends StatelessWidget {
                   onPressed: () =>
                       workspaceController.navigateTo(WorkspacePage.library),
                 ),
+                const SizedBox(height: 8),
+                _NavigationItem(
+                  icon: Icons.history_rounded,
+                  label: l10n.history,
+                  key: const Key('sidebar-history'),
+                  selected:
+                      workspaceController.current == WorkspacePage.history,
+                  reduceMotion: reduceMotion,
+                  onPressed: () =>
+                      workspaceController.navigateTo(WorkspacePage.history),
+                ),
                 const Spacer(),
-                const Text(
-                  'YOUR SPACE',
+                Text(
+                  l10n.yourSpace,
                   style: TextStyle(
                     color: OtohaColors.mutedText,
                     fontSize: 11,
@@ -66,14 +79,26 @@ class AppSidebar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                const _QuietSidebarHint(
+                _NavigationItem(
                   icon: Icons.download_outlined,
-                  label: 'Downloads',
+                  label: l10n.downloads,
+                  key: const Key('sidebar-downloads'),
+                  selected:
+                      workspaceController.current == WorkspacePage.downloads,
+                  reduceMotion: reduceMotion,
+                  onPressed: () =>
+                      workspaceController.navigateTo(WorkspacePage.downloads),
                 ),
                 const SizedBox(height: 12),
-                const _QuietSidebarHint(
+                _NavigationItem(
                   icon: Icons.queue_music_outlined,
-                  label: 'Playlists',
+                  label: l10n.playlists,
+                  key: const Key('sidebar-playlists'),
+                  selected:
+                      workspaceController.current == WorkspacePage.playlists,
+                  reduceMotion: reduceMotion,
+                  onPressed: () =>
+                      workspaceController.navigateTo(WorkspacePage.playlists),
                 ),
               ],
             );
@@ -145,27 +170,6 @@ class _NavigationItem extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _QuietSidebarHint extends StatelessWidget {
-  const _QuietSidebarHint({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Icon(icon, size: 18, color: OtohaColors.mutedText),
-        const SizedBox(width: 12),
-        Text(
-          label,
-          style: const TextStyle(color: OtohaColors.mutedText, fontSize: 13),
-        ),
-      ],
     );
   }
 }

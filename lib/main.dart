@@ -1,11 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/app/otoha_app.dart';
+import 'src/services/desktop_tray_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+  DesktopTrayController? desktopTrayController;
 
   if (!kIsWeb && _isDesktopPlatform()) {
     await windowManager.ensureInitialized();
@@ -21,9 +25,10 @@ Future<void> main() async {
       await windowManager.show();
       await windowManager.focus();
     });
+    desktopTrayController = DesktopTrayController();
   }
 
-  runApp(const OtohaApp());
+  runApp(OtohaApp(desktopTrayController: desktopTrayController));
 }
 
 bool _isDesktopPlatform() {

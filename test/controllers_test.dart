@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:otoha/src/data/mock_catalog.dart';
+import 'package:otoha/src/models/catalog.dart';
+import 'package:otoha/src/services/audio_playback_engine.dart';
 import 'package:otoha/src/services/player_session_store.dart';
 import 'package:otoha/src/state/desktop_shell_controllers.dart';
 
@@ -64,10 +68,7 @@ void main() {
       source.cycleRepeatMode();
       await Future<void>.delayed(Duration.zero);
 
-      final restored = PlayerController(
-        MockCatalog.tracks,
-        sessionStore: store,
-      );
+      final restored = PlayerController(const <Track>[], sessionStore: store);
       addTearDown(restored.dispose);
       await restored.restoreSession();
 
@@ -76,26 +77,288 @@ void main() {
         'after-image',
         'room-for-light',
       ]);
-      expect(restored.currentTrack.id, 'after-image');
+      expect(restored.currentTrack?.id, 'after-image');
       expect(restored.positionSeconds, 73);
       expect(restored.volume, 0.4);
       expect(restored.repeatMode, PlaybackRepeatMode.all);
       expect(restored.isPlaying, isTrue);
     });
+
+    test('keeps a persisted session when secure storage read fails', () async {
+      final store = _MemoryPlayerSessionStore()
+        ..readError = StateError('Keyring unavailable');
+      final controller = PlayerController(const <Track>[], sessionStore: store);
+      addTearDown(controller.dispose);
+
+      await controller.restoreSession();
+
+      expect(controller.currentTrack, isNull);
+      expect(store.deleteCount, 0);
+    });
+
+    test('uses native audio events for YouTube tracks', () async {
+      final engine = _FakeAudioPlaybackEngine();
+      final first = _youtubeTrack('first');
+      final second = _youtubeTrack('second');
+      final controller = PlayerController(<Track>[
+        first,
+        second,
+      ], audioPlaybackEngine: engine);
+      addTearDown(controller.dispose);
+
+      controller.selectTrack(first);
+
+      expect(engine.openedVideoIds, <String>['first']);
+      expect(controller.isBuffering, isTrue);
+      expect(controller.isPlaying, isTrue);
+
+      controller.togglePlaying();
+      expect(controller.isBuffering, isFalse);
+      expect(controller.isPlaying, isFalse);
+
+      controller.togglePlaying();
+      expect(engine.openedVideoIds, <String>['first', 'first']);
+
+      engine.emit(
+        const AudioPlaybackSnapshot(
+          position: Duration(seconds: 18),
+          isPlaying: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.positionSeconds, 18);
+      expect(controller.isPlaying, isTrue);
+      controller.seekTo(24);
+      controller.setVolume(0.4);
+      expect(engine.seekPositions, <Duration>[const Duration(seconds: 24)]);
+      expect(engine.volumes, <double>[0.4]);
+
+      engine.emit(
+        const AudioPlaybackSnapshot(
+          position: Duration(seconds: 24),
+          error: AudioPlaybackFailure.startFailed,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(engine.openedVideoIds, <String>['first', 'first', 'first']);
+      engine.emit(
+        const AudioPlaybackSnapshot(
+          position: Duration(seconds: 24),
+          error: AudioPlaybackFailure.startFailed,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.playbackError, AudioPlaybackFailure.startFailed);
+    });
+
+    test('persists each native audio checkpoint only once', () async {
+      final engine = _FakeAudioPlaybackEngine();
+      final store = _MemoryPlayerSessionStore();
+      final track = _youtubeTrack('first');
+      final controller = PlayerController(
+        <Track>[track],
+        sessionStore: store,
+        audioPlaybackEngine: engine,
+      );
+      addTearDown(controller.dispose);
+
+      controller.selectTrack(track);
+      await Future<void>.delayed(Duration.zero);
+      final writesAfterSelection = store.writeCount;
+
+      engine
+        ..emit(const AudioPlaybackSnapshot(position: Duration.zero))
+        ..emit(const AudioPlaybackSnapshot(position: Duration.zero))
+        ..emit(const AudioPlaybackSnapshot(position: Duration.zero));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(store.writeCount, writesAfterSelection);
+
+      engine
+        ..emit(
+          const AudioPlaybackSnapshot(
+            position: Duration(seconds: 5),
+            isPlaying: true,
+          ),
+        )
+        ..emit(
+          const AudioPlaybackSnapshot(
+            position: Duration(seconds: 5),
+            isPlaying: true,
+          ),
+        );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(store.writeCount, writesAfterSelection + 1);
+    });
+
+    test('plays a downloaded track from its local audio file', () {
+      final engine = _FakeAudioPlaybackEngine();
+      final track = Track(
+        id: 'offline:video-id',
+        title: 'Downloaded track',
+        artist: 'Artist',
+        album: 'Album',
+        artworkAsset: 'assets/artwork/cover_01.png',
+        durationSeconds: 180,
+        lyrics: const <String>[],
+        youtubeVideoId: 'video-id',
+        localFilePath: '/music/video-id.webm',
+      );
+      final controller = PlayerController(<Track>[
+        track,
+      ], audioPlaybackEngine: engine);
+      addTearDown(controller.dispose);
+
+      controller.selectTrack(track);
+
+      expect(engine.openedVideoIds, isEmpty);
+      expect(engine.openedLocalFilePaths, <String>['/music/video-id.webm']);
+      expect(controller.isBuffering, isTrue);
+    });
+
+    test('switches to an enumerated native audio output device', () async {
+      final engine = _FakeAudioPlaybackEngine();
+      final controller = PlayerController(<Track>[
+        _youtubeTrack('first'),
+      ], audioPlaybackEngine: engine);
+      addTearDown(controller.dispose);
+
+      expect(controller.outputDevices.map((device) => device.id), <String>[
+        'auto',
+        'alsa/Desk_Speakers',
+      ]);
+      expect(controller.selectedOutputDevice?.id, 'auto');
+
+      await controller.selectOutputDevice(controller.outputDevices.last);
+
+      expect(engine.selectedOutputDeviceIds, <String>['alsa/Desk_Speakers']);
+      expect(controller.selectedOutputDevice?.id, 'alsa/Desk_Speakers');
+      expect(controller.hasOutputDeviceError, isFalse);
+    });
   });
+}
+
+Track _youtubeTrack(String videoId) {
+  return Track(
+    id: 'youtube:$videoId',
+    title: 'Track $videoId',
+    artist: 'Artist',
+    album: 'Album',
+    artworkAsset: 'assets/artwork/cover_01.png',
+    durationSeconds: 180,
+    lyrics: const <String>[],
+    youtubeVideoId: videoId,
+  );
 }
 
 class _MemoryPlayerSessionStore implements PlayerSessionStore {
   Map<String, Object?>? value;
+  Object? readError;
+  int deleteCount = 0;
+  int writeCount = 0;
 
   @override
-  Future<void> delete() async => value = null;
+  Future<void> delete() async {
+    deleteCount += 1;
+    value = null;
+  }
 
   @override
-  Future<Map<String, Object?>?> read() async => value;
+  Future<Map<String, Object?>?> read() async {
+    if (readError case final error?) {
+      throw error;
+    }
+    return value;
+  }
 
   @override
   Future<void> write(Map<String, Object?> value) async {
     this.value = value;
+    writeCount += 1;
   }
+}
+
+class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
+  final StreamController<AudioPlaybackSnapshot> _states =
+      StreamController<AudioPlaybackSnapshot>.broadcast();
+  final StreamController<AudioOutputState> _outputStates =
+      StreamController<AudioOutputState>.broadcast();
+  final List<String> openedVideoIds = <String>[];
+  final List<String> openedLocalFilePaths = <String>[];
+  final List<Duration> seekPositions = <Duration>[];
+  final List<double> volumes = <double>[];
+  final List<String> selectedOutputDeviceIds = <String>[];
+  AudioOutputState _outputState = const AudioOutputState(
+    devices: <AudioOutputDevice>[
+      AudioOutputDevice.systemDefault(),
+      AudioOutputDevice(id: 'alsa/Desk_Speakers', description: 'Desk speakers'),
+    ],
+    selectedDevice: AudioOutputDevice.systemDefault(),
+  );
+
+  @override
+  Stream<AudioPlaybackSnapshot> get states => _states.stream;
+
+  @override
+  AudioOutputState get outputState => _outputState;
+
+  @override
+  Stream<AudioOutputState> get outputStates => _outputStates.stream;
+
+  @override
+  Future<void> dispose() async {
+    await _states.close();
+    await _outputStates.close();
+  }
+
+  void emit(AudioPlaybackSnapshot state) => _states.add(state);
+
+  @override
+  Future<void> open(
+    String videoId, {
+    Duration initialPosition = Duration.zero,
+  }) async {
+    openedVideoIds.add(videoId);
+  }
+
+  @override
+  Future<void> openLocalFile(
+    String path, {
+    Duration initialPosition = Duration.zero,
+  }) async {
+    openedLocalFilePaths.add(path);
+  }
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> seek(Duration position) async {
+    seekPositions.add(position);
+  }
+
+  @override
+  Future<void> setVolume(double value) async {
+    volumes.add(value);
+  }
+
+  @override
+  Future<void> setOutputDevice(AudioOutputDevice device) async {
+    selectedOutputDeviceIds.add(device.id);
+    _outputState = AudioOutputState(
+      devices: _outputState.devices,
+      selectedDevice: device,
+    );
+    _outputStates.add(_outputState);
+  }
+
+  @override
+  Future<void> stop() async {}
 }

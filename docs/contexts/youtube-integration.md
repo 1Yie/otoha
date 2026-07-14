@@ -41,12 +41,20 @@
 - `auth.signOut`
 - `library.playlists`
 - `library.playlist`
+- `history.get`
 - `feed.home`
+- `feed.home.more`
 - `feed.explore`
 - `feed.collection`
 - `feed.track`
 - `feed.browse`
+- `interaction.rate`
+- `comments.get`
+- `comments.create`
 - `search.music`
+- `lyrics.get`
+- `playback.resolve`
+- `download.track`
 
 ## File Paths
 
@@ -73,12 +81,20 @@
 - Use a new private browser window when copying the YouTube Cookie header.
 - Cookie values are full account credentials and must never be logged or committed.
 - Library page tokens must be exhausted.
+- History uses the authenticated YTMUSIC `FEmusic_history` browse surface, not
+  the generic YouTube `FEhistory` watch history. Keep results in memory only.
 - Repeated continuation pages must terminate without duplicating the queue.
-- Feed songs and one-track releases start simulated playback; multi-track playlists and albums open track lists.
+- Home and Explore retain one in-memory upstream continuation; append normalized sections without duplicating item IDs.
+- Explore reads the continuation from its parsed `SectionList` because the current `youtubei.js` parser does not expose an `Explore.getContinuation()` helper. When no continuation is present, keep the finite response rather than repeating cards.
+- Feed songs and one-track releases resolve an ephemeral audio-only URL and start native playback; multi-track playlists and albums open track lists.
+- Expanded player lyrics query LRCLIB's cached exact endpoint and title/artist search in parallel, then fall back to LRCLIB's exact external lookup when neither returns timed LRC. If no synchronized result exists, YouTube Music official lyrics are shown without fabricated timing or line-level highlighting.
+- LRCLIB lookup sends current track metadata to a third party. Timestamped lyrics may be cached locally by video ID; untimed YouTube Music fallback text stays in memory and is not written to the timestamped lyric cache.
 - Artist and mood/genre cards retain their browse ID and parameters for `feed.browse`.
 - Artist/channel cards render as circular profiles and open browse results; search excludes non-music entries.
-- Explore category selections replace the current Explore sections; podcast episode sections are excluded.
+- Explore category selections are top tabs that replace the current Explore sections; podcast episode sections are excluded.
 - Horizontal feed sections use section-header arrow controls for desktop scrolling.
 - Unknown metadata duration remains unknown; do not substitute a simulated duration.
 - Feed-song cards without a duration resolve it through YouTube video metadata before playback.
-- Playback remains simulated and performs no stream extraction.
+- `playback.resolve` is user-initiated and returns only an in-memory audio-only URL. `download.track` is user-initiated and uses the existing authenticated Innertube session so it can reuse the already loaded player. It tries supported music/audio clients in order, streams directly into a temporary file, and atomically completes the local audio file without persisting a URL, Cookie, or headers. A hidden-to-tray session must not trigger downloads, background account activity, or automatic stream resolution.
+- `interaction.rate` and `comments.create` are user-initiated Cookie-authenticated account writes. Flutter and the sidecar enforce one shared two-second cooldown; never submit automatically, log comment bodies, or persist interaction request data.
+- Remote artwork and Home, Explore, Library, and playlist metadata may use their bounded cache; clear the metadata cache on sign-out. Local offline downloads, local offline playlist metadata, and timestamped LRC lyrics use separate non-credential stores and remain available after sign-out. Never cache Cookies, stream URLs, headers, comment bodies, or search results.

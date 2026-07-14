@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:otoha/l10n/app_localizations.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../app/theme.dart';
 import '../models/catalog.dart';
 import '../state/desktop_shell_controllers.dart';
+import '../state/app_locale_controller.dart';
 import '../state/youtube_library_controller.dart';
+import '../state/offline_library_controller.dart';
 import '../widgets/artwork_image.dart';
+import 'offline_library_workspace.dart';
+import 'offline_playlists_workspace.dart';
 import 'youtube_feed_workspace.dart';
+import 'youtube_history_workspace.dart';
 import 'youtube_library_workspace.dart';
 
 class WorkspaceView extends StatelessWidget {
@@ -14,6 +21,8 @@ class WorkspaceView extends StatelessWidget {
     required this.playerController,
     required this.shellController,
     required this.youtubeLibraryController,
+    required this.offlineLibraryController,
+    required this.localeController,
     super.key,
   });
 
@@ -21,6 +30,8 @@ class WorkspaceView extends StatelessWidget {
   final PlayerController playerController;
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
+  final OfflineLibraryController offlineLibraryController;
+  final AppLocaleController localeController;
 
   @override
   Widget build(BuildContext context) {
@@ -42,8 +53,23 @@ class WorkspaceView extends StatelessWidget {
         shellController: shellController,
         youtubeLibraryController: youtubeLibraryController,
       ),
+      WorkspacePage.history => YouTubeHistoryWorkspace(
+        controller: youtubeLibraryController,
+        playerController: playerController,
+        shellController: shellController,
+      ),
+      WorkspacePage.downloads => OfflineLibraryWorkspace(
+        controller: offlineLibraryController,
+        playerController: playerController,
+      ),
+      WorkspacePage.playlists => OfflinePlaylistsWorkspace(
+        controller: offlineLibraryController,
+        playerController: playerController,
+      ),
       WorkspacePage.settings => SettingsWorkspace(
         shellController: shellController,
+        localeController: localeController,
+        offlineLibraryController: offlineLibraryController,
       ),
     };
   }
@@ -72,17 +98,25 @@ class LibraryWorkspace extends StatelessWidget {
 }
 
 class SettingsWorkspace extends StatelessWidget {
-  const SettingsWorkspace({required this.shellController, super.key});
+  const SettingsWorkspace({
+    required this.shellController,
+    required this.localeController,
+    required this.offlineLibraryController,
+    super.key,
+  });
 
   final ShellController shellController;
+  final AppLocaleController localeController;
+  final OfflineLibraryController offlineLibraryController;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return _WorkspaceScroller(
       children: <Widget>[
-        const _PageHeading(title: 'Settings', eyebrow: 'DESKTOP'),
+        _PageHeading(title: l10n.settings, eyebrow: l10n.desktop),
         const SizedBox(height: 40),
-        const _SectionHeading('Motion'),
+        _SectionHeading(l10n.motion),
         const SizedBox(height: 16),
         AnimatedBuilder(
           animation: shellController,
@@ -95,14 +129,185 @@ class SettingsWorkspace extends StatelessWidget {
               child: SwitchListTile.adaptive(
                 key: const Key('reduce-motion-switch'),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                title: const Text('Reduce motion'),
+                title: Text(l10n.reduceMotion),
                 value: shellController.reduceMotion,
                 onChanged: shellController.setReduceMotion,
               ),
             );
           },
         ),
+        const SizedBox(height: 32),
+        _SectionHeading(l10n.language),
+        const SizedBox(height: 16),
+        AnimatedBuilder(
+          animation: localeController,
+          builder: (context, _) {
+            return Material(
+              color: OtohaColors.surface,
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppMetrics.radius),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: Text(l10n.language),
+                trailing: DropdownButton<Locale>(
+                  key: const Key('language-selector'),
+                  value: localeController.locale,
+                  onChanged: (locale) {
+                    if (locale == null) {
+                      return;
+                    }
+                    localeController.select(locale);
+                  },
+                  items: <DropdownMenuItem<Locale>>[
+                    DropdownMenuItem<Locale>(
+                      value: const Locale('en'),
+                      child: Text(l10n.english),
+                    ),
+                    DropdownMenuItem<Locale>(
+                      value: const Locale('zh'),
+                      child: Text(l10n.simplifiedChinese),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 32),
+        _SectionHeading(l10n.downloads),
+        const SizedBox(height: 16),
+        _DownloadLocationSetting(controller: offlineLibraryController),
+        const SizedBox(height: 32),
+        _SectionHeading(l10n.about),
+        const SizedBox(height: 16),
+        const _AboutOtoha(),
       ],
+    );
+  }
+}
+
+class _DownloadLocationSetting extends StatefulWidget {
+  const _DownloadLocationSetting({required this.controller});
+
+  final OfflineLibraryController controller;
+
+  @override
+  State<_DownloadLocationSetting> createState() =>
+      _DownloadLocationSettingState();
+}
+
+class _DownloadLocationSettingState extends State<_DownloadLocationSetting> {
+  final TextEditingController _textController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await widget.controller.initialize();
+      if (mounted) {
+        _textController.text = widget.controller.downloadDirectory ?? '';
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        return Material(
+          color: OtohaColors.surface,
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppMetrics.radius),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    key: const Key('download-directory-field'),
+                    controller: _textController,
+                    onSubmitted: widget.controller.setDownloadDirectory,
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      labelText: l10n.downloadLocation,
+                    ),
+                  ),
+                ),
+                Tooltip(
+                  message: l10n.saveDownloadLocation,
+                  child: IconButton(
+                    key: const Key('save-download-directory'),
+                    onPressed: () => widget.controller.setDownloadDirectory(
+                      _textController.text,
+                    ),
+                    icon: const Icon(Icons.check_rounded),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AboutOtoha extends StatefulWidget {
+  const _AboutOtoha();
+
+  @override
+  State<_AboutOtoha> createState() => _AboutOtohaState();
+}
+
+class _AboutOtohaState extends State<_AboutOtoha> {
+  late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return FutureBuilder<PackageInfo>(
+      future: _packageInfo,
+      builder: (context, snapshot) {
+        final version = snapshot.data?.version;
+        return Material(
+          key: const Key('settings-about'),
+          color: OtohaColors.surface,
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppMetrics.radius),
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: ClipRRect(
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppMetrics.radius),
+              ),
+              child: Image.asset(
+                'assets/icon/icon.png',
+                key: const Key('settings-about-icon'),
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+              ),
+            ),
+            title: const Text('Otoha'),
+            subtitle: Text(
+              version == null
+                  ? l10n.versionUnavailable
+                  : l10n.appVersion(version),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -231,6 +436,7 @@ class _AlbumCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -249,7 +455,7 @@ class _AlbumCard extends StatelessWidget {
                 child: SizedBox.expand(
                   child: ArtworkImage(
                     assetPath: track.artworkAsset,
-                    semanticLabel: '${track.album} artwork',
+                    semanticLabel: l10n.artwork(track.album),
                   ),
                 ),
               ),
@@ -290,6 +496,7 @@ class _TrackRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final artworkSize = compact ? 40.0 : 48.0;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -320,7 +527,7 @@ class _TrackRow extends StatelessWidget {
                     height: artworkSize,
                     child: ArtworkImage(
                       assetPath: track.artworkAsset,
-                      semanticLabel: '${track.album} artwork',
+                      semanticLabel: l10n.artwork(track.album),
                     ),
                   ),
                 ),

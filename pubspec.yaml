@@ -30,16 +30,27 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   window_manager: ^0.5.2
   flutter_secure_storage: ^10.3.1
+  media_kit: ^1.2.6
+  media_kit_libs_audio: ^1.0.7
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
+  path_provider: ^2.1.5
+  tray_manager: ^0.5.2
+  package_info_plus: ^10.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  icons_launcher: ^3.1.0
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -53,6 +64,7 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
+  generate: true
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
@@ -61,6 +73,8 @@ flutter:
 
   assets:
     - assets/artwork/
+    - assets/icon/icon.png
+    - windows/runner/resources/app_icon.ico
 
   # To add assets to your application, add an assets section, like this:
   # assets:

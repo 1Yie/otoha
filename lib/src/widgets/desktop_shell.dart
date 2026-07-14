@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/theme.dart';
+import '../state/app_locale_controller.dart';
 import '../state/desktop_shell_controllers.dart';
+import '../state/offline_library_controller.dart';
 import '../state/youtube_library_controller.dart';
 import '../workspaces/workspace_views.dart';
 import 'player_bar.dart';
@@ -18,6 +20,8 @@ class DesktopShell extends StatelessWidget {
     required this.playerController,
     required this.shellController,
     required this.youtubeLibraryController,
+    required this.offlineLibraryController,
+    required this.localeController,
     super.key,
   });
 
@@ -25,6 +29,8 @@ class DesktopShell extends StatelessWidget {
   final PlayerController playerController;
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
+  final OfflineLibraryController offlineLibraryController;
+  final AppLocaleController localeController;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +49,7 @@ class DesktopShell extends StatelessWidget {
       },
       child: Focus(
         autofocus: true,
+        onKeyEvent: _handlePlaybackShortcut,
         child: Scaffold(
           body: Stack(
             children: <Widget>[
@@ -67,11 +74,18 @@ class DesktopShell extends StatelessWidget {
                         ),
                         const VerticalDivider(width: 1),
                         Expanded(
-                          child: _WorkspaceRegion(
-                            workspaceController: workspaceController,
-                            playerController: playerController,
-                            shellController: shellController,
-                            youtubeLibraryController: youtubeLibraryController,
+                          child: ClipRect(
+                            key: const Key('workspace-clip'),
+                            child: _WorkspaceRegion(
+                              workspaceController: workspaceController,
+                              playerController: playerController,
+                              shellController: shellController,
+                              youtubeLibraryController:
+                                  youtubeLibraryController,
+                              offlineLibraryController:
+                                  offlineLibraryController,
+                              localeController: localeController,
+                            ),
                           ),
                         ),
                       ],
@@ -80,6 +94,7 @@ class DesktopShell extends StatelessWidget {
                   MusicPlayerBar(
                     playerController: playerController,
                     shellController: shellController,
+                    offlineLibraryController: offlineLibraryController,
                   ),
                 ],
               ),
@@ -101,7 +116,7 @@ class DesktopShell extends StatelessWidget {
                 ),
               ),
               Positioned(
-                top: AppMetrics.titleBarHeight,
+                top: 0,
                 left: 0,
                 right: 0,
                 bottom: 0,
@@ -129,11 +144,15 @@ class DesktopShell extends StatelessWidget {
                           child: child,
                         );
                       },
-                      child: shellController.isExpandedLyricsOpen
+                      child:
+                          shellController.isExpandedLyricsOpen &&
+                              playerController.currentTrack != null
                           ? ExpandedLyricsOverlay(
                               key: const ValueKey<String>('expanded-lyrics'),
                               playerController: playerController,
                               shellController: shellController,
+                              youtubeLibraryController:
+                                  youtubeLibraryController,
                             )
                           : const SizedBox(
                               key: ValueKey<String>('no-expanded-lyrics'),
@@ -163,6 +182,61 @@ class DesktopShell extends StatelessWidget {
       ),
     );
   }
+
+  KeyEventResult _handlePlaybackShortcut(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed ||
+        HardwareKeyboard.instance.isAltPressed ||
+        HardwareKeyboard.instance.isShiftPressed ||
+        shellController.isSearchOpen ||
+        _focusedControlConsumes(event.logicalKey)) {
+      return KeyEventResult.ignored;
+    }
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.space:
+        playerController.togglePlaying();
+      case LogicalKeyboardKey.arrowLeft:
+        playerController.previous();
+      case LogicalKeyboardKey.arrowRight:
+        playerController.next();
+      case LogicalKeyboardKey.slash:
+        playerController.cycleRepeatMode();
+      default:
+        return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  bool _focusedControlConsumes(LogicalKeyboardKey key) {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext == null) {
+      return false;
+    }
+    var consumes = _widgetConsumesKey(focusContext.widget, key);
+    focusContext.visitAncestorElements((element) {
+      consumes = consumes || _widgetConsumesKey(element.widget, key);
+      return !consumes;
+    });
+    return consumes;
+  }
+
+  bool _widgetConsumesKey(Widget widget, LogicalKeyboardKey key) {
+    if (widget is EditableText) {
+      return true;
+    }
+    if (key == LogicalKeyboardKey.space &&
+        (widget is ButtonStyleButton ||
+            widget is IconButton ||
+            widget is InkWell ||
+            widget is Checkbox ||
+            widget is Switch)) {
+      return true;
+    }
+    return (key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight) &&
+        widget is Slider;
+  }
 }
 
 class _WorkspaceRegion extends StatelessWidget {
@@ -171,12 +245,16 @@ class _WorkspaceRegion extends StatelessWidget {
     required this.playerController,
     required this.shellController,
     required this.youtubeLibraryController,
+    required this.offlineLibraryController,
+    required this.localeController,
   });
 
   final WorkspaceController workspaceController;
   final PlayerController playerController;
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
+  final OfflineLibraryController offlineLibraryController;
+  final AppLocaleController localeController;
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +263,8 @@ class _WorkspaceRegion extends StatelessWidget {
         workspaceController,
         shellController,
         youtubeLibraryController,
+        offlineLibraryController,
+        localeController,
       ]),
       builder: (context, _) {
         final duration = shellController.reduceMotion
@@ -213,6 +293,8 @@ class _WorkspaceRegion extends StatelessWidget {
               playerController: playerController,
               shellController: shellController,
               youtubeLibraryController: youtubeLibraryController,
+              offlineLibraryController: offlineLibraryController,
+              localeController: localeController,
             ),
           ),
         );

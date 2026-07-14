@@ -9,6 +9,30 @@ class SidecarEvent {
   final Map<String, Object?> data;
 }
 
+class SidecarFailure {
+  const SidecarFailure({
+    required this.occurredAt,
+    required this.method,
+    required this.code,
+    required this.errorType,
+    this.diagnosticStage,
+    this.sourceLocation,
+    this.statusCode,
+    this.exitCode,
+    this.upstreamCode,
+  });
+
+  final DateTime occurredAt;
+  final String method;
+  final String code;
+  final String errorType;
+  final String? diagnosticStage;
+  final String? sourceLocation;
+  final int? statusCode;
+  final int? exitCode;
+  final String? upstreamCode;
+}
+
 class SidecarException implements Exception {
   const SidecarException(this.code, this.message, [this.details]);
 
@@ -20,9 +44,84 @@ class SidecarException implements Exception {
   String toString() => '$code: $message';
 }
 
+class SidecarBundleLocator {
+  const SidecarBundleLocator._();
+
+  static String? findEntryPath({
+    required String executablePath,
+    required String workingDirectoryPath,
+    required Map<String, String> environment,
+  }) {
+    final override = environment['OTOHA_SIDECAR_ENTRY'];
+    if (override != null && File(override).existsSync()) {
+      return File(override).absolute.path;
+    }
+
+    final executable = File(executablePath);
+    final resolvedExecutable = executable.existsSync()
+        ? File(executable.resolveSymbolicLinksSync())
+        : executable;
+    var directory = resolvedExecutable.parent;
+    for (var depth = 0; depth < 4; depth += 1) {
+      final entry = _existingEntryIn(directory);
+      if (entry != null) {
+        return entry;
+      }
+      final resourcesEntry = _existingEntryIn(
+        Directory('${directory.path}/Resources'),
+      );
+      if (resourcesEntry != null) {
+        return resourcesEntry;
+      }
+      directory = directory.parent;
+    }
+
+    directory = Directory(workingDirectoryPath).absolute;
+    for (var depth = 0; depth < 6; depth += 1) {
+      final entry = _existingEntryIn(directory);
+      if (entry != null) {
+        return entry;
+      }
+      directory = directory.parent;
+    }
+    return null;
+  }
+
+  static String findNodeExecutable({
+    required String entryPath,
+    required bool isWindows,
+    required Map<String, String> environment,
+  }) {
+    final override = environment['OTOHA_NODE_EXECUTABLE'];
+    if (override != null && File(override).existsSync()) {
+      return File(override).absolute.path;
+    }
+
+    final sidecarDirectory = File(entryPath).parent.parent;
+    final bundleDirectory = sidecarDirectory.parent;
+    final candidates = <File>[
+      File(
+        '${bundleDirectory.path}/node/${isWindows ? 'node.exe' : 'bin/node'}',
+      ),
+      File('${bundleDirectory.path}/node/bin/node'),
+    ];
+    for (final candidate in candidates) {
+      if (candidate.existsSync()) {
+        return candidate.path;
+      }
+    }
+    return 'node';
+  }
+
+  static String? _existingEntryIn(Directory directory) {
+    final entry = File('${directory.path}/sidecar/src/index.mjs');
+    return entry.existsSync() ? entry.path : null;
+  }
+}
+
 class YouTubeSidecarClient {
   YouTubeSidecarClient({
-    String executable = 'node',
+    String? executable,
     String? entryPath,
     Duration requestTimeout = const Duration(minutes: 2),
   }) : this._(executable, entryPath, requestTimeout);
@@ -33,21 +132,29 @@ class YouTubeSidecarClient {
     this._requestTimeout,
   );
 
-  final String _executable;
+  final String? _executable;
   final String? _entryPath;
   final Duration _requestTimeout;
   final StreamController<SidecarEvent> _events =
       StreamController<SidecarEvent>.broadcast();
+  final StreamController<SidecarFailure> _failures =
+      StreamController<SidecarFailure>.broadcast();
   final Map<String, Completer<Map<String, Object?>>> _pending =
       <String, Completer<Map<String, Object?>>>{};
 
+  final List<SidecarFailure> _recentFailures = <SidecarFailure>[];
+
   Process? _process;
+  Future<void>? _starting;
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
   int _nextRequestId = 0;
   String _stderr = '';
 
   Stream<SidecarEvent> get events => _events.stream;
+  Stream<SidecarFailure> get failures => _failures.stream;
+  List<SidecarFailure> get recentFailures =>
+      List<SidecarFailure>.unmodifiable(_recentFailures);
 
   Future<Map<String, Object?>> call(
     String method, [
@@ -69,6 +176,11 @@ class YouTubeSidecarClient {
       return await completer.future.timeout(_requestTimeout);
     } on TimeoutException {
       _pending.remove(id);
+      _recordFailure(<String, Object?>{
+        'method': method,
+        'code': 'SIDECAR_TIMEOUT',
+        'errorType': 'Timeout',
+      });
       throw const SidecarException(
         'SIDECAR_TIMEOUT',
         'The YouTube service did not respond in time.',
@@ -96,6 +208,7 @@ class YouTubeSidecarClient {
       await process.stdin.close();
       process.kill(ProcessSignal.sigterm);
     }
+    await _failures.close();
     await _events.close();
   }
 
@@ -104,9 +217,38 @@ class YouTubeSidecarClient {
       return;
     }
 
+    final starting = _starting;
+    if (starting != null) {
+      return starting;
+    }
+
+    final start = _start();
+    _starting = start;
+    try {
+      await start;
+    } on Object {
+      _recordFailure(<String, Object?>{
+        'method': 'sidecar.start',
+        'code': 'SIDECAR_START_FAILED',
+        'errorType': 'ProcessStart',
+      });
+      rethrow;
+    } finally {
+      if (identical(_starting, start)) {
+        _starting = null;
+      }
+    }
+  }
+
+  Future<void> _start() async {
     final entry = _entryPath ?? _findEntryPath();
     final process = await Process.start(
-      _executable,
+      _executable ??
+          SidecarBundleLocator.findNodeExecutable(
+            entryPath: entry,
+            isWindows: Platform.isWindows,
+            environment: Platform.environment,
+          ),
       <String>[entry],
       workingDirectory: File(entry).parent.parent.path,
       runInShell: Platform.isWindows,
@@ -137,6 +279,11 @@ class YouTubeSidecarClient {
             (message['data'] as Map<Object?, Object?>?)
                 ?.cast<String, Object?>() ??
             const <String, Object?>{};
+        if (event == 'request.failure' ||
+            event == 'sidecar.crash' ||
+            event == 'sidecar.unhandled_rejection') {
+          _recordFailure(data);
+        }
         _events.add(SidecarEvent(event, data));
         return;
       }
@@ -173,6 +320,17 @@ class YouTubeSidecarClient {
       return;
     }
     _process = null;
+    _recordFailure(<String, Object?>{
+      'method': 'sidecar.process',
+      'code': 'SIDECAR_EXIT',
+      'errorType': 'ProcessExit',
+      'exitCode': exitCode,
+    });
+    if (!_events.isClosed) {
+      _events.add(
+        SidecarEvent('sidecar.exit', <String, Object?>{'exitCode': exitCode}),
+      );
+    }
     final message = _stderr.trim().isEmpty
         ? 'The YouTube service exited with code $exitCode.'
         : _stderr.trim();
@@ -184,23 +342,76 @@ class YouTubeSidecarClient {
     _pending.clear();
   }
 
-  String _findEntryPath() {
-    final override = Platform.environment['OTOHA_SIDECAR_ENTRY'];
-    if (override != null && File(override).existsSync()) {
-      return File(override).absolute.path;
+  void _recordFailure(Map<String, Object?> data) {
+    final method = _diagnosticValue(data['method']) ?? 'unknown';
+    final code = _diagnosticValue(data['code']) ?? 'YOUTUBE_ERROR';
+    final errorType = _diagnosticValue(data['errorType']) ?? 'Error';
+    final diagnosticStage = _diagnosticValue(data['diagnosticStage']);
+    final sourceLocation = _sourceLocation(data['sourceLocation']);
+    final upstreamCode = _diagnosticValue(data['upstreamCode']);
+    final statusCode = data['statusCode'];
+    final exitCode = data['exitCode'];
+    final failure = SidecarFailure(
+      occurredAt: DateTime.now().toUtc(),
+      method: method,
+      code: code,
+      errorType: errorType,
+      diagnosticStage: diagnosticStage,
+      sourceLocation: sourceLocation,
+      statusCode: statusCode is int && statusCode >= 100 && statusCode <= 599
+          ? statusCode
+          : null,
+      exitCode: exitCode is int ? exitCode : null,
+      upstreamCode: upstreamCode,
+    );
+    if (_recentFailures.length == 32) {
+      _recentFailures.removeAt(0);
     }
+    _recentFailures.add(failure);
+    stderr.writeln(
+      'Otoha sidecar failure: method=${failure.method} '
+      'code=${failure.code} type=${failure.errorType}'
+      '${failure.diagnosticStage == null ? '' : ' stage=${failure.diagnosticStage}'}'
+      '${failure.sourceLocation == null ? '' : ' source=${failure.sourceLocation}'}'
+      '${failure.statusCode == null ? '' : ' status=${failure.statusCode}'}'
+      '${failure.exitCode == null ? '' : ' exit=${failure.exitCode}'}'
+      '${failure.upstreamCode == null ? '' : ' upstream=${failure.upstreamCode}'}',
+    );
+    if (!_failures.isClosed) {
+      _failures.add(failure);
+    }
+  }
 
-    Directory cursor = Directory.current.absolute;
-    for (var depth = 0; depth < 6; depth += 1) {
-      final candidate = File('${cursor.path}/sidecar/src/index.mjs');
-      if (candidate.existsSync()) {
-        return candidate.path;
-      }
-      cursor = cursor.parent;
+  String? _diagnosticValue(Object? value) {
+    if (value is! String ||
+        !RegExp(r'^[A-Za-z0-9_.-]{1,80}$').hasMatch(value)) {
+      return null;
+    }
+    return value;
+  }
+
+  String? _sourceLocation(Object? value) {
+    if (value is! String ||
+        !RegExp(
+          r'^sidecar/src/[A-Za-z0-9_.-]+\.mjs:\d+:\d+$',
+        ).hasMatch(value)) {
+      return null;
+    }
+    return value;
+  }
+
+  String _findEntryPath() {
+    final entry = SidecarBundleLocator.findEntryPath(
+      executablePath: Platform.resolvedExecutable,
+      workingDirectoryPath: Directory.current.path,
+      environment: Platform.environment,
+    );
+    if (entry != null) {
+      return entry;
     }
     throw const SidecarException(
       'SIDECAR_NOT_FOUND',
-      'Could not find sidecar/src/index.mjs. Run Otoha from the repository root.',
+      'Could not find the bundled YouTube service. Run Otoha from the repository root during development.',
     );
   }
 }

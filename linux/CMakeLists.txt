@@ -7,7 +7,7 @@ project(runner LANGUAGES CXX)
 set(BINARY_NAME "otoha")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "com.example.otoha")
+set(APPLICATION_ID "im.ingstar.otoha")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -72,7 +72,12 @@ set_target_properties(${BINARY_NAME}
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# Keep the original secure-storage namespace stable across the application ID
+# migration so existing credentials and player sessions remain accessible.
+set(OTOHA_APPLICATION_ID "${APPLICATION_ID}")
+set(APPLICATION_ID "com.example.otoha")
 include(flutter/generated_plugins.cmake)
+set(APPLICATION_ID "${OTOHA_APPLICATION_ID}")
 
 
 # === Installation ===

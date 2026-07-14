@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
 import '../models/catalog.dart';
@@ -95,6 +96,7 @@ class _PanelSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       decoration: const BoxDecoration(
         color: OtohaColors.surface,
@@ -108,12 +110,12 @@ class _PanelSurface extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: Text(
-                    _title,
+                    _title(l10n),
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
                 Tooltip(
-                  message: 'Close panel',
+                  message: l10n.closePanel,
                   child: IconButton(
                     onPressed: shellController.closePanel,
                     icon: const Icon(Icons.close_rounded),
@@ -129,17 +131,15 @@ class _PanelSurface extends StatelessWidget {
     );
   }
 
-  String get _title => switch (panel) {
-    SidePanel.queue => 'Queue',
-    SidePanel.lyrics => 'Lyrics',
-    SidePanel.devices => 'Output device',
-    SidePanel.account => 'YouTube Music',
+  String _title(AppLocalizations l10n) => switch (panel) {
+    SidePanel.queue => l10n.queue,
+    SidePanel.devices => l10n.outputDevice,
+    SidePanel.account => l10n.youtubeMusic,
   };
 
   Widget _body(BuildContext context) => switch (panel) {
     SidePanel.queue => _QueuePanel(playerController: playerController),
-    SidePanel.lyrics => _LyricsPanel(playerController: playerController),
-    SidePanel.devices => _DevicesPanel(shellController: shellController),
+    SidePanel.devices => _DevicesPanel(playerController: playerController),
     SidePanel.account => AccountPanel(controller: youtubeLibraryController),
   };
 }
@@ -154,6 +154,15 @@ class _QueuePanel extends StatelessWidget {
     return AnimatedBuilder(
       animation: playerController,
       builder: (context, _) {
+        if (playerController.queue.isEmpty) {
+          return Center(
+            key: const Key('panel-queue-empty'),
+            child: Text(
+              AppLocalizations.of(context)!.queueEmpty,
+              style: const TextStyle(color: OtohaColors.mutedText),
+            ),
+          );
+        }
         return ListView.separated(
           key: const Key('panel-queue'),
           padding: const EdgeInsets.all(16),
@@ -186,6 +195,7 @@ class _QueueTrackRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -213,7 +223,7 @@ class _QueueTrackRow extends StatelessWidget {
                   height: 40,
                   child: ArtworkImage(
                     assetPath: track.artworkAsset,
-                    semanticLabel: '${track.album} artwork',
+                    semanticLabel: l10n.artwork(track.album),
                   ),
                 ),
               ),
@@ -253,73 +263,51 @@ class _QueueTrackRow extends StatelessWidget {
   }
 }
 
-class _LyricsPanel extends StatelessWidget {
-  const _LyricsPanel({required this.playerController});
+class _DevicesPanel extends StatelessWidget {
+  const _DevicesPanel({required this.playerController});
 
   final PlayerController playerController;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AnimatedBuilder(
       animation: playerController,
       builder: (context, _) {
-        final track = playerController.currentTrack;
-        return ListView(
-          key: const Key('panel-lyrics'),
-          padding: const EdgeInsets.all(24),
-          children: <Widget>[
-            Text(track.title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(track.artist, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 32),
-            ...track.lyrics.map(
-              (line) => Padding(
-                padding: const EdgeInsets.only(bottom: 24),
-                child: Text(
-                  line,
-                  style: const TextStyle(
-                    color: OtohaColors.text,
-                    fontSize: 18,
-                    height: 1.35,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DevicesPanel extends StatelessWidget {
-  const _DevicesPanel({required this.shellController});
-
-  final ShellController shellController;
-
-  static const _devices = <String>[
-    'This computer',
-    'Studio Desk',
-    'Living Room',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: shellController,
-      builder: (context, _) {
+        final devices = playerController.outputDevices;
+        if (devices.isEmpty) {
+          return Center(
+            key: const Key('panel-devices-unavailable'),
+            child: Text(l10n.noAudioOutputDevices),
+          );
+        }
         return ListView.separated(
           key: const Key('panel-devices'),
           padding: const EdgeInsets.all(16),
-          itemCount: _devices.length,
+          itemCount:
+              devices.length + (playerController.hasOutputDeviceError ? 1 : 0),
           separatorBuilder: (context, index) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
-            final device = _devices[index];
-            final selected = device == shellController.selectedDevice;
+            if (index == devices.length) {
+              return Text(
+                l10n.changeOutputDeviceError,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              );
+            }
+            final device = devices[index];
+            final selected =
+                device.id == playerController.selectedOutputDevice?.id;
+            final label = device.isSystemDefault
+                ? l10n.systemDefault
+                : device.description.isEmpty
+                ? device.id
+                : device.description;
             return Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: () => shellController.selectDevice(device),
+                onTap: playerController.isSelectingOutputDevice
+                    ? null
+                    : () => playerController.selectOutputDevice(device),
                 borderRadius: const BorderRadius.all(
                   Radius.circular(AppMetrics.radius),
                 ),
@@ -343,7 +331,7 @@ class _DevicesPanel extends StatelessWidget {
                             : OtohaColors.mutedText,
                       ),
                       const SizedBox(width: 16),
-                      Expanded(child: Text(device)),
+                      Expanded(child: Text(label)),
                       if (selected)
                         const Icon(
                           Icons.check_rounded,

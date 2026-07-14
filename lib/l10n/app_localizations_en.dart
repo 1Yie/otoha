@@ -1,0 +1,428 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for English (`en`).
+class AppLocalizationsEn extends AppLocalizations {
+  AppLocalizationsEn([String locale = 'en']) : super(locale);
+
+  @override
+  String get appTitle => 'Otoha';
+
+  @override
+  String get settings => 'Settings';
+
+  @override
+  String get desktop => 'Desktop';
+
+  @override
+  String get motion => 'Motion';
+
+  @override
+  String get reduceMotion => 'Reduce motion';
+
+  @override
+  String get language => 'Language';
+
+  @override
+  String get english => 'English';
+
+  @override
+  String get simplifiedChinese => 'Simplified Chinese';
+
+  @override
+  String get outputDevice => 'Output device';
+
+  @override
+  String get queue => 'Queue';
+
+  @override
+  String get noTrackSelected => 'No track selected';
+
+  @override
+  String get queueEmpty => 'The queue is empty.';
+
+  @override
+  String get youtubeMusic => 'YouTube Music';
+
+  @override
+  String get closePanel => 'Close panel';
+
+  @override
+  String get systemDefault => 'System default';
+
+  @override
+  String get outputUnavailable => 'Unavailable';
+
+  @override
+  String get noAudioOutputDevices => 'No audio output devices are available.';
+
+  @override
+  String get changeOutputDeviceError =>
+      'Unable to change the audio output device.';
+
+  @override
+  String get home => 'Home';
+
+  @override
+  String get explore => 'Explore';
+
+  @override
+  String get library => 'Library';
+
+  @override
+  String get history => 'History';
+
+  @override
+  String get yourSpace => 'YOUR SPACE';
+
+  @override
+  String get downloads => 'Downloads';
+
+  @override
+  String get playlists => 'Playlists';
+
+  @override
+  String get back => 'Back';
+
+  @override
+  String get forward => 'Forward';
+
+  @override
+  String get profile => 'Profile';
+
+  @override
+  String get minimize => 'Minimize';
+
+  @override
+  String get maximize => 'Maximize';
+
+  @override
+  String get close => 'Close';
+
+  @override
+  String get search => 'Search';
+
+  @override
+  String get searchYourMusic => 'Search your music';
+
+  @override
+  String get searchShortcut => 'Search (Ctrl/Cmd + K)';
+
+  @override
+  String get searchSongsArtistsAlbumsOrCommands =>
+      'Search songs, artists, albums, or commands';
+
+  @override
+  String get noYouTubeMusicMatches => 'No YouTube Music matches';
+
+  @override
+  String get noLocalMatches => 'No local matches';
+
+  @override
+  String get openWorkspace => 'Open workspace';
+
+  @override
+  String get command => 'Command';
+
+  @override
+  String get previous => 'Previous';
+
+  @override
+  String get pause => 'Pause';
+
+  @override
+  String get play => 'Play';
+
+  @override
+  String get next => 'Next';
+
+  @override
+  String get openFullLyrics => 'Open full lyrics';
+
+  @override
+  String get shuffle => 'Shuffle';
+
+  @override
+  String get repeatOff => 'Repeat off';
+
+  @override
+  String get repeatAll => 'Repeat all';
+
+  @override
+  String get repeatOne => 'Repeat one';
+
+  @override
+  String get volume => 'Volume';
+
+  @override
+  String volumePercentage(int value) {
+    return '$value%';
+  }
+
+  @override
+  String outputDeviceWithValue(Object device, Object value) {
+    return '$device: $value';
+  }
+
+  @override
+  String get unknownDuration => '--:--';
+
+  @override
+  String get signInToYouTubeMusic => 'Sign in to YouTube Music';
+
+  @override
+  String get youtubeMusicSignIn => 'YouTube Music sign-in';
+
+  @override
+  String get youtubeCookieHeader => 'YouTube Cookie header';
+
+  @override
+  String get signIn => 'Sign in';
+
+  @override
+  String get signOut => 'Sign out';
+
+  @override
+  String get syncLibrary => 'Sync library';
+
+  @override
+  String get fullYouTubeMusicSession => 'Full YouTube Music session';
+
+  @override
+  String playlistCount(int count) {
+    return '$count playlists';
+  }
+
+  @override
+  String get yourLibrary => 'YOUR LIBRARY';
+
+  @override
+  String get yourPlaylists => 'Your playlists';
+
+  @override
+  String get noPlaylistsFound => 'No playlists found';
+
+  @override
+  String get backToPlaylists => 'Back to playlists';
+
+  @override
+  String get playlist => 'PLAYLIST';
+
+  @override
+  String tracksCount(int count) {
+    return '$count tracks';
+  }
+
+  @override
+  String get yourActivity => 'YOUR ACTIVITY';
+
+  @override
+  String get refreshHistory => 'Refresh history';
+
+  @override
+  String get loadHistoryAgain => 'Load history again';
+
+  @override
+  String get noPlaybackHistoryFound => 'No playback history found.';
+
+  @override
+  String get forYourAccount => 'FOR YOUR ACCOUNT';
+
+  @override
+  String refreshSection(Object section) {
+    return 'Refresh $section';
+  }
+
+  @override
+  String get loadAgain => 'Load again';
+
+  @override
+  String get forYou => 'For you';
+
+  @override
+  String get scrollMoodsGenresLeft => 'Scroll moods and genres left';
+
+  @override
+  String get scrollMoodsGenresRight => 'Scroll moods and genres right';
+
+  @override
+  String scrollSectionLeft(Object section) {
+    return 'Scroll $section left';
+  }
+
+  @override
+  String scrollSectionRight(Object section) {
+    return 'Scroll $section right';
+  }
+
+  @override
+  String get album => 'Album';
+
+  @override
+  String get artist => 'Artist';
+
+  @override
+  String get moodAndGenre => 'Mood & genre';
+
+  @override
+  String get episode => 'Episode';
+
+  @override
+  String get song => 'Song';
+
+  @override
+  String get musicVideo => 'Music video';
+
+  @override
+  String get genre => 'Genre';
+
+  @override
+  String get closeFullLyrics => 'Close full lyrics';
+
+  @override
+  String get previousTrack => 'Previous track';
+
+  @override
+  String get nextTrack => 'Next track';
+
+  @override
+  String get playbackProgress => 'Playback progress';
+
+  @override
+  String get lyricsUnavailable => 'Lyrics are not available.';
+
+  @override
+  String get lyricsUnavailableForTrack =>
+      'Lyrics are not available for this track.';
+
+  @override
+  String artwork(Object title) {
+    return '$title artwork';
+  }
+
+  @override
+  String profileImage(Object title) {
+    return '$title profile image';
+  }
+
+  @override
+  String backgroundArtwork(Object title) {
+    return '$title background artwork';
+  }
+
+  @override
+  String moodAndGenreLabel(Object title) {
+    return '$title mood and genre';
+  }
+
+  @override
+  String get unableToChangeAppLanguage => 'Unable to change the app language.';
+
+  @override
+  String get youtubeAuthenticationFailed => 'YouTube authentication failed.';
+
+  @override
+  String get unableToLoadYouTubeMusic => 'Unable to load YouTube Music data.';
+
+  @override
+  String get unableToCompleteYouTubeMusicAction =>
+      'Unable to complete the YouTube Music action.';
+
+  @override
+  String get audioEngineCouldNotPlay =>
+      'The audio engine could not play this track.';
+
+  @override
+  String get audioStreamUnavailable =>
+      'YouTube did not provide an audio stream for this track.';
+
+  @override
+  String get unableToStartAudioPlayback =>
+      'Unable to start audio playback for this track.';
+
+  @override
+  String get showWindow => 'Show window';
+
+  @override
+  String get quitApplication => 'Quit';
+
+  @override
+  String get about => 'About';
+
+  @override
+  String appVersion(String version) {
+    return 'Version $version';
+  }
+
+  @override
+  String get versionUnavailable => 'Version unavailable';
+
+  @override
+  String get downloadLocation => 'Download location';
+
+  @override
+  String get saveDownloadLocation => 'Save download location';
+
+  @override
+  String get downloadCurrentTrack => 'Download current track';
+
+  @override
+  String get downloaded => 'Downloaded';
+
+  @override
+  String get noDownloads => 'No downloads yet.';
+
+  @override
+  String get deleteDownload => 'Delete download';
+
+  @override
+  String deleteDownloadConfirmation(String title) {
+    return 'Delete $title from Downloads? The local file and its references in offline playlists will be removed.';
+  }
+
+  @override
+  String get cancel => 'Cancel';
+
+  @override
+  String shortcutTooltip(String action, String shortcut) {
+    return '$action ($shortcut)';
+  }
+
+  @override
+  String get newPlaylist => 'New playlist';
+
+  @override
+  String get createPlaylist => 'Create playlist';
+
+  @override
+  String get playlistName => 'Playlist name';
+
+  @override
+  String get addToPlaylist => 'Add to playlist';
+
+  @override
+  String get removeFromPlaylist => 'Remove from playlist';
+
+  @override
+  String get deletePlaylist => 'Delete playlist';
+
+  @override
+  String get deletePlaylistConfirmation =>
+      'Delete this playlist? Downloaded songs will remain available.';
+
+  @override
+  String get renamePlaylist => 'Rename playlist';
+
+  @override
+  String get choosePlaylistCover => 'Choose playlist cover';
+
+  @override
+  String get noOfflinePlaylists => 'No offline playlists yet.';
+
+  @override
+  String get noDownloadedTracksInPlaylist =>
+      'No downloaded tracks in this playlist.';
+}
