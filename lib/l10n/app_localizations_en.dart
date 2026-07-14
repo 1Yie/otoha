@@ -322,7 +322,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get unableToChangeAppLanguage => 'Unable to change the app language.';
 
   @override
-  String get youtubeAuthenticationFailed => 'YouTube authentication failed.';
+  String get youtubeAuthenticationFailed =>
+      'YouTube sign-in failed. Copy the current complete Cookie request header and try again.';
 
   @override
   String get unableToLoadYouTubeMusic => 'Unable to load YouTube Music data.';

@@ -54,13 +54,34 @@ export class YouTubeService {
     }
 
     this.locale = normalizeLocale(locale ?? this.locale);
-    await this.#createSession(value);
-    this.profile = mapAccountProfile(await this.innertube.account.getInfo());
-    this.authMode = 'cookie';
-    this.emit('auth.credentials', {
-      credential: { kind: 'cookie', value },
-    });
-    return { authenticated: true, mode: this.authMode, profile: this.profile };
+    try {
+      await this.#createSession(value);
+      this.profile = mapAccountProfile(await this.innertube.account.getInfo());
+      if (!this.profile) {
+        throw new SidecarError(
+          'INVALID_COOKIE',
+          'The YouTube Cookie header is invalid or expired.',
+        );
+      }
+      this.authMode = 'cookie';
+      this.emit('auth.credentials', {
+        credential: { kind: 'cookie', value },
+      });
+      return { authenticated: true, mode: this.authMode, profile: this.profile };
+    } catch (error) {
+      this.cookie = null;
+      this.innertube = null;
+      this.authMode = null;
+      this.profile = null;
+      if (error instanceof SidecarError) {
+        throw error;
+      }
+      throw new SidecarError(
+        'AUTHENTICATION_FAILED',
+        'YouTube Cookie authentication failed.',
+        describeUpstreamError(error),
+      );
+    }
   }
 
   async signOut() {

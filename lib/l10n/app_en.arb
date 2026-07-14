@@ -107,7 +107,7 @@
   ,"moodAndGenreLabel": "{title} mood and genre"
   ,"@moodAndGenreLabel": {"placeholders": {"title": {}}}
   ,"unableToChangeAppLanguage": "Unable to change the app language."
-  ,"youtubeAuthenticationFailed": "YouTube authentication failed."
+  ,"youtubeAuthenticationFailed": "YouTube sign-in failed. Copy the current complete Cookie request header and try again."
   ,"unableToLoadYouTubeMusic": "Unable to load YouTube Music data."
   ,"unableToCompleteYouTubeMusicAction": "Unable to complete the YouTube Music action."
   ,"audioEngineCouldNotPlay": "The audio engine could not play this track."

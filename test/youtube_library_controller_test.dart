@@ -78,6 +78,25 @@ void main() {
     ]);
   });
 
+  test('invalid Cookie sign-in clears saved credentials', () async {
+    final client = _FakeSidecarClient(
+      errorMethod: 'auth.cookie.signIn',
+      error: const SidecarException('INVALID_COOKIE', ''),
+    );
+    final store = _MemoryCredentialStore()..value = 'stale credential';
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: store,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.signInWithCookie('SID=expired-cookie');
+
+    expect(controller.status, YouTubeAccountStatus.error);
+    expect(controller.errorMessage, YouTubeLibraryError.authenticationFailed);
+    expect(store.value, isNull);
+  });
+
   test('loads selected playlist tracks', () async {
     final client = _FakeSidecarClient();
     final controller = YouTubeLibraryController(
@@ -517,11 +536,17 @@ void main() {
 }
 
 class _FakeSidecarClient extends YouTubeSidecarClient {
-  _FakeSidecarClient({this.singleCollection = false, this.lyricsResult})
-    : super(entryPath: 'unused');
+  _FakeSidecarClient({
+    this.singleCollection = false,
+    this.lyricsResult,
+    this.errorMethod,
+    this.error,
+  }) : super(entryPath: 'unused');
 
   final bool singleCollection;
   final Map<String, Object?>? lyricsResult;
+  final String? errorMethod;
+  final SidecarException? error;
   final StreamController<SidecarEvent> _controller =
       StreamController<SidecarEvent>.broadcast(sync: true);
   final List<String> methods = <String>[];
@@ -539,6 +564,9 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
   ]) async {
     methods.add(method);
     requests.add(_SidecarRequest(method, Map<String, Object?>.of(params)));
+    if (method == errorMethod) {
+      throw error!;
+    }
     switch (method) {
       case 'session.restore':
         return <String, Object?>{

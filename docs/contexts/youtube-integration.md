@@ -20,6 +20,11 @@
 ## Authentication
 
 - Cookie-header authentication through `Innertube.create({ cookie })`.
+- YouTube.js OAuth2 is limited to the TV client and cannot replace Cookie
+  authentication for Otoha's YTMUSIC Home, Library, and History requests.
+- Otoha does not embed a browser or extract HttpOnly cookies. An invalid or
+  expired Cookie is rejected before persistence, and an invalid saved Cookie
+  is removed so the user can sign in again.
 - Cookie value stored by `flutter_secure_storage`.
 - Active account name and avatar come from `account.getInfo()`.
 - Legacy OAuth credentials cleared during restore.

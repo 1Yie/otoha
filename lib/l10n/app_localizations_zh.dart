@@ -319,7 +319,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get unableToChangeAppLanguage => '无法切换应用语言。';
 
   @override
-  String get youtubeAuthenticationFailed => 'YouTube 身份验证失败。';
+  String get youtubeAuthenticationFailed =>
+      'YouTube 登录失败。请复制当前完整的 Cookie 请求头后重试。';
 
   @override
   String get unableToLoadYouTubeMusic => '无法加载 YouTube Music 数据。';

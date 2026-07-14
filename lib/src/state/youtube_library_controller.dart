@@ -189,6 +189,9 @@ class YouTubeLibraryController extends ChangeNotifier {
       notifyListeners();
       await _syncAccountData();
     } on Object catch (error) {
+      if (_isAuthenticationFailure(error)) {
+        await _credentialStore.delete();
+      }
       _setError(error);
     }
   }
@@ -207,6 +210,9 @@ class YouTubeLibraryController extends ChangeNotifier {
       notifyListeners();
       await _syncAccountData();
     } on Object catch (error) {
+      if (_isAuthenticationFailure(error)) {
+        await _credentialStore.delete();
+      }
       _setError(error);
     }
   }
@@ -948,6 +954,9 @@ class YouTubeLibraryController extends ChangeNotifier {
       notifyListeners();
       await _syncAccountData();
     } on Object catch (error) {
+      if (_isAuthenticationFailure(error)) {
+        await _credentialStore.delete();
+      }
       _setError(error);
     } finally {
       _isRecoveringSidecar = false;
@@ -1069,8 +1078,20 @@ class YouTubeLibraryController extends ChangeNotifier {
     });
   }
 
-  YouTubeLibraryError _requestErrorFor(Object _) =>
-      YouTubeLibraryError.loadFailed;
+  YouTubeLibraryError _requestErrorFor(Object error) =>
+      _isAuthenticationFailure(error)
+      ? YouTubeLibraryError.authenticationFailed
+      : YouTubeLibraryError.loadFailed;
+
+  bool _isAuthenticationFailure(Object error) =>
+      error is SidecarException &&
+      const <String>{
+        'INVALID_COOKIE',
+        'INVALID_CREDENTIAL',
+        'AUTH_REQUIRED',
+        'AUTHENTICATION_REQUIRED',
+        'AUTHENTICATION_FAILED',
+      }.contains(error.code);
 
   void _setError(Object error, {bool preserveSignedIn = false}) {
     _errorMessage = _requestErrorFor(error);

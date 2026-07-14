@@ -107,7 +107,7 @@
   ,"moodAndGenreLabel": "{title} 心情与流派"
   ,"@moodAndGenreLabel": {"placeholders": {"title": {}}}
   ,"unableToChangeAppLanguage": "无法切换应用语言。"
-  ,"youtubeAuthenticationFailed": "YouTube 身份验证失败。"
+  ,"youtubeAuthenticationFailed": "YouTube 登录失败。请复制当前完整的 Cookie 请求头后重试。"
   ,"unableToLoadYouTubeMusic": "无法加载 YouTube Music 数据。"
   ,"unableToCompleteYouTubeMusicAction": "无法完成 YouTube Music 操作。"
   ,"audioEngineCouldNotPlay": "音频引擎无法播放此歌曲。"

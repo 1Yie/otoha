@@ -677,7 +677,7 @@ abstract class AppLocalizations {
   /// No description provided for @youtubeAuthenticationFailed.
   ///
   /// In en, this message translates to:
-  /// **'YouTube authentication failed.'**
+  /// **'YouTube sign-in failed. Copy the current complete Cookie request header and try again.'**
   String get youtubeAuthenticationFailed;
 
   /// No description provided for @unableToLoadYouTubeMusic.

@@ -87,6 +87,30 @@ test('maps the active account name and avatar from a Cookie session', () => {
   );
 });
 
+test('rejects a Cookie session without an authenticated account profile', async () => {
+  const credentials = [];
+  const service = new YouTubeService({
+    createInnertube: async () => ({
+      account: {
+        getInfo: async () => ({ contents: { contents: [] } }),
+      },
+    }),
+    emit: (event, data) => credentials.push({ event, data }),
+  });
+
+  await assert.rejects(
+    service.signInWithCookie('SID=expired-cookie'),
+    (error) => error.code === 'INVALID_COOKIE',
+  );
+
+  assert.deepEqual(service.status(), {
+    authenticated: false,
+    mode: null,
+    profile: null,
+  });
+  assert.deepEqual(credentials, []);
+});
+
 test('creates and recreates sessions with the requested interface language', async () => {
   const calls = [];
   const service = new YouTubeService({
@@ -452,7 +476,18 @@ test('loads library playlist tracks through the Cookie-authenticated music sessi
     has_continuation: false,
   };
   const innertube = {
-    account: { getInfo: async () => ({}) },
+    account: {
+      getInfo: async () => ({
+        contents: {
+          contents: [
+            {
+              account_name: { toString: () => 'Test listener' },
+              account_photo: [],
+            },
+          ],
+        },
+      }),
+    },
     music: {
       getPlaylist: async () => ({
         header: { title: 'Playlist' },
