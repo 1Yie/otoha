@@ -97,6 +97,28 @@ void main() {
     expect(store.value, isNull);
   });
 
+  test(
+    'sidecar startup failures are not reported as invalid Cookies',
+    () async {
+      final client = _FakeSidecarClient(
+        errorMethod: 'auth.cookie.signIn',
+        error: const SidecarException('SIDECAR_NOT_FOUND', ''),
+      );
+      final store = _MemoryCredentialStore()..value = 'existing credential';
+      final controller = YouTubeLibraryController(
+        client: client,
+        credentialStore: store,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.signInWithCookie('SID=test-cookie');
+
+      expect(controller.status, YouTubeAccountStatus.error);
+      expect(controller.errorMessage, YouTubeLibraryError.loadFailed);
+      expect(store.value, 'existing credential');
+    },
+  );
+
   test('loads selected playlist tracks', () async {
     final client = _FakeSidecarClient();
     final controller = YouTubeLibraryController(

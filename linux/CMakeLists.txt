@@ -126,6 +126,70 @@ install(CODE "
 install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
 
+# Release bundles must carry the Node sidecar because packaged applications no
+# longer have the repository root available as their working directory.
+if(CMAKE_BUILD_TYPE MATCHES "Release")
+  set(OTOHA_SIDECAR_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sidecar")
+  if(NOT EXISTS "${OTOHA_SIDECAR_SOURCE_DIR}/node_modules/youtubei.js/package.json")
+    message(FATAL_ERROR
+      "YouTube sidecar dependencies are missing. Run `npm --prefix sidecar ci` before building a release.")
+  endif()
+
+  find_program(OTOHA_NODE_COMMAND node)
+  if(NOT OTOHA_NODE_COMMAND)
+    message(FATAL_ERROR "Node.js 20 or newer is required to build an Otoha release.")
+  endif()
+  execute_process(
+    COMMAND "${OTOHA_NODE_COMMAND}" -p "process.execPath"
+    OUTPUT_VARIABLE OTOHA_NODE_EXECUTABLE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  if(NOT EXISTS "${OTOHA_NODE_EXECUTABLE}")
+    message(FATAL_ERROR "Could not resolve the Node.js executable from ${OTOHA_NODE_COMMAND}.")
+  endif()
+  execute_process(
+    COMMAND "${OTOHA_NODE_EXECUTABLE}" --version
+    OUTPUT_VARIABLE OTOHA_NODE_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  if(NOT OTOHA_NODE_VERSION MATCHES "^v([2-9][0-9]|[1-9][0-9][0-9])\\.")
+    message(FATAL_ERROR
+      "Node.js 20 or newer is required to build an Otoha release; found ${OTOHA_NODE_VERSION}.")
+  endif()
+
+  get_filename_component(OTOHA_NODE_BIN_DIR "${OTOHA_NODE_EXECUTABLE}" DIRECTORY)
+  get_filename_component(OTOHA_NODE_ROOT_DIR "${OTOHA_NODE_BIN_DIR}" DIRECTORY)
+  find_file(OTOHA_NODE_LICENSE
+    NAMES LICENSE LICENSE.md copyright
+    PATHS
+      "${OTOHA_NODE_ROOT_DIR}"
+      "/usr/share/doc/nodejs"
+      "/usr/share/licenses/nodejs"
+    NO_DEFAULT_PATH)
+  if(NOT OTOHA_NODE_LICENSE)
+    message(FATAL_ERROR "Could not find the Node.js license for ${OTOHA_NODE_EXECUTABLE}.")
+  endif()
+
+  install(DIRECTORY
+    "${OTOHA_SIDECAR_SOURCE_DIR}/src"
+    "${OTOHA_SIDECAR_SOURCE_DIR}/node_modules"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/sidecar"
+    COMPONENT Runtime)
+  install(FILES
+    "${OTOHA_SIDECAR_SOURCE_DIR}/package.json"
+    "${OTOHA_SIDECAR_SOURCE_DIR}/package-lock.json"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/sidecar"
+    COMPONENT Runtime)
+  install(PROGRAMS "${OTOHA_NODE_EXECUTABLE}"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/node/bin"
+    RENAME node
+    COMPONENT Runtime)
+  install(FILES "${OTOHA_NODE_LICENSE}"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/node"
+    RENAME LICENSE
+    COMPONENT Runtime)
+endif()
+
 # Install the AOT library on non-Debug builds only.
 if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"

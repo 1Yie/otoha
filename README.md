@@ -145,13 +145,21 @@ flutter test
 npm --prefix sidecar test
 ```
 
-Build a release on the matching host platform:
+Install the sidecar dependencies, then build a release on the matching host
+platform:
 
 ```bash
+npm --prefix sidecar ci
 flutter build linux
 flutter build macos
 flutter build windows
 ```
+
+The Linux release bundle includes the sidecar, its pinned dependencies, and the
+Node.js 20+ runtime used for the build. This keeps Cookie sign-in and playback
+resolution working when the bundle is launched outside the source checkout.
+The GitHub release workflow adds the same runtime files to the Windows
+installer and macOS disk image during their platform-specific packaging steps.
 
 Prepare a version commit and annotated tag from a clean `main` branch:
 

@@ -4,21 +4,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:otoha/src/services/youtube_sidecar_client.dart';
 
 void main() {
-  test('locates a sidecar next to a Linux or Windows executable', () {
+  test('locates a bundled sidecar and Node next to a Linux executable', () {
     final directory = Directory.systemTemp.createTempSync('otoha-sidecar-test');
     addTearDown(() => directory.deleteSync(recursive: true));
     final executable = File('${directory.path}/otoha');
     executable.createSync();
     final entry = File('${directory.path}/sidecar/src/index.mjs');
     entry.createSync(recursive: true);
+    final node = File('${directory.path}/node/bin/node');
+    node.createSync(recursive: true);
 
+    final locatedEntry = SidecarBundleLocator.findEntryPath(
+      executablePath: executable.path,
+      workingDirectoryPath: directory.path,
+      environment: const <String, String>{},
+    );
+    expect(locatedEntry, entry.path);
     expect(
-      SidecarBundleLocator.findEntryPath(
-        executablePath: executable.path,
-        workingDirectoryPath: directory.path,
+      SidecarBundleLocator.findNodeExecutable(
+        entryPath: locatedEntry!,
+        isWindows: false,
         environment: const <String, String>{},
       ),
-      entry.path,
+      node.path,
     );
   });
 

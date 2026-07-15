@@ -20,11 +20,18 @@ trap cleanup EXIT
 
 install -d "$stage_directory/usr/lib/otoha"
 cp -a "$bundle_directory/." "$stage_directory/usr/lib/otoha/"
-cp -a sidecar "$stage_directory/usr/lib/otoha/sidecar"
-install -Dm755 "$node_binary" "$stage_directory/usr/lib/otoha/node/bin/node"
+if [ ! -f "$stage_directory/usr/lib/otoha/sidecar/src/index.mjs" ] ||
+  [ ! -f "$stage_directory/usr/lib/otoha/sidecar/node_modules/youtubei.js/package.json" ]; then
+  rm -rf "$stage_directory/usr/lib/otoha/sidecar"
+  cp -a sidecar "$stage_directory/usr/lib/otoha/sidecar"
+fi
+if [ ! -x "$stage_directory/usr/lib/otoha/node/bin/node" ]; then
+  install -Dm755 "$node_binary" "$stage_directory/usr/lib/otoha/node/bin/node"
+fi
 
 node_root="$(dirname "$(dirname "$node_binary")")"
-if [ -f "$node_root/LICENSE" ]; then
+if [ ! -f "$stage_directory/usr/lib/otoha/node/LICENSE" ] &&
+  [ -f "$node_root/LICENSE" ]; then
   install -Dm644 "$node_root/LICENSE" "$stage_directory/usr/lib/otoha/node/LICENSE"
 fi
 
