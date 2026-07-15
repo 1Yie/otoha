@@ -14,6 +14,8 @@ class DownloadedTrack {
     required this.filePath,
     required this.mimeType,
     required this.downloadedAt,
+    this.bundlePath,
+    this.lyricsPath,
   });
 
   factory DownloadedTrack.fromJson(Map<String, Object?> json) {
@@ -27,6 +29,8 @@ class DownloadedTrack {
       filePath: json['filePath']! as String,
       mimeType: json['mimeType']! as String,
       downloadedAt: DateTime.parse(json['downloadedAt']! as String),
+      bundlePath: json['bundlePath'] as String?,
+      lyricsPath: json['lyricsPath'] as String?,
     );
   }
 
@@ -39,6 +43,8 @@ class DownloadedTrack {
   final String filePath;
   final String mimeType;
   final DateTime downloadedAt;
+  final String? bundlePath;
+  final String? lyricsPath;
 
   Track toTrack() => Track(
     id: 'offline:$videoId',
@@ -50,6 +56,7 @@ class DownloadedTrack {
     lyrics: const <String>[],
     youtubeVideoId: videoId,
     localFilePath: filePath,
+    localLyricsPath: lyricsPath,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -62,6 +69,8 @@ class DownloadedTrack {
     'filePath': filePath,
     'mimeType': mimeType,
     'downloadedAt': downloadedAt.toIso8601String(),
+    'bundlePath': bundlePath,
+    'lyricsPath': lyricsPath,
   };
 }
 

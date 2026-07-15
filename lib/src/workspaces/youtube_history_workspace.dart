@@ -206,6 +206,13 @@ class _HistoryBody extends StatelessWidget {
               },
             ),
           ),
+        if (tracks.isNotEmpty)
+          const SliverToBoxAdapter(
+            child: SizedBox(
+              key: Key('youtube-history-bottom-padding'),
+              height: 40,
+            ),
+          ),
       ],
     );
   }

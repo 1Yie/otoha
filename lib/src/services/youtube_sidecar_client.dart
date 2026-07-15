@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'desktop_proxy_environment.dart';
+
 class SidecarEvent {
   const SidecarEvent(this.name, this.data);
 
@@ -123,17 +125,20 @@ class YouTubeSidecarClient {
   YouTubeSidecarClient({
     String? executable,
     String? entryPath,
+    Map<String, String>? processEnvironment,
     Duration requestTimeout = const Duration(minutes: 2),
-  }) : this._(executable, entryPath, requestTimeout);
+  }) : this._(executable, entryPath, processEnvironment, requestTimeout);
 
   YouTubeSidecarClient._(
     this._executable,
     this._entryPath,
+    this._processEnvironment,
     this._requestTimeout,
   );
 
   final String? _executable;
   final String? _entryPath;
+  final Map<String, String>? _processEnvironment;
   final Duration _requestTimeout;
   final StreamController<SidecarEvent> _events =
       StreamController<SidecarEvent>.broadcast();
@@ -242,6 +247,12 @@ class YouTubeSidecarClient {
 
   Future<void> _start() async {
     final entry = _entryPath ?? _findEntryPath();
+    final environment =
+        _processEnvironment ??
+        await DesktopProxyEnvironment.resolve(
+          environment: Platform.environment,
+          isLinux: Platform.isLinux,
+        );
     final process = await Process.start(
       _executable ??
           SidecarBundleLocator.findNodeExecutable(
@@ -252,7 +263,7 @@ class YouTubeSidecarClient {
       <String>[entry],
       workingDirectory: File(entry).parent.parent.path,
       runInShell: Platform.isWindows,
-      environment: const <String, String>{'NODE_USE_ENV_PROXY': '1'},
+      environment: environment,
     );
     _process = process;
     _stderr = '';

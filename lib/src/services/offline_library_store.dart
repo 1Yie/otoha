@@ -9,13 +9,17 @@ import '../models/offline_library.dart';
 @immutable
 class OfflineLibrarySnapshot {
   const OfflineLibrarySnapshot({
+    this.version = currentVersion,
     this.downloadDirectory,
     this.downloads = const <DownloadedTrack>[],
     this.playlists = const <OfflinePlaylist>[],
   });
 
+  static const int currentVersion = 2;
+
   factory OfflineLibrarySnapshot.fromJson(Map<String, Object?> json) {
     return OfflineLibrarySnapshot(
+      version: json['version'] as int? ?? 1,
       downloadDirectory: json['downloadDirectory'] as String?,
       downloads: (json['downloads'] as List<Object?>? ?? const <Object?>[])
           .whereType<Map<Object?, Object?>>()
@@ -28,11 +32,13 @@ class OfflineLibrarySnapshot {
     );
   }
 
+  final int version;
   final String? downloadDirectory;
   final List<DownloadedTrack> downloads;
   final List<OfflinePlaylist> playlists;
 
   Map<String, Object?> toJson() => <String, Object?>{
+    'version': currentVersion,
     'downloadDirectory': downloadDirectory,
     'downloads': downloads.map((track) => track.toJson()).toList(),
     'playlists': playlists.map((playlist) => playlist.toJson()).toList(),
@@ -46,6 +52,15 @@ abstract interface class OfflineLibraryStore {
 }
 
 class FileOfflineLibraryStore implements OfflineLibraryStore {
+  FileOfflineLibraryStore({
+    Directory? homeDirectory,
+    Directory? applicationSupportDirectory,
+  }) : _homeDirectoryOverride = homeDirectory,
+       _applicationSupportDirectoryOverride = applicationSupportDirectory;
+
+  final Directory? _homeDirectoryOverride;
+  final Directory? _applicationSupportDirectoryOverride;
+
   @override
   Future<OfflineLibrarySnapshot> read() async {
     try {
@@ -57,7 +72,10 @@ class FileOfflineLibraryStore implements OfflineLibraryStore {
       if (decoded is! Map<Object?, Object?>) {
         return const OfflineLibrarySnapshot();
       }
-      return OfflineLibrarySnapshot.fromJson(decoded.cast<String, Object?>());
+      final snapshot = OfflineLibrarySnapshot.fromJson(
+        decoded.cast<String, Object?>(),
+      );
+      return await _migrateLegacyDefaultDirectory(snapshot);
     } on Object {
       return const OfflineLibrarySnapshot();
     }
@@ -78,21 +96,24 @@ class FileOfflineLibraryStore implements OfflineLibraryStore {
   Future<String> defaultDownloadDirectory() async {
     final home = _homeDirectory();
     final musicDirectory = await _musicDirectory(home);
-    if (await musicDirectory.exists()) {
-      return musicDirectory.path;
-    }
-    return '${home.path}${Platform.pathSeparator}otoha${Platform.pathSeparator}download_yt';
+    return '${musicDirectory.path}${Platform.pathSeparator}otoha${Platform.pathSeparator}yt_music_download';
   }
 
   Future<File> _file() async {
+    final applicationSupportDirectory =
+        _applicationSupportDirectoryOverride ??
+        await getApplicationSupportDirectory();
     final directory = Directory(
-      '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}offline-library',
+      '${applicationSupportDirectory.path}${Platform.pathSeparator}offline-library',
     );
     await directory.create(recursive: true);
     return File('${directory.path}${Platform.pathSeparator}library.json');
   }
 
   Directory _homeDirectory() {
+    if (_homeDirectoryOverride != null) {
+      return _homeDirectoryOverride;
+    }
     final path =
         Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
@@ -117,5 +138,44 @@ class FileOfflineLibraryStore implements OfflineLibraryStore {
       }
     }
     return Directory('${home.path}${Platform.pathSeparator}Music');
+  }
+
+  Future<OfflineLibrarySnapshot> _migrateLegacyDefaultDirectory(
+    OfflineLibrarySnapshot snapshot,
+  ) async {
+    final savedDirectory = snapshot.downloadDirectory;
+    if (snapshot.version >= OfflineLibrarySnapshot.currentVersion ||
+        savedDirectory == null ||
+        savedDirectory.isEmpty) {
+      return snapshot;
+    }
+    final home = _homeDirectory();
+    final musicDirectory = await _musicDirectory(home);
+    final oldFallback =
+        '${home.path}${Platform.pathSeparator}otoha${Platform.pathSeparator}download_yt';
+    if (!_samePath(savedDirectory, musicDirectory.path) &&
+        !_samePath(savedDirectory, oldFallback)) {
+      return snapshot;
+    }
+    final migrated = OfflineLibrarySnapshot(
+      downloadDirectory: await defaultDownloadDirectory(),
+      downloads: snapshot.downloads,
+      playlists: snapshot.playlists,
+    );
+    try {
+      await write(migrated);
+    } on Object {
+      // Keep the migrated in-memory value even if persistence is unavailable.
+    }
+    return migrated;
+  }
+
+  bool _samePath(String left, String right) {
+    String normalize(String value) {
+      final normalized = value.replaceAll(RegExp(r'[\\/]+$'), '');
+      return Platform.isWindows ? normalized.toLowerCase() : normalized;
+    }
+
+    return normalize(left) == normalize(right);
   }
 }

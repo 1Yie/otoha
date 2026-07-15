@@ -542,17 +542,17 @@ abstract class AppLocalizations {
   /// **'For you'**
   String get forYou;
 
-  /// No description provided for @scrollMoodsGenresLeft.
+  /// No description provided for @scrollFeedFiltersLeft.
   ///
   /// In en, this message translates to:
-  /// **'Scroll moods and genres left'**
-  String get scrollMoodsGenresLeft;
+  /// **'Scroll filters left'**
+  String get scrollFeedFiltersLeft;
 
-  /// No description provided for @scrollMoodsGenresRight.
+  /// No description provided for @scrollFeedFiltersRight.
   ///
   /// In en, this message translates to:
-  /// **'Scroll moods and genres right'**
-  String get scrollMoodsGenresRight;
+  /// **'Scroll filters right'**
+  String get scrollFeedFiltersRight;
 
   /// No description provided for @scrollSectionLeft.
   ///
@@ -782,6 +782,48 @@ abstract class AppLocalizations {
   /// **'Delete {title} from Downloads? The local file and its references in offline playlists will be removed.'**
   String deleteDownloadConfirmation(String title);
 
+  /// No description provided for @selectDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Select downloads'**
+  String get selectDownloads;
+
+  /// No description provided for @exitDownloadSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit selection'**
+  String get exitDownloadSelection;
+
+  /// No description provided for @selectAllDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all downloads'**
+  String get selectAllDownloads;
+
+  /// No description provided for @selectedDownloadsCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String selectedDownloadsCount(int count);
+
+  /// No description provided for @addSelectedToPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Add selected to playlist'**
+  String get addSelectedToPlaylist;
+
+  /// No description provided for @deleteSelectedDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete selected downloads'**
+  String get deleteSelectedDownloads;
+
+  /// No description provided for @deleteSelectedDownloadsConfirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {count} selected downloads? Their local files and references in offline playlists will be removed.'**
+  String deleteSelectedDownloadsConfirmation(int count);
+
   /// No description provided for @cancel.
   ///
   /// In en, this message translates to:
@@ -823,6 +865,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Remove from playlist'**
   String get removeFromPlaylist;
+
+  /// No description provided for @removeFromPlaylistConfirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove this song from the playlist? The downloaded file will remain available.'**
+  String get removeFromPlaylistConfirmation;
 
   /// No description provided for @deletePlaylist.
   ///

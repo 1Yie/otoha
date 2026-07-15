@@ -28,6 +28,7 @@ class OtohaApp extends StatefulWidget {
     this.initialTracks = const <Track>[],
     this.localeController,
     this.desktopTrayController,
+    this.proxyEnvironment = const <String, String>{},
     super.key,
   });
 
@@ -37,6 +38,7 @@ class OtohaApp extends StatefulWidget {
   final List<Track> initialTracks;
   final AppLocaleController? localeController;
   final DesktopTrayController? desktopTrayController;
+  final Map<String, String> proxyEnvironment;
 
   @override
   State<OtohaApp> createState() => _OtohaAppState();
@@ -68,7 +70,7 @@ class _OtohaAppState extends State<OtohaApp> {
     _restoresPlayerSession =
         _ownsYouTubeLibraryController || widget.playerSessionStore != null;
     final sidecarClient = _ownsYouTubeLibraryController
-        ? YouTubeSidecarClient()
+        ? YouTubeSidecarClient(processEnvironment: widget.proxyEnvironment)
         : null;
     _playerController = PlayerController(
       widget.initialTracks,
@@ -77,7 +79,10 @@ class _OtohaAppState extends State<OtohaApp> {
           : null,
       audioPlaybackEngine: sidecarClient == null
           ? null
-          : MediaKitAudioPlaybackEngine(sidecarClient),
+          : MediaKitAudioPlaybackEngine(
+              sidecarClient,
+              proxyEnvironment: widget.proxyEnvironment,
+            ),
     );
     _shellController = ShellController();
     _shellFocusNode = FocusNode(debugLabel: 'desktop-shell');

@@ -1,17 +1,26 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/app/otoha_app.dart';
+import 'src/services/desktop_proxy_environment.dart';
 import 'src/services/desktop_tray_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   DesktopTrayController? desktopTrayController;
+  var proxyEnvironment = const <String, String>{};
 
   if (!kIsWeb && _isDesktopPlatform()) {
+    proxyEnvironment = await DesktopProxyEnvironment.resolve(
+      environment: Platform.environment,
+      isLinux: Platform.isLinux,
+    );
+    HttpOverrides.global = DesktopProxyHttpOverrides(proxyEnvironment);
     await windowManager.ensureInitialized();
     const windowOptions = WindowOptions(
       size: Size(1440, 896),
@@ -28,7 +37,12 @@ Future<void> main() async {
     desktopTrayController = DesktopTrayController();
   }
 
-  runApp(OtohaApp(desktopTrayController: desktopTrayController));
+  runApp(
+    OtohaApp(
+      desktopTrayController: desktopTrayController,
+      proxyEnvironment: proxyEnvironment,
+    ),
+  );
 }
 
 bool _isDesktopPlatform() {

@@ -120,6 +120,10 @@ void main() {
       expect(engine.openedVideoIds, <String>['first', 'first']);
 
       engine.emit(
+        const AudioPlaybackSnapshot(position: Duration.zero, isBuffering: true),
+      );
+      await Future<void>.delayed(Duration.zero);
+      engine.emit(
         const AudioPlaybackSnapshot(
           position: Duration(seconds: 18),
           isPlaying: true,
@@ -193,6 +197,61 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(store.writeCount, writesAfterSelection + 1);
+    });
+
+    test('keeps restored position until native seek catches up', () async {
+      final store = _MemoryPlayerSessionStore();
+      final track = _youtubeTrack('restored');
+      final sourceEngine = _FakeAudioPlaybackEngine();
+      final source = PlayerController(
+        <Track>[track],
+        sessionStore: store,
+        audioPlaybackEngine: sourceEngine,
+      );
+      addTearDown(source.dispose);
+      source
+        ..selectTrack(track)
+        ..seekTo(73);
+      await Future<void>.delayed(Duration.zero);
+
+      final restoredEngine = _FakeAudioPlaybackEngine();
+      final restored = PlayerController(
+        const <Track>[],
+        sessionStore: store,
+        audioPlaybackEngine: restoredEngine,
+      );
+      addTearDown(restored.dispose);
+      await restored.restoreSession();
+
+      expect(restored.positionSeconds, 73);
+      restored.togglePlaying();
+      expect(restoredEngine.openInitialPositions, <Duration>[
+        const Duration(seconds: 73),
+      ]);
+
+      restoredEngine.emit(
+        const AudioPlaybackSnapshot(position: Duration.zero, isBuffering: true),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(restored.positionSeconds, 73);
+
+      restoredEngine.emit(
+        const AudioPlaybackSnapshot(
+          position: Duration(seconds: 73),
+          isPlaying: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(restored.positionSeconds, 73);
+
+      restoredEngine.emit(
+        const AudioPlaybackSnapshot(
+          position: Duration(seconds: 74),
+          isPlaying: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(restored.positionSeconds, 74);
     });
 
     test('plays a downloaded track from its local audio file', () {
@@ -288,6 +347,7 @@ class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
   final StreamController<AudioOutputState> _outputStates =
       StreamController<AudioOutputState>.broadcast();
   final List<String> openedVideoIds = <String>[];
+  final List<Duration> openInitialPositions = <Duration>[];
   final List<String> openedLocalFilePaths = <String>[];
   final List<Duration> seekPositions = <Duration>[];
   final List<double> volumes = <double>[];
@@ -323,6 +383,7 @@ class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
     Duration initialPosition = Duration.zero,
   }) async {
     openedVideoIds.add(videoId);
+    openInitialPositions.add(initialPosition);
   }
 
   @override

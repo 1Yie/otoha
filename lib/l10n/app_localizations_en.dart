@@ -243,10 +243,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get forYou => 'For you';
 
   @override
-  String get scrollMoodsGenresLeft => 'Scroll moods and genres left';
+  String get scrollFeedFiltersLeft => 'Scroll filters left';
 
   @override
-  String get scrollMoodsGenresRight => 'Scroll moods and genres right';
+  String get scrollFeedFiltersRight => 'Scroll filters right';
 
   @override
   String scrollSectionLeft(Object section) {
@@ -385,6 +385,31 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get selectDownloads => 'Select downloads';
+
+  @override
+  String get exitDownloadSelection => 'Exit selection';
+
+  @override
+  String get selectAllDownloads => 'Select all downloads';
+
+  @override
+  String selectedDownloadsCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String get addSelectedToPlaylist => 'Add selected to playlist';
+
+  @override
+  String get deleteSelectedDownloads => 'Delete selected downloads';
+
+  @override
+  String deleteSelectedDownloadsConfirmation(int count) {
+    return 'Delete $count selected downloads? Their local files and references in offline playlists will be removed.';
+  }
+
+  @override
   String get cancel => 'Cancel';
 
   @override
@@ -406,6 +431,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get removeFromPlaylist => 'Remove from playlist';
+
+  @override
+  String get removeFromPlaylistConfirmation =>
+      'Remove this song from the playlist? The downloaded file will remain available.';
 
   @override
   String get deletePlaylist => 'Delete playlist';

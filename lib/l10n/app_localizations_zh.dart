@@ -241,10 +241,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get forYou => '为你推荐';
 
   @override
-  String get scrollMoodsGenresLeft => '向左滚动心情和流派';
+  String get scrollFeedFiltersLeft => '向左滚动筛选标签';
 
   @override
-  String get scrollMoodsGenresRight => '向右滚动心情和流派';
+  String get scrollFeedFiltersRight => '向右滚动筛选标签';
 
   @override
   String scrollSectionLeft(Object section) {
@@ -378,6 +378,31 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get selectDownloads => '选择下载歌曲';
+
+  @override
+  String get exitDownloadSelection => '退出选择';
+
+  @override
+  String get selectAllDownloads => '全选下载歌曲';
+
+  @override
+  String selectedDownloadsCount(int count) {
+    return '已选择 $count 首';
+  }
+
+  @override
+  String get addSelectedToPlaylist => '将所选歌曲加入播放列表';
+
+  @override
+  String get deleteSelectedDownloads => '删除所选下载';
+
+  @override
+  String deleteSelectedDownloadsConfirmation(int count) {
+    return '确定删除所选的 $count 首下载歌曲吗？本地文件及其在离线播放列表中的引用都会被移除。';
+  }
+
+  @override
   String get cancel => '取消';
 
   @override
@@ -399,6 +424,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get removeFromPlaylist => '从播放列表中移除';
+
+  @override
+  String get removeFromPlaylistConfirmation => '确定从播放列表中移除此歌曲吗？已下载的文件仍会保留。';
 
   @override
   String get deletePlaylist => '删除播放列表';

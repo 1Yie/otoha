@@ -86,6 +86,16 @@ class _AccountPanelState extends State<AccountPanel> {
             key: const Key('youtube-auth-error'),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
+          if (widget.controller.errorDiagnostic != null) ...<Widget>[
+            const SizedBox(height: 6),
+            SelectableText(
+              widget.controller.errorDiagnostic!,
+              key: const Key('youtube-auth-diagnostic'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ],
     );

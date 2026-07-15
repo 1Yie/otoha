@@ -105,36 +105,70 @@ class OfflineLibraryController extends ChangeNotifier {
     _downloadingVideoId = videoId;
     _error = null;
     notifyListeners();
+    String? createdBundlePath;
+    final previousDownloads = _downloads;
     try {
       await Directory(directory).create(recursive: true);
-      final result = await youtubeLibraryController.downloadAudio(
+      final result = await youtubeLibraryController.downloadMediaBundle(
         videoId: videoId,
         directory: directory,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        durationSeconds: track.durationSeconds,
+        artworkUrl: track.artworkAsset,
       );
       final path = result['path'] as String?;
+      final bundlePath = result['bundlePath'] as String?;
+      final artworkPath = result['artworkPath'] as String?;
+      final lyricsPath = result['lyricsPath'] as String?;
       final mimeType = result['mimeType'] as String?;
       if (path == null ||
           path.isEmpty ||
+          bundlePath == null ||
+          bundlePath.isEmpty ||
+          artworkPath == null ||
+          artworkPath.isEmpty ||
+          lyricsPath == null ||
+          lyricsPath.isEmpty ||
           mimeType == null ||
           mimeType.isEmpty) {
-        throw const FormatException('Missing downloaded audio details.');
+        throw const FormatException('Missing downloaded bundle details.');
       }
+      createdBundlePath = bundlePath;
       _downloads = <DownloadedTrack>[
         DownloadedTrack(
           videoId: videoId,
           title: track.title,
           artist: track.artist,
           album: track.album,
-          artworkAsset: track.artworkAsset,
+          artworkAsset: artworkPath,
           durationSeconds: track.durationSeconds,
           filePath: path,
           mimeType: mimeType,
           downloadedAt: DateTime.now(),
+          bundlePath: bundlePath,
+          lyricsPath: lyricsPath,
         ),
         ..._downloads,
       ];
-      await _persist();
+      try {
+        await _persist();
+      } on Object {
+        _downloads = previousDownloads;
+        rethrow;
+      }
     } on Object {
+      if (createdBundlePath != null) {
+        try {
+          final bundle = Directory(createdBundlePath);
+          if (await bundle.exists()) {
+            await bundle.delete(recursive: true);
+          }
+        } on Object {
+          // The persisted library still excludes a bundle that failed to save.
+        }
+      }
       _error = OfflineLibraryError.downloadFailed;
     } finally {
       _downloadingVideoId = null;
@@ -142,31 +176,68 @@ class OfflineLibraryController extends ChangeNotifier {
     }
   }
 
-  Future<void> remove(DownloadedTrack track) async {
-    try {
-      final file = File(track.filePath);
-      if (await file.exists()) {
-        await file.delete();
+  Future<void> remove(DownloadedTrack track) =>
+      removeMany(<DownloadedTrack>[track]);
+
+  Future<void> removeMany(Iterable<DownloadedTrack> tracks) async {
+    final currentById = <String, DownloadedTrack>{
+      for (final track in _downloads) track.videoId: track,
+    };
+    final selectedById = <String, DownloadedTrack>{};
+    for (final track in tracks) {
+      final current = currentById[track.videoId];
+      if (current != null) {
+        selectedById[current.videoId] = current;
       }
+    }
+    final selected = selectedById.values.toList(growable: false);
+    if (selected.isEmpty) {
+      return;
+    }
+
+    final removedVideoIds = <String>{};
+    var failed = false;
+    for (final track in selected) {
+      try {
+        final bundlePath = track.bundlePath;
+        if (bundlePath != null && bundlePath.isNotEmpty) {
+          final bundle = Directory(bundlePath);
+          if (await bundle.exists()) {
+            await bundle.delete(recursive: true);
+          }
+        } else {
+          final file = File(track.filePath);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        }
+        removedVideoIds.add(track.videoId);
+      } on Object {
+        failed = true;
+      }
+    }
+    if (removedVideoIds.isNotEmpty) {
       _downloads = _downloads
-          .where((item) => item.videoId != track.videoId)
+          .where((item) => !removedVideoIds.contains(item.videoId))
           .toList(growable: false);
       _playlists = _playlists
           .map((playlist) {
             final trackVideoIds = playlist.trackVideoIds
-                .where((videoId) => videoId != track.videoId)
+                .where((videoId) => !removedVideoIds.contains(videoId))
                 .toList(growable: false);
             return playlist.copyWith(
               trackVideoIds: trackVideoIds,
-              clearArtwork: playlist.artworkVideoId == track.videoId,
+              clearArtwork: removedVideoIds.contains(playlist.artworkVideoId),
             );
           })
           .toList(growable: false);
-      _error = null;
-      await _persist();
-    } on Object {
-      _error = OfflineLibraryError.deleteFailed;
+      try {
+        await _persist();
+      } on Object {
+        failed = true;
+      }
     }
+    _error = failed ? OfflineLibraryError.deleteFailed : null;
     notifyListeners();
   }
 
@@ -235,14 +306,33 @@ class OfflineLibraryController extends ChangeNotifier {
   Future<void> addToPlaylist({
     required OfflinePlaylist playlist,
     required DownloadedTrack track,
+  }) => addManyToPlaylist(playlist: playlist, tracks: <DownloadedTrack>[track]);
+
+  Future<void> addManyToPlaylist({
+    required OfflinePlaylist playlist,
+    required Iterable<DownloadedTrack> tracks,
   }) async {
-    if (playlist.trackVideoIds.contains(track.videoId)) {
+    final matchingPlaylists = _playlists.where(
+      (item) => item.id == playlist.id,
+    );
+    if (matchingPlaylists.isEmpty) {
+      return;
+    }
+    final currentPlaylist = matchingPlaylists.first;
+    final downloadedVideoIds = _downloads.map((track) => track.videoId).toSet();
+    final includedVideoIds = currentPlaylist.trackVideoIds.toSet();
+    final trackVideoIds = <String>[
+      ...currentPlaylist.trackVideoIds,
+      for (final track in tracks)
+        if (downloadedVideoIds.contains(track.videoId) &&
+            includedVideoIds.add(track.videoId))
+          track.videoId,
+    ];
+    if (trackVideoIds.length == currentPlaylist.trackVideoIds.length) {
       return;
     }
     await _replacePlaylist(
-      playlist.copyWith(
-        trackVideoIds: <String>[...playlist.trackVideoIds, track.videoId],
-      ),
+      currentPlaylist.copyWith(trackVideoIds: trackVideoIds),
     );
   }
 

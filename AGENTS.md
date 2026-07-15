@@ -75,10 +75,10 @@ Run commands from the repository root:
 
 ## Runtime/Tooling Preferences
 
-- Dart `^3.12.2`, Flutter stable, Node.js 20 or newer, Pub, and npm are required.
+- Dart `^3.12.2`, Flutter stable, Node.js 24 or newer, Pub, and npm are required.
 - Run the app from the repository root so the development sidecar can resolve `sidecar/src/index.mjs`. `OTOHA_SIDECAR_ENTRY` can override that path.
 - `flutter_secure_storage` uses the OS credential store. Linux builds require `libsecret-1-dev` on Debian/Ubuntu or `libsecret-devel` on Fedora.
-- The Flutter process enables Node's environment-proxy support for the sidecar. Standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` variables are inherited.
+- The Flutter process enables Node's environment-proxy support for the sidecar. Standard `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` variables are inherited; Linux desktop launches otherwise import a manual `gsettings` proxy for sidecar, Flutter image, and native `media_kit` playback requests.
 - `window_manager` provides the Linux/macOS/Windows title-bar and window-control integration. Keep window calls outside ordinary widget tests by pumping `OtohaApp`, not `main()`.
 - The first milestone is desktop-only. Android, iOS, and web runners remain generated but have no mobile or web layout work.
 - YouTube integration uses Cookie login, discovery feeds, playlist metadata, approved on-demand audio-only stream resolution, user-initiated downloads, and user-initiated rating/comment operations. Cookie values, stream URLs, headers, and comment bodies must not be logged, committed, or persisted. Local downloads, offline playlist metadata, and timestamped LRC lyric caches use separate non-credential stores and remain available after sign-out; discovery/library metadata is cleared on sign-out. Do not add a local media proxy, uploads, automated mutations, or background account activity.

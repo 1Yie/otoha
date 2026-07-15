@@ -62,6 +62,7 @@ void main() {
     expect(controller.profileAvatarUrl, 'https://example.test/avatar.jpg');
     expect(controller.playlists.single.title, 'Road trip');
     expect(controller.homeSections.single.title, 'Listen again');
+    expect(controller.homeFilters, <String>['Podcasts', 'Sleep']);
     expect(controller.exploreSections.single.title, 'New releases');
     expect(
       SavedCredential.fromJson(
@@ -94,6 +95,7 @@ void main() {
 
     expect(controller.status, YouTubeAccountStatus.error);
     expect(controller.errorMessage, YouTubeLibraryError.authenticationFailed);
+    expect(controller.errorDiagnostic, 'INVALID_COOKIE');
     expect(store.value, isNull);
   });
 
@@ -115,6 +117,41 @@ void main() {
 
       expect(controller.status, YouTubeAccountStatus.error);
       expect(controller.errorMessage, YouTubeLibraryError.loadFailed);
+      expect(controller.errorDiagnostic, 'SIDECAR_NOT_FOUND');
+      expect(store.value, 'existing credential');
+    },
+  );
+
+  test(
+    'unexpected authentication failures preserve credentials and diagnostics',
+    () async {
+      final client = _FakeSidecarClient(
+        errorMethod: 'auth.cookie.signIn',
+        error: const SidecarException(
+          'AUTHENTICATION_FAILED',
+          '',
+          <String, Object?>{
+            'diagnosticStage': 'auth.profile',
+            'statusCode': 500,
+            'upstreamCode': 'UND_ERR_SOCKET',
+          },
+        ),
+      );
+      final store = _MemoryCredentialStore()..value = 'existing credential';
+      final controller = YouTubeLibraryController(
+        client: client,
+        credentialStore: store,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.signInWithCookie('SID=test-cookie');
+
+      expect(controller.status, YouTubeAccountStatus.error);
+      expect(controller.errorMessage, YouTubeLibraryError.loadFailed);
+      expect(
+        controller.errorDiagnostic,
+        'AUTHENTICATION_FAILED / auth.profile / HTTP 500 / UND_ERR_SOCKET',
+      );
       expect(store.value, 'existing credential');
     },
   );
@@ -238,6 +275,24 @@ void main() {
     );
   });
 
+  test('applies a native YouTube Music Home filter', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await controller.selectHomeFilter('Sleep');
+
+    expect(controller.selectedHomeFilter, 'Sleep');
+    expect(controller.homeSections.single.title, 'Sleep picks');
+    expect(controller.homeFilters, <String>['Podcasts', 'Sleep']);
+    expect(client.methods.last, 'feed.home.filter');
+    expect(client.requests.last.params, <String, Object?>{'filter': 'Sleep'});
+  });
+
   test('appends Explore continuation sections without duplicates', () async {
     final client = _FakeSidecarClient();
     final controller = YouTubeLibraryController(
@@ -269,7 +324,10 @@ void main() {
     final cache = _MemoryMetadataCache()
       ..entries['feed.home'] = RemoteMetadataCacheEntry(
         cachedAt: DateTime.now(),
-        data: client._feed('Cached Home', 'Cached recommendation', 'song'),
+        data: <String, Object?>{
+          ...client._feed('Cached Home', 'Cached recommendation', 'song'),
+          'filters': <Object?>['Podcasts', 'Sleep'],
+        },
       );
     final controller = YouTubeLibraryController(
       client: client,
@@ -664,12 +722,26 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
           ],
         };
       case 'feed.home':
-        return _feed(
-          'Listen again',
-          'Live recommendation',
-          'song',
-          hasMore: true,
-        );
+        return <String, Object?>{
+          ..._feed(
+            'Listen again',
+            'Live recommendation',
+            'song',
+            hasMore: true,
+          ),
+          'filters': <Object?>['Podcasts', 'Sleep'],
+          'selectedFilter': null,
+        };
+      case 'feed.home.filter':
+        return <String, Object?>{
+          ..._feed(
+            '${params['filter']} picks',
+            '${params['filter']} recommendation',
+            'playlist',
+          ),
+          'filters': <Object?>['Podcasts', 'Sleep'],
+          'selectedFilter': params['filter'],
+        };
       case 'feed.home.more':
         return _feed('More for you', 'Another recommendation', 'song');
       case 'feed.explore':

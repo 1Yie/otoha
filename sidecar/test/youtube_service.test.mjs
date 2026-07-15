@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -70,29 +70,80 @@ test('maps playlist and track parser shapes to the process contract', () => {
 test('maps the active account name and avatar from a Cookie session', () => {
   const text = (value) => ({ toString: () => value });
   assert.deepEqual(
-    mapAccountProfile({
-      contents: {
-        contents: [
-          {
-            account_name: text('Otoha listener'),
-            account_photo: [
-              { url: 'small-avatar', width: 48 },
-              { url: 'large-avatar', width: 256 },
-            ],
-          },
-        ],
+    mapAccountProfile([
+      {
+        account_name: text('Other channel'),
+        account_photo: [],
+        is_selected: false,
       },
-    }),
+      {
+        account_name: text('Otoha listener'),
+        account_photo: [
+          { url: 'small-avatar', width: 48 },
+          { url: 'large-avatar', width: 256 },
+        ],
+        is_selected: true,
+      },
+    ]),
     { displayName: 'Otoha listener', avatarUrl: 'large-avatar' },
   );
 });
 
-test('rejects a Cookie session without an authenticated account profile', async () => {
+test('accepts a Cookie when the music library works without a profile', async () => {
+  const calls = [];
+  const credentials = [];
+  const service = new YouTubeService({
+    createInnertube: async (cookie) => {
+      calls.push({ method: 'create', cookie });
+      return {
+        account: {
+          getInfo: async (all) => {
+            calls.push({ method: 'profile', all });
+            throw new Error('Profile endpoint unavailable.');
+          },
+        },
+        music: {
+          getLibrary: async () => {
+            calls.push({ method: 'library' });
+            return {};
+          },
+        },
+      };
+    },
+    emit: (event, data) => credentials.push({ event, data }),
+  });
+
+  assert.deepEqual(
+    await service.signInWithCookie('Cookie: SID=test-cookie; SAPISID=test'),
+    { authenticated: true, mode: 'cookie', profile: null },
+  );
+  assert.deepEqual(calls, [
+    { method: 'create', cookie: 'SID=test-cookie; SAPISID=test' },
+    { method: 'profile', all: true },
+    { method: 'library' },
+  ]);
+  assert.equal(
+    credentials[0].data.credential.value,
+    'SID=test-cookie; SAPISID=test',
+  );
+});
+
+test('rejects a Cookie when the authenticated music library returns 401', async () => {
   const credentials = [];
   const service = new YouTubeService({
     createInnertube: async () => ({
       account: {
         getInfo: async () => ({ contents: { contents: [] } }),
+      },
+      music: {
+        getLibrary: async () => {
+          throw Object.assign(
+            new Error('Request failed with status code 401'),
+            {
+              info: JSON.stringify({ error: { code: 401 } }),
+            },
+          );
+        },
       },
     }),
     emit: (event, data) => credentials.push({ event, data }),
@@ -100,7 +151,10 @@ test('rejects a Cookie session without an authenticated account profile', async 
 
   await assert.rejects(
     service.signInWithCookie('SID=expired-cookie'),
-    (error) => error.code === 'INVALID_COOKIE',
+    (error) =>
+      error.code === 'INVALID_COOKIE' &&
+      error.details.diagnosticStage === 'auth.library' &&
+      error.details.statusCode === 401,
   );
 
   assert.deepEqual(service.status(), {
@@ -109,6 +163,26 @@ test('rejects a Cookie session without an authenticated account profile', async 
     profile: null,
   });
   assert.deepEqual(credentials, []);
+});
+
+test('reports session network failures separately from rejected Cookies', async () => {
+  const service = new YouTubeService({
+    createInnertube: async () => {
+      throw new TypeError('fetch failed', {
+        cause: Object.assign(new Error('connection reset'), {
+          code: 'ECONNRESET',
+        }),
+      });
+    },
+  });
+
+  await assert.rejects(
+    service.signInWithCookie('SID=test-cookie'),
+    (error) =>
+      error.code === 'AUTHENTICATION_UNAVAILABLE' &&
+      error.details.diagnosticStage === 'auth.session' &&
+      error.details.upstreamCode === 'ECONNRESET',
+  );
 });
 
 test('creates and recreates sessions with the requested interface language', async () => {
@@ -185,6 +259,28 @@ test('maps mixed music feed sections to stable item data', () => {
       },
     ],
   );
+});
+
+test('preserves native multi-row carousel layout metadata', () => {
+  const text = (value) => ({ toString: () => value });
+  const sections = mapFeedSections([
+    {
+      header: { title: text('Long listens') },
+      num_items_per_column: 4,
+      contents: [
+        {
+          constructor: { type: 'MusicResponsiveListItem' },
+          item_type: 'video',
+          id: 'long-video',
+          title: 'Eight hour mix',
+          duration: { seconds: 28800 },
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(sections[0].itemsPerColumn, 4);
+  assert.equal(sections[0].items[0].id, 'long-video');
 });
 
 test('classifies feed navigation and collection items before tracks', () => {
@@ -531,11 +627,27 @@ test('loads Home and Explore continuations through the music client', async () =
       },
     ],
   };
-  const initialHomeFeed = {
-    sections: [section],
-    has_continuation: true,
-    getContinuation: async () => nextHomeFeed,
-  };
+const initialHomeFeed = {
+sections: [section],
+filters: ['Podcasts', 'Sleep'],
+has_continuation: true,
+getContinuation: async () => nextHomeFeed,
+applyFilter: async (filter) => ({
+sections: [
+{
+header: { title: { toString: () => `${filter} picks` } },
+contents: [
+{
+item_type: 'playlist',
+id: 'VLPL-filtered',
+title: { toString: () => `${filter} mix` },
+},
+],
+},
+],
+has_continuation: false,
+}),
+};
   const initialExploreFeed = {
     sections: [section],
     page: {
@@ -582,12 +694,18 @@ test('loads Home and Explore continuations through the music client', async () =
   service.authMode = 'cookie';
   service.authMode = 'cookie';
 
-  const home = await service.getHomeFeed();
-  assert.equal(home.sections[0].title, 'Recommendations');
-  assert.equal(home.hasMore, true);
-  assert.equal((await service.getMoreHomeFeed()).hasMore, false);
-  assert.deepEqual(await service.getMoreHomeFeed(), { sections: [], hasMore: false });
-  const explore = await service.getExploreFeed();
+const home = await service.getHomeFeed();
+assert.equal(home.sections[0].title, 'Recommendations');
+assert.deepEqual(home.filters, ['Podcasts', 'Sleep']);
+assert.equal(home.selectedFilter, null);
+assert.equal(home.hasMore, true);
+assert.equal((await service.getMoreHomeFeed()).hasMore, false);
+assert.deepEqual(await service.getMoreHomeFeed(), { sections: [], hasMore: false });
+const filteredHome = await service.applyHomeFilter('Sleep');
+assert.equal(filteredHome.sections[0].title, 'Sleep picks');
+assert.equal(filteredHome.sections[0].items[0].id, 'PL-filtered');
+assert.equal(filteredHome.selectedFilter, 'Sleep');
+const explore = await service.getExploreFeed();
   assert.equal(explore.sections[0].items[0].id, 'PL1');
   assert.equal(explore.hasMore, true);
   const moreExplore = await service.getMoreExploreFeed();
@@ -875,6 +993,105 @@ test('downloads audio without retaining its URL or replacing the signed-in sessi
       },
     ]);
     assert.deepEqual(service.status(), statusBeforeDownload);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('commits a self-contained offline media bundle atomically', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'otoha-bundle-'));
+  const service = new YouTubeService({
+    now: () => Date.parse('2026-07-15T00:00:00.000Z'),
+    fetchImpl: async (url) => {
+      assert.equal(String(url), 'https://example.test/cover');
+      return new Response(new Uint8Array([9, 8, 7]), {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      });
+    },
+  });
+  service.authMode = 'cookie';
+  service.downloadAudio = async (videoId, stagingPath) => {
+    const audioPath = path.join(stagingPath, `${videoId}.webm`);
+    await writeFile(audioPath, new Uint8Array([1, 2, 3, 4]));
+    return {
+      path: audioPath,
+      mimeType: 'audio/webm; codecs="opus"',
+      artworkUrl: null,
+    };
+  };
+  service.getLyrics = async () => ({
+    source: 'lrclib',
+    lines: [
+      { text: 'First line', startSeconds: 1.25 },
+      { text: 'Second line', startSeconds: 62.5 },
+    ],
+  });
+
+  try {
+    const result = await service.downloadMediaBundle('video-id', directory, {
+      title: 'Offline track',
+      artist: 'Artist',
+      album: 'Album',
+      durationSeconds: 180,
+      artworkUrl: 'https://example.test/cover',
+    });
+
+    assert.equal(result.bundlePath, path.join(directory, 'video-id'));
+    assert.equal(result.path, path.join(result.bundlePath, 'audio.webm'));
+    assert.equal(result.artworkPath, path.join(result.bundlePath, 'cover.jpg'));
+    assert.equal(result.lyricsPath, path.join(result.bundlePath, 'lyrics.lrc'));
+    assert.deepEqual(await readdir(result.bundlePath), [
+      'audio.webm',
+      'cover.jpg',
+      'lyrics.lrc',
+      'metadata.json',
+    ]);
+    assert.deepEqual(await readFile(result.path), Buffer.from([1, 2, 3, 4]));
+    assert.deepEqual(await readFile(result.artworkPath), Buffer.from([9, 8, 7]));
+    assert.equal(
+      await readFile(result.lyricsPath, 'utf8'),
+      '[00:01.25]First line\n[01:02.50]Second line\n',
+    );
+    const metadata = JSON.parse(
+      await readFile(path.join(result.bundlePath, 'metadata.json'), 'utf8'),
+    );
+    assert.equal(metadata.videoId, 'video-id');
+    assert.equal(metadata.artworkFile, 'cover.jpg');
+    assert.equal(JSON.stringify(metadata).includes('example.test'), false);
+    await assert.rejects(() => readdir(path.join(directory, 'video-id.part')));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('removes an incomplete media bundle when artwork fails', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'otoha-bundle-fail-'));
+  const service = new YouTubeService({
+    fetchImpl: async () => new Response(null, { status: 503 }),
+  });
+  service.authMode = 'cookie';
+  service.downloadAudio = async (videoId, stagingPath) => {
+    const audioPath = path.join(stagingPath, `${videoId}.m4a`);
+    await writeFile(audioPath, new Uint8Array([1, 2, 3]));
+    return {
+      path: audioPath,
+      mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+      artworkUrl: null,
+    };
+  };
+
+  try {
+    await assert.rejects(
+      () => service.downloadMediaBundle('video-id', directory, {
+        artworkUrl: 'https://example.test/missing-cover',
+      }),
+      (error) =>
+        error.code === 'DOWNLOAD_ARTWORK_FAILED' &&
+        error.details?.diagnosticStage === 'download.bundle.artwork',
+    );
+    await assert.rejects(() => readdir(path.join(directory, 'video-id.part')));
+    await assert.rejects(() => readdir(path.join(directory, 'video-id')));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

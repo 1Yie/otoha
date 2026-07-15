@@ -79,8 +79,8 @@
   ,"@refreshSection": {"placeholders": {"section": {}}}
   ,"loadAgain": "Load again"
   ,"forYou": "For you"
-  ,"scrollMoodsGenresLeft": "Scroll moods and genres left"
-  ,"scrollMoodsGenresRight": "Scroll moods and genres right"
+ ,"scrollFeedFiltersLeft": "Scroll filters left"
+  ,"scrollFeedFiltersRight": "Scroll filters right"
   ,"scrollSectionLeft": "Scroll {section} left"
   ,"@scrollSectionLeft": {"placeholders": {"section": {}}}
   ,"scrollSectionRight": "Scroll {section} right"
@@ -137,6 +137,23 @@
       "title": {"type": "String"}
     }
   }
+  ,"selectDownloads": "Select downloads"
+  ,"exitDownloadSelection": "Exit selection"
+  ,"selectAllDownloads": "Select all downloads"
+  ,"selectedDownloadsCount": "{count} selected"
+  ,"@selectedDownloadsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  }
+  ,"addSelectedToPlaylist": "Add selected to playlist"
+  ,"deleteSelectedDownloads": "Delete selected downloads"
+  ,"deleteSelectedDownloadsConfirmation": "Delete {count} selected downloads? Their local files and references in offline playlists will be removed."
+  ,"@deleteSelectedDownloadsConfirmation": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  }
   ,"cancel": "Cancel"
   ,"shortcutTooltip": "{action} ({shortcut})"
   ,"@shortcutTooltip": {
@@ -150,6 +167,7 @@
   ,"playlistName": "Playlist name"
   ,"addToPlaylist": "Add to playlist"
   ,"removeFromPlaylist": "Remove from playlist"
+  ,"removeFromPlaylistConfirmation": "Remove this song from the playlist? The downloaded file will remain available."
   ,"deletePlaylist": "Delete playlist"
   ,"deletePlaylistConfirmation": "Delete this playlist? Downloaded songs will remain available."
   ,"renamePlaylist": "Rename playlist"

@@ -160,11 +160,16 @@ class YouTubePlaylistDetail {
 
 @immutable
 class YouTubeFeedSection {
-  const YouTubeFeedSection({required this.title, required this.items});
+  const YouTubeFeedSection({
+    required this.title,
+    required this.items,
+    this.itemsPerColumn = 1,
+  });
 
   factory YouTubeFeedSection.fromJson(Map<String, Object?> json) {
     return YouTubeFeedSection(
       title: json['title']! as String,
+      itemsPerColumn: json['itemsPerColumn'] as int? ?? 1,
       items: (json['items']! as List<Object?>)
           .map(
             (item) => YouTubeFeedItem.fromJson(
@@ -177,6 +182,7 @@ class YouTubeFeedSection {
 
   final String title;
   final List<YouTubeFeedItem> items;
+  final int itemsPerColumn;
 }
 
 @immutable

@@ -25,6 +25,9 @@ class OfflineLibraryWorkspace extends StatefulWidget {
 }
 
 class _OfflineLibraryWorkspaceState extends State<OfflineLibraryWorkspace> {
+  final Set<String> _selectedVideoIds = <String>{};
+  bool _isSelecting = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,26 +62,111 @@ class _OfflineLibraryWorkspaceState extends State<OfflineLibraryWorkspace> {
                 0,
               ),
               sliver: SliverToBoxAdapter(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: <Widget>[
-                    Text(
-                      l10n.yourSpace,
-                      style: const TextStyle(
-                        color: OtohaColors.accent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            l10n.yourSpace,
+                            style: const TextStyle(
+                              color: OtohaColors.accent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            l10n.downloads,
+                            style: Theme.of(context).textTheme.displaySmall,
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.downloads,
-                      style: Theme.of(context).textTheme.displaySmall,
-                    ),
+                    if (downloads.isNotEmpty)
+                      Tooltip(
+                        message: _isSelecting
+                            ? l10n.exitDownloadSelection
+                            : l10n.selectDownloads,
+                        child: IconButton(
+                          key: const Key('offline-selection-toggle'),
+                          onPressed: _toggleSelectionMode,
+                          icon: Icon(
+                            _isSelecting
+                                ? Icons.close_rounded
+                                : Icons.checklist_rounded,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
             ),
+            if (_isSelecting)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppMetrics.workspacePadding,
+                  16,
+                  AppMetrics.workspacePadding,
+                  0,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: const BoxDecoration(
+                      color: OtohaColors.surface,
+                      border: Border.symmetric(
+                        horizontal: BorderSide(color: OtohaColors.border),
+                      ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Tooltip(
+                          message: l10n.selectAllDownloads,
+                          child: Checkbox(
+                            key: const Key('offline-select-all'),
+                            value:
+                                downloads.isNotEmpty &&
+                                _selectedVideoIds.length == downloads.length,
+                            onChanged: (_) => _toggleSelectAll(downloads),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          l10n.selectedDownloadsCount(_selectedVideoIds.length),
+                          key: const Key('offline-selected-count'),
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const Spacer(),
+                        if (widget.controller.playlists.isNotEmpty)
+                          Tooltip(
+                            message: l10n.addSelectedToPlaylist,
+                            child: IconButton(
+                              key: const Key('offline-batch-add'),
+                              onPressed: _selectedVideoIds.isEmpty
+                                  ? null
+                                  : _addSelectedToPlaylist,
+                              icon: const Icon(Icons.playlist_add_rounded),
+                            ),
+                          ),
+                        Tooltip(
+                          message: l10n.deleteSelectedDownloads,
+                          child: IconButton(
+                            key: const Key('offline-batch-delete'),
+                            onPressed: _selectedVideoIds.isEmpty
+                                ? null
+                                : _confirmRemoveSelected,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
             if (downloads.isEmpty)
               SliverFillRemaining(
@@ -112,32 +200,54 @@ class _OfflineLibraryWorkspaceState extends State<OfflineLibraryWorkspace> {
                       index: trackIndex + 1,
                       track: _asListTrack(download),
                       artworkFallback: download.artworkAsset,
-                      isSelected:
-                          widget.playerController.currentTrack?.localFilePath ==
-                          download.filePath,
-                      onTap: () => _play(download),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          if (widget.controller.playlists.isNotEmpty)
-                            Tooltip(
-                              message: l10n.addToPlaylist,
-                              child: IconButton(
-                                key: Key('offline-add-${download.videoId}'),
-                                onPressed: () => _addToPlaylist(download),
-                                icon: const Icon(Icons.playlist_add_rounded),
+                      isSelected: _isSelecting
+                          ? _selectedVideoIds.contains(download.videoId)
+                          : widget
+                                    .playerController
+                                    .currentTrack
+                                    ?.localFilePath ==
+                                download.filePath,
+                      onTap: () => _isSelecting
+                          ? _toggleSelection(download)
+                          : _play(download),
+                      trailing: _isSelecting
+                          ? Checkbox(
+                              key: Key('offline-select-${download.videoId}'),
+                              value: _selectedVideoIds.contains(
+                                download.videoId,
                               ),
+                              onChanged: (_) => _toggleSelection(download),
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                if (widget.controller.playlists.isNotEmpty)
+                                  Tooltip(
+                                    message: l10n.addToPlaylist,
+                                    child: IconButton(
+                                      key: Key(
+                                        'offline-add-${download.videoId}',
+                                      ),
+                                      onPressed: () => _addToPlaylist(download),
+                                      icon: const Icon(
+                                        Icons.playlist_add_rounded,
+                                      ),
+                                    ),
+                                  ),
+                                Tooltip(
+                                  message: l10n.deleteDownload,
+                                  child: IconButton(
+                                    key: Key(
+                                      'offline-delete-${download.videoId}',
+                                    ),
+                                    onPressed: () => _confirmRemove(download),
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          Tooltip(
-                            message: l10n.deleteDownload,
-                            child: IconButton(
-                              key: Key('offline-delete-${download.videoId}'),
-                              onPressed: () => _confirmRemove(download),
-                              icon: const Icon(Icons.delete_outline_rounded),
-                            ),
-                          ),
-                        ],
-                      ),
                     );
                   },
                 ),
@@ -146,6 +256,49 @@ class _OfflineLibraryWorkspaceState extends State<OfflineLibraryWorkspace> {
         );
       },
     );
+  }
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _isSelecting = !_isSelecting;
+      if (!_isSelecting) {
+        _selectedVideoIds.clear();
+      }
+    });
+  }
+
+  void _toggleSelection(DownloadedTrack track) {
+    setState(() {
+      if (!_selectedVideoIds.add(track.videoId)) {
+        _selectedVideoIds.remove(track.videoId);
+      }
+    });
+  }
+
+  void _toggleSelectAll(List<DownloadedTrack> downloads) {
+    setState(() {
+      if (_selectedVideoIds.length == downloads.length) {
+        _selectedVideoIds.clear();
+      } else {
+        _selectedVideoIds
+          ..clear()
+          ..addAll(downloads.map((track) => track.videoId));
+      }
+    });
+  }
+
+  List<DownloadedTrack> get _selectedDownloads => widget.controller.downloads
+      .where((track) => _selectedVideoIds.contains(track.videoId))
+      .toList(growable: false);
+
+  void _clearSelection() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSelecting = false;
+      _selectedVideoIds.clear();
+    });
   }
 
   YouTubeTrack _asListTrack(DownloadedTrack track) => YouTubeTrack(
@@ -191,9 +344,65 @@ class _OfflineLibraryWorkspaceState extends State<OfflineLibraryWorkspace> {
     }
   }
 
-  Future<void> _addToPlaylist(DownloadedTrack track) async {
+  Future<void> _confirmRemoveSelected() async {
+    final selected = _selectedDownloads;
+    if (selected.isEmpty) {
+      return;
+    }
     final l10n = AppLocalizations.of(context)!;
-    final playlist = await showDialog<OfflinePlaylist>(
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('delete-downloads-confirmation'),
+        title: Text(l10n.deleteSelectedDownloads),
+        content: Text(
+          l10n.deleteSelectedDownloadsConfirmation(selected.length),
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: const Key('cancel-delete-downloads'),
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.cancel),
+          ),
+          FilledButton(
+            key: const Key('confirm-delete-downloads'),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.deleteSelectedDownloads),
+          ),
+        ],
+      ),
+    );
+    if (mounted && confirmed == true) {
+      await widget.controller.removeMany(selected);
+      _clearSelection();
+    }
+  }
+
+  Future<void> _addToPlaylist(DownloadedTrack track) async {
+    final playlist = await _choosePlaylist();
+    if (playlist != null) {
+      await widget.controller.addToPlaylist(playlist: playlist, track: track);
+    }
+  }
+
+  Future<void> _addSelectedToPlaylist() async {
+    final selected = _selectedDownloads;
+    if (selected.isEmpty) {
+      return;
+    }
+    final playlist = await _choosePlaylist();
+    if (playlist != null) {
+      await widget.controller.addManyToPlaylist(
+        playlist: playlist,
+        tracks: selected,
+      );
+      _clearSelection();
+    }
+  }
+
+  Future<OfflinePlaylist?> _choosePlaylist() {
+    final l10n = AppLocalizations.of(context)!;
+    return showDialog<OfflinePlaylist>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(l10n.addToPlaylist),
@@ -244,9 +453,6 @@ class _OfflineLibraryWorkspaceState extends State<OfflineLibraryWorkspace> {
         ],
       ),
     );
-    if (playlist != null) {
-      await widget.controller.addToPlaylist(playlist: playlist, track: track);
-    }
   }
 
   String _playlistArtwork(OfflinePlaylist playlist) {

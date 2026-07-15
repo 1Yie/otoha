@@ -1,7 +1,7 @@
 import { Innertube, Platform, UniversalCache, YTNodes } from 'youtubei.js';
 import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
@@ -30,6 +30,8 @@ export class YouTubeService {
     this.authMode = null;
     this.profile = null;
     this.homeFeed = null;
+    this.homeRootFeed = null;
+    this.homeFilters = [];
     this.exploreContinuation = null;
     this.nextAccountWriteAt = 0;
   }
@@ -48,20 +50,36 @@ export class YouTubeService {
   }
 
   async signInWithCookie(cookie, locale) {
-    const value = typeof cookie === 'string' ? cookie.trim() : '';
+    const value = normalizeCookieHeader(cookie);
     if (!value) {
       throw new SidecarError('INVALID_COOKIE', 'A YouTube Cookie header is required.');
     }
 
     this.locale = normalizeLocale(locale ?? this.locale);
+    let diagnosticStage = 'auth.session';
     try {
       await this.#createSession(value);
-      this.profile = mapAccountProfile(await this.innertube.account.getInfo());
-      if (!this.profile) {
-        throw new SidecarError(
-          'INVALID_COOKIE',
-          'The YouTube Cookie header is invalid or expired.',
+      diagnosticStage = 'auth.profile';
+      try {
+        // Cookie authentication belongs to the web client. The default
+        // AccountManager probe uses TV and can reject an otherwise valid
+        // YouTube Music session.
+        this.profile = mapAccountProfile(
+          await this.innertube.account.getInfo(true),
         );
+      } catch {
+        this.profile = null;
+      }
+
+      if (!this.profile) {
+        diagnosticStage = 'auth.library';
+        try {
+          // Profile metadata is optional. Validate the capability Otoha
+          // actually needs before rejecting the Cookie.
+          await this.innertube.music.getLibrary();
+        } catch (error) {
+          throw authenticationFailure(error, diagnosticStage);
+        }
       }
       this.authMode = 'cookie';
       this.emit('auth.credentials', {
@@ -76,11 +94,7 @@ export class YouTubeService {
       if (error instanceof SidecarError) {
         throw error;
       }
-      throw new SidecarError(
-        'AUTHENTICATION_FAILED',
-        'YouTube Cookie authentication failed.',
-        describeUpstreamError(error),
-      );
+      throw authenticationFailure(error, diagnosticStage);
     }
   }
 
@@ -177,8 +191,50 @@ export class YouTubeService {
   async getHomeFeed() {
     const feed = await this.innertube.music.getHomeFeed();
     this.homeFeed = feed;
+    this.homeRootFeed = feed;
+    this.homeFilters = listOf(feed.filters).map(textValue).filter(Boolean);
     return {
       sections: mapFeedSections(feed.sections),
+      filters: this.homeFilters,
+      selectedFilter: null,
+      hasMore: feed.has_continuation === true,
+    };
+  }
+
+  async applyHomeFilter(filter) {
+    const value = typeof filter === 'string' ? filter.trim() : '';
+    if (!value) {
+      throw new SidecarError(
+        'INVALID_HOME_FILTER',
+        'Choose a valid Home filter.',
+      );
+    }
+    if (!this.homeRootFeed) {
+      await this.getHomeFeed();
+    }
+    if (!this.homeFilters.includes(value)) {
+      throw new SidecarError(
+        'INVALID_HOME_FILTER',
+        'Choose a valid Home filter.',
+      );
+    }
+
+    let feed;
+    try {
+      feed = await this.homeRootFeed.applyFilter(value);
+    } catch (error) {
+      throw feedFailure(
+        'HOME_FILTER_FAILED',
+        'Unable to load this Home filter.',
+        'home.filter',
+        error,
+      );
+    }
+    this.homeFeed = feed;
+    return {
+      sections: mapFeedSections(feed.sections),
+      filters: this.homeFilters,
+      selectedFilter: value,
       hasMore: feed.has_continuation === true,
     };
   }
@@ -595,7 +651,14 @@ export class YouTubeService {
       }
       await rm(outputPath, { force: true });
       await rename(temporaryPath, outputPath);
-      return { path: outputPath, mimeType: format.mime_type };
+      return {
+        path: outputPath,
+        mimeType: format.mime_type,
+        artworkUrl:
+          largestArtworkThumbnail(
+            thumbnailCandidates(info?.basic_info ?? info),
+          )?.url ?? null,
+      };
     } catch (error) {
       writer?.destroy();
       if (temporaryPath) {
@@ -609,6 +672,146 @@ export class YouTubeService {
         error?.name === 'TimeoutError'
           ? 'The audio download timed out.'
           : 'Unable to download this track.',
+        {
+          diagnosticStage,
+          ...describeUpstreamError(error),
+        },
+      );
+    }
+  }
+
+  async downloadMediaBundle(videoId, directory, metadata = {}) {
+    this.#requireAuthentication();
+    if (!/^[A-Za-z0-9_-]+$/.test(videoId ?? '')) {
+      throw new SidecarError(
+        'INVALID_VIDEO_ID',
+        'A valid video ID is required to download media.',
+      );
+    }
+    if (typeof directory !== 'string' || directory.trim().length === 0) {
+      throw new SidecarError(
+        'INVALID_DOWNLOAD_DIRECTORY',
+        'A download directory is required.',
+      );
+    }
+
+    const root = path.resolve(directory);
+    const bundlePath = path.join(root, videoId);
+    const stagingPath = path.join(root, `${videoId}.part`);
+    let diagnosticStage = 'download.bundle.prepare';
+    try {
+      await mkdir(root, { recursive: true });
+      await rm(stagingPath, { recursive: true, force: true });
+      await mkdir(stagingPath, { recursive: true });
+
+      diagnosticStage = 'download.bundle.audio';
+      const audio = await this.downloadAudio(videoId, stagingPath);
+      const extension = audioExtension(audio.mimeType);
+      const stagedAudioPath = path.join(stagingPath, `audio.${extension}`);
+      await rename(audio.path, stagedAudioPath);
+
+      diagnosticStage = 'download.bundle.artwork';
+      const artworkUrl =
+        normalizeArtworkUrl(metadata?.artworkUrl) ??
+        normalizeArtworkUrl(audio.artworkUrl);
+      if (!artworkUrl) {
+        throw new SidecarError(
+          'DOWNLOAD_ARTWORK_UNAVAILABLE',
+          'Artwork is unavailable for this track.',
+          { diagnosticStage },
+        );
+      }
+      const artworkResponse = await this.fetch(artworkUrl, {
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!artworkResponse?.ok) {
+        throw new SidecarError(
+          'DOWNLOAD_ARTWORK_FAILED',
+          'Unable to download this track artwork.',
+          {
+            diagnosticStage,
+            statusCode: artworkResponse?.status,
+          },
+        );
+      }
+      const artworkContentType = artworkResponse.headers
+        ?.get?.('content-type')
+        ?.split(';', 1)[0]
+        ?.trim()
+        ?.toLowerCase();
+      if (artworkContentType && !artworkContentType.startsWith('image/')) {
+        throw new SidecarError(
+          'DOWNLOAD_ARTWORK_FAILED',
+          'The downloaded artwork has an invalid content type.',
+          { diagnosticStage },
+        );
+      }
+      const artworkBytes = Buffer.from(await artworkResponse.arrayBuffer());
+      if (artworkBytes.length === 0 || artworkBytes.length > 20 * 1024 * 1024) {
+        throw new SidecarError(
+          'DOWNLOAD_ARTWORK_FAILED',
+          'The downloaded artwork is invalid.',
+          { diagnosticStage },
+        );
+      }
+      const artworkExtension = imageExtension(
+        artworkContentType,
+        artworkUrl,
+      );
+      const stagedArtworkPath = path.join(
+        stagingPath,
+        `cover.${artworkExtension}`,
+      );
+      await writeFile(stagedArtworkPath, artworkBytes);
+
+      diagnosticStage = 'download.bundle.lyrics';
+      const lyrics = await this.getLyrics(videoId, metadata);
+      const stagedLyricsPath = path.join(stagingPath, 'lyrics.lrc');
+      await writeFile(stagedLyricsPath, encodeLrc(lyrics.lines), 'utf8');
+
+      diagnosticStage = 'download.bundle.metadata';
+      await writeFile(
+        path.join(stagingPath, 'metadata.json'),
+        JSON.stringify({
+          version: 1,
+          videoId,
+          title: stringMetadata(metadata?.title),
+          artist: stringMetadata(metadata?.artist),
+          album: stringMetadata(metadata?.album),
+          durationSeconds: Number.isInteger(metadata?.durationSeconds)
+            ? metadata.durationSeconds
+            : 0,
+          mimeType: audio.mimeType,
+          audioFile: path.basename(stagedAudioPath),
+          artworkFile: path.basename(stagedArtworkPath),
+          lyricsFile: path.basename(stagedLyricsPath),
+          lyricsSource: lyrics.source ?? 'none',
+          downloadedAt: new Date(this.now()).toISOString(),
+        }),
+        'utf8',
+      );
+
+      diagnosticStage = 'download.bundle.commit';
+      await rm(bundlePath, { recursive: true, force: true });
+      await rename(stagingPath, bundlePath);
+      return {
+        bundlePath,
+        path: path.join(bundlePath, path.basename(stagedAudioPath)),
+        artworkPath: path.join(
+          bundlePath,
+          path.basename(stagedArtworkPath),
+        ),
+        lyricsPath: path.join(bundlePath, path.basename(stagedLyricsPath)),
+        mimeType: audio.mimeType,
+      };
+    } catch (error) {
+      await rm(stagingPath, { recursive: true, force: true });
+      if (error instanceof SidecarError) {
+        throw error;
+      }
+      throw new SidecarError(
+        'DOWNLOAD_BUNDLE_FAILED',
+        'Unable to complete this offline download.',
         {
           diagnosticStage,
           ...describeUpstreamError(error),
@@ -659,6 +862,8 @@ export class YouTubeService {
     this.innertube = await this.createInnertube(this.cookie, this.locale);
     this.authMode = this.cookie ? 'cookie' : null;
     this.homeFeed = null;
+    this.homeRootFeed = null;
+    this.homeFilters = [];
     this.exploreContinuation = null;
     this.nextAccountWriteAt = 0;
   }
@@ -797,15 +1002,24 @@ export function mapCommentThread(thread) {
 }
 
 export function mapFeedSections(rawSections) {
-  return listOf(rawSections)
-    .map((section, sectionIndex) => {
-      const title = textValue(section?.header?.title);
-      const items = listOf(section?.contents)
-        .map((item, itemIndex) => mapFeedItem(item, sectionIndex, itemIndex))
-        .filter(Boolean);
-      return title && items.length ? { title, items } : null;
-    })
-    .filter(Boolean);
+return listOf(rawSections)
+.map((section, sectionIndex) => {
+const title = textValue(section?.header?.title);
+const items = listOf(section?.contents)
+.map((item, itemIndex) => mapFeedItem(item, sectionIndex, itemIndex))
+.filter(Boolean);
+const itemsPerColumn = Number.isInteger(section?.num_items_per_column)
+? Math.max(1, section.num_items_per_column)
+: 1;
+return title && items.length
+? {
+title,
+...(itemsPerColumn > 1 ? { itemsPerColumn } : {}),
+items,
+}
+: null;
+})
+.filter(Boolean);
 }
 
 export function mapSearchItems(rawSections) {
@@ -968,6 +1182,61 @@ function audioExtension(mimeType) {
   return 'audio';
 }
 
+function normalizeArtworkUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function imageExtension(contentType, url) {
+  const normalizedType = String(contentType ?? '')
+    .split(';', 1)[0]
+    .trim()
+    .toLowerCase();
+  if (normalizedType === 'image/png') return 'png';
+  if (normalizedType === 'image/webp') return 'webp';
+  if (normalizedType === 'image/avif') return 'avif';
+  if (['image/jpeg', 'image/jpg'].includes(normalizedType)) return 'jpg';
+  try {
+    const extension = path.extname(new URL(url).pathname)
+      .slice(1)
+      .toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'webp', 'avif'].includes(extension)) {
+      return extension === 'jpeg' ? 'jpg' : extension;
+    }
+  } catch {
+    // A validated URL can still have no pathname extension.
+  }
+  return 'jpg';
+}
+
+function encodeLrc(lines) {
+  const encoded = listOf(lines)
+    .map((line) => {
+      const text = String(line?.text ?? '').replace(/\s*\r?\n\s*/g, ' ').trim();
+      if (!text) return null;
+      if (!Number.isFinite(line?.startSeconds) || line.startSeconds < 0) {
+        return text;
+      }
+      const hundredths = Math.round(line.startSeconds * 100);
+      const minutes = Math.floor(hundredths / 6000);
+      const seconds = ((hundredths % 6000) / 100)
+        .toFixed(2)
+        .padStart(5, '0');
+      return `[${String(minutes).padStart(2, '0')}:${seconds}]${text}`;
+    })
+    .filter(Boolean);
+  return encoded.length ? `${encoded.join('\n')}\n` : '';
+}
+
+function stringMetadata(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 async function getLrcLibLyrics(fetchImpl, metadata) {
   const { title, artist, album, durationSeconds } = metadata;
   if (
@@ -1119,9 +1388,12 @@ function albumFromSubtitle(subtitle) {
 }
 
 export function mapAccountProfile(accountInfo) {
-  const account = arrayOf(accountInfo?.contents?.contents).find(
-    (item) => item?.account_name,
-  );
+  const accounts = Array.isArray(accountInfo)
+    ? accountInfo
+    : arrayOf(accountInfo?.contents?.contents);
+  const account =
+    accounts.find((item) => item?.is_selected && item?.account_name) ??
+    accounts.find((item) => item?.account_name);
   if (!account) return null;
   const displayName = textValue(account.account_name);
   const avatarUrl = largestThumbnail(arrayOf(account.account_photo))?.url ?? null;
@@ -1192,6 +1464,50 @@ function feedFailure(code, message, diagnosticStage, error) {
   });
 }
 
+function authenticationFailure(error, diagnosticStage) {
+  const details = {
+    diagnosticStage,
+    ...describeUpstreamError(error),
+  };
+  if (details.statusCode === 401 || details.statusCode === 403) {
+    return new SidecarError(
+      'INVALID_COOKIE',
+      'The YouTube Cookie header is invalid or expired.',
+      details,
+    );
+  }
+  if (isNetworkFailure(error, details.upstreamCode)) {
+    return new SidecarError(
+      'AUTHENTICATION_UNAVAILABLE',
+      'YouTube could not be reached to verify this Cookie.',
+      details,
+    );
+  }
+  return new SidecarError(
+    'AUTHENTICATION_FAILED',
+    'YouTube Cookie authentication could not be verified.',
+    details,
+  );
+}
+
+function isNetworkFailure(error, upstreamCode) {
+  if (
+    [
+      'ECONNREFUSED',
+      'ECONNRESET',
+      'ENETUNREACH',
+      'ENOTFOUND',
+      'ETIMEDOUT',
+      'UND_ERR_CONNECT_TIMEOUT',
+      'UND_ERR_HEADERS_TIMEOUT',
+      'UND_ERR_SOCKET',
+    ].includes(upstreamCode)
+  ) {
+    return true;
+  }
+  return /fetch failed|network|socket|timed?\s*out/i.test(error?.message ?? '');
+}
+
 export class SidecarError extends Error {
   constructor(code, message, details) {
     super(message);
@@ -1221,10 +1537,13 @@ export function describeUpstreamError(error) {
     error?.status_code,
     error?.statusCode,
     error?.response?.status,
+    statusCodeFromInfo(error?.info),
+    statusCodeFromMessage(error?.message),
   );
   const upstreamCode =
     safeDiagnosticValue(details?.upstreamCode) ??
-    (isSidecarError ? null : safeDiagnosticValue(error?.code));
+    (isSidecarError ? null : safeDiagnosticValue(error?.code)) ??
+    safeDiagnosticValue(error?.cause?.code);
   const sourceLocation =
     safeSourceLocation(details?.sourceLocation) ?? safeStackLocation(error?.stack);
   const errorType =
@@ -1238,6 +1557,27 @@ export function describeUpstreamError(error) {
     ...(sourceLocation == null ? {} : { sourceLocation }),
     ...(upstreamCode == null ? {} : { upstreamCode }),
   };
+}
+
+function statusCodeFromInfo(info) {
+  if (typeof info === 'string') {
+    try {
+      return statusCodeFromInfo(JSON.parse(info));
+    } catch {
+      return null;
+    }
+  }
+  return firstStatusCode(
+    info?.statusCode,
+    info?.status_code,
+    info?.error?.code,
+  );
+}
+
+function statusCodeFromMessage(message) {
+  if (typeof message !== 'string') return null;
+  const match = message.match(/status(?:\s+code)?\s+(\d{3})/i);
+  return match ? Number.parseInt(match[1], 10) : null;
 }
 
 function firstStatusCode(...candidates) {
@@ -1272,4 +1612,13 @@ function safeStackLocation(stack) {
     /(?:file:\/\/)?(?:[^\s()]*\/)?(sidecar\/src\/[A-Za-z0-9_.-]+\.mjs:\d+:\d+)/,
   );
   return safeSourceLocation(match?.[1]);
+}
+
+function normalizeCookieHeader(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  const headerLine = trimmed
+    .split(/\r?\n/)
+    .find((line) => /^cookie\s*:/i.test(line));
+  return (headerLine ?? trimmed).replace(/^cookie\s*:\s*/i, '').trim();
 }

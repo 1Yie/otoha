@@ -48,6 +48,7 @@
 - `library.playlist`
 - `history.get`
 - `feed.home`
+- `feed.home.filter`
 - `feed.home.more`
 - `feed.explore`
 - `feed.collection`
@@ -81,7 +82,10 @@
 ## Gotchas
 
 - Run Otoha from the repository root during development.
-- Node.js 20 or newer is required.
+- Node.js 24 or newer is required so bundled releases support environment proxies.
+- Explicit proxy environment variables take precedence. Linux desktop launches
+  otherwise import a manual `gsettings` proxy for sidecar, Flutter image, and
+  native `media_kit` playback requests.
 - Linux builds require the `libsecret` development package.
 - Use a new private browser window when copying the YouTube Cookie header.
 - Cookie values are full account credentials and must never be logged or committed.
@@ -90,6 +94,9 @@
   the generic YouTube `FEhistory` watch history. Keep results in memory only.
 - Repeated continuation pages must terminate without duplicating the queue.
 - Home and Explore retain one in-memory upstream continuation; append normalized sections without duplicating item IDs.
+- Home filter labels come from the current localized `HomeFeed.filters`; applying
+  one uses `HomeFeed.applyFilter()` and replaces the visible sections while
+  retaining the unfiltered feed as the source for subsequent filter changes.
 - Explore reads the continuation from its parsed `SectionList` because the current `youtubei.js` parser does not expose an `Explore.getContinuation()` helper. When no continuation is present, keep the finite response rather than repeating cards.
 - Feed songs and one-track releases resolve an ephemeral audio-only URL and start native playback; multi-track playlists and albums open track lists.
 - Expanded player lyrics query LRCLIB's cached exact endpoint and title/artist search in parallel, then fall back to LRCLIB's exact external lookup when neither returns timed LRC. If no synchronized result exists, YouTube Music official lyrics are shown without fabricated timing or line-level highlighting.
@@ -97,9 +104,17 @@
 - Artist and mood/genre cards retain their browse ID and parameters for `feed.browse`.
 - Artist/channel cards render as circular profiles and open browse results; search excludes non-music entries.
 - Explore category selections are top tabs that replace the current Explore sections; podcast episode sections are excluded.
-- Horizontal feed sections use section-header arrow controls for desktop scrolling.
+- `MusicCarouselShelf.num_items_per_column` is preserved as
+  `itemsPerColumn`; values above one render native multi-row compact media
+  columns instead of square cover cards.
+- Horizontal feed sections use boundary-aware section-header arrow controls
+  for desktop scrolling.
 - Unknown metadata duration remains unknown; do not substitute a simulated duration.
 - Feed-song cards without a duration resolve it through YouTube video metadata before playback.
-- `playback.resolve` is user-initiated and returns only an in-memory audio-only URL. `download.track` is user-initiated and uses the existing authenticated Innertube session so it can reuse the already loaded player. It tries supported music/audio clients in order, streams directly into a temporary file, and atomically completes the local audio file without persisting a URL, Cookie, or headers. A hidden-to-tray session must not trigger downloads, background account activity, or automatic stream resolution.
+- `playback.resolve` is user-initiated and returns only an in-memory audio-only URL. `download.track` is user-initiated and uses the existing authenticated Innertube session so it can reuse the already loaded player. It tries supported music/audio clients in order and stages a per-track bundle containing `audio.<ext>`, `cover.<ext>`, `lyrics.lrc`, and `metadata.json` before atomically renaming the directory into place. The bundle never persists a URL, Cookie, or request headers. A hidden-to-tray session must not trigger downloads, background account activity, or automatic stream resolution.
+- New default downloads use `Music/otoha/yt_music_download/<videoId>/`.
+  Version-1 libraries that still point at the former default Music root migrate
+  to this directory; user-selected custom roots and legacy single-file
+  downloads remain valid.
 - `interaction.rate` and `comments.create` are user-initiated Cookie-authenticated account writes. Flutter and the sidecar enforce one shared two-second cooldown; never submit automatically, log comment bodies, or persist interaction request data.
 - Remote artwork and Home, Explore, Library, and playlist metadata may use their bounded cache; clear the metadata cache on sign-out. Local offline downloads, local offline playlist metadata, and timestamped LRC lyrics use separate non-credential stores and remain available after sign-out. Never cache Cookies, stream URLs, headers, comment bodies, or search results.

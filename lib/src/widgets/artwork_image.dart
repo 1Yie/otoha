@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -40,6 +42,18 @@ class ArtworkImage extends StatelessWidget {
             const ColoredBox(color: OtohaColors.surfaceRaised),
         errorWidget: (context, url, error) =>
             errorBuilder(context, error, null),
+      );
+    }
+    if (assetPath.startsWith('/') ||
+        assetPath.startsWith(r'\\') ||
+        RegExp(r'^[A-Za-z]:[\\/]').hasMatch(assetPath)) {
+      return Image.file(
+        File(assetPath),
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
+        gaplessPlayback: true,
+        semanticLabel: semanticLabel,
+        errorBuilder: errorBuilder,
       );
     }
     return Image.asset(

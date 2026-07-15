@@ -110,6 +110,7 @@ class PlayerController extends ChangeNotifier {
   AudioPlaybackFailure? _playbackError;
   int _audioResolveAttempts = 0;
   bool _hasActiveAudio = false;
+  int? _pendingAudioPositionSeconds;
   bool _isShuffled = false;
   PlaybackRepeatMode _repeatMode = PlaybackRepeatMode.off;
   AudioOutputState _audioOutputState = const AudioOutputState();
@@ -223,6 +224,7 @@ class PlayerController extends ChangeNotifier {
         _isPlaying = false;
         _isBuffering = false;
         _hasActiveAudio = false;
+        _pendingAudioPositionSeconds = null;
         unawaited(_audioPlaybackEngine!.stop());
       } else if (_isPlaying) {
         _isPlaying = false;
@@ -333,6 +335,7 @@ class PlayerController extends ChangeNotifier {
     }
     _positionSeconds = seconds.clamp(0, currentTrack.durationSeconds);
     if (_usesAudioPlayback) {
+      _pendingAudioPositionSeconds = _positionSeconds;
       unawaited(
         _audioPlaybackEngine!.seek(Duration(seconds: _positionSeconds)),
       );
@@ -426,6 +429,7 @@ class PlayerController extends ChangeNotifier {
       _isPlaying = true;
       _isBuffering = true;
       final initialPosition = Duration(seconds: _positionSeconds);
+      _pendingAudioPositionSeconds = initialPosition.inSeconds;
       final localFilePath = currentTrack.localFilePath;
       if (localFilePath != null) {
         unawaited(
@@ -446,6 +450,7 @@ class PlayerController extends ChangeNotifier {
     }
     _isBuffering = false;
     _hasActiveAudio = false;
+    _pendingAudioPositionSeconds = null;
     if (_audioPlaybackEngine != null) {
       unawaited(_audioPlaybackEngine.stop());
     }
@@ -475,12 +480,18 @@ class PlayerController extends ChangeNotifier {
       _hasActiveAudio = true;
     }
     final position = state.position.inSeconds;
-    if (currentTrack.durationSeconds > 0) {
-      _positionSeconds = position.clamp(0, currentTrack.durationSeconds);
-    } else {
-      _positionSeconds = position;
+    final pendingPosition = _pendingAudioPositionSeconds;
+    final acceptsPosition =
+        pendingPosition == null || (position - pendingPosition).abs() <= 2;
+    if (acceptsPosition) {
+      _pendingAudioPositionSeconds = null;
+      if (currentTrack.durationSeconds > 0) {
+        _positionSeconds = position.clamp(0, currentTrack.durationSeconds);
+      } else {
+        _positionSeconds = position;
+      }
     }
-    if (_positionSeconds.remainder(5) == 0) {
+    if (acceptsPosition && _positionSeconds.remainder(5) == 0) {
       _persistSession(deduplicateAudioCheckpoint: true);
     }
     notifyListeners();

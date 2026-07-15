@@ -137,7 +137,7 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
 
   find_program(OTOHA_NODE_COMMAND node)
   if(NOT OTOHA_NODE_COMMAND)
-    message(FATAL_ERROR "Node.js 20 or newer is required to build an Otoha release.")
+    message(FATAL_ERROR "Node.js 24 or newer is required to build an Otoha release.")
   endif()
   execute_process(
     COMMAND "${OTOHA_NODE_COMMAND}" -p "process.execPath"
@@ -152,9 +152,9 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
     OUTPUT_VARIABLE OTOHA_NODE_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE
   )
-  if(NOT OTOHA_NODE_VERSION MATCHES "^v([2-9][0-9]|[1-9][0-9][0-9])\\.")
+  if(NOT OTOHA_NODE_VERSION MATCHES "^v(2[4-9]|[3-9][0-9]|[1-9][0-9][0-9])\\.")
     message(FATAL_ERROR
-      "Node.js 20 or newer is required to build an Otoha release; found ${OTOHA_NODE_VERSION}.")
+      "Node.js 24 or newer is required to build an Otoha release; found ${OTOHA_NODE_VERSION}.")
   endif()
 
   get_filename_component(OTOHA_NODE_BIN_DIR "${OTOHA_NODE_EXECUTABLE}" DIRECTORY)

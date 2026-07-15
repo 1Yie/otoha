@@ -19,6 +19,7 @@ const methods = {
   'library.playlist': ({ playlistId } = {}) => service.getPlaylist(playlistId),
   'history.get': () => service.getHistory(),
   'feed.home': () => service.getHomeFeed(),
+  'feed.home.filter': ({ filter } = {}) => service.applyHomeFilter(filter),
   'feed.home.more': () => service.getMoreHomeFeed(),
   'feed.explore': () => service.getExploreFeed(),
   'feed.explore.more': () => service.getMoreExploreFeed(),
@@ -32,7 +33,8 @@ const methods = {
     service.getFeedCollection(itemType, id),
   'feed.track': ({ videoId } = {}) => service.getFeedTrack(videoId),
   'playback.resolve': ({ videoId } = {}) => service.getPlaybackStream(videoId),
-  'download.track': ({ videoId, directory } = {}) => service.downloadAudio(videoId, directory),
+  'download.track': ({ videoId, directory, ...metadata } = {}) =>
+    service.downloadMediaBundle(videoId, directory, metadata),
   'lyrics.get': ({ videoId, title, artist, album, durationSeconds } = {}) =>
     service.getLyrics(videoId, { title, artist, album, durationSeconds }),
   'feed.browse': ({ itemType, id, browseParams } = {}) =>

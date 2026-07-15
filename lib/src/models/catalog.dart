@@ -12,6 +12,7 @@ class Track {
     required this.lyrics,
     this.youtubeVideoId,
     this.localFilePath,
+    this.localLyricsPath,
   });
 
   final String id;
@@ -23,6 +24,7 @@ class Track {
   final List<String> lyrics;
   final String? youtubeVideoId;
   final String? localFilePath;
+  final String? localLyricsPath;
 
   factory Track.fromJson(Map<String, Object?> json) {
     return Track(
@@ -35,6 +37,7 @@ class Track {
       lyrics: (json['lyrics']! as List<Object?>).cast<String>(),
       youtubeVideoId: json['youtubeVideoId'] as String?,
       localFilePath: json['localFilePath'] as String?,
+      localLyricsPath: json['localLyricsPath'] as String?,
     );
   }
 
@@ -48,5 +51,6 @@ class Track {
     'lyrics': lyrics,
     'youtubeVideoId': youtubeVideoId,
     'localFilePath': localFilePath,
+    'localLyricsPath': localLyricsPath,
   };
 }

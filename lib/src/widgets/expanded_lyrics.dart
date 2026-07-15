@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -18,12 +19,14 @@ class ExpandedLyricsOverlay extends StatefulWidget {
     required this.playerController,
     required this.shellController,
     required this.youtubeLibraryController,
+    this.readLyricsFile = _readLyricsFile,
     super.key,
   });
 
   final PlayerController playerController;
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
+  final Future<String> Function(String path) readLyricsFile;
 
   @override
   State<ExpandedLyricsOverlay> createState() => _ExpandedLyricsOverlayState();
@@ -35,6 +38,8 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
   late List<GlobalKey> _lineKeys;
   late List<YouTubeLyricLine> _lyrics;
   late bool _usesRemoteLyrics;
+  late bool _usesTimedLyrics;
+  late bool _isLoadingLocalLyrics;
   late bool _isPlaying;
   late bool _isBuffering;
   int _activeLine = 0;
@@ -50,7 +55,7 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
       if (!mounted) {
         return;
       }
-      _requestRemoteLyrics(widget.playerController.currentTrack!);
+      _requestLyrics(widget.playerController.currentTrack!);
       _scrollToActiveLine();
     });
   }
@@ -68,13 +73,16 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
     final l10n = AppLocalizations.of(context)!;
     final track = widget.playerController.currentTrack!;
     final videoId = _videoIdFor(track);
-    final hasResolvedLyrics =
-        widget.youtubeLibraryController.lyricsVideoId == videoId &&
-        !widget.youtubeLibraryController.isLoadingLyrics;
-    final isLoadingLyrics =
-        videoId != null &&
-        widget.youtubeLibraryController.isSignedIn &&
-        !hasResolvedLyrics;
+    final usesLocalLyrics = track.localLyricsPath?.isNotEmpty ?? false;
+    final hasResolvedLyrics = usesLocalLyrics
+        ? !_isLoadingLocalLyrics
+        : widget.youtubeLibraryController.lyricsVideoId == videoId &&
+              !widget.youtubeLibraryController.isLoadingLyrics;
+    final isLoadingLyrics = usesLocalLyrics
+        ? _isLoadingLocalLyrics
+        : videoId != null &&
+              widget.youtubeLibraryController.isSignedIn &&
+              !hasResolvedLyrics;
     return Material(
       key: const Key('expanded-lyrics-overlay'),
       color: Colors.transparent,
@@ -179,10 +187,15 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
     final track = widget.playerController.currentTrack!;
     _trackId = track.id;
     final videoId = _videoIdFor(track);
-    _usesRemoteLyrics = videoId != null;
-    _lyrics =
-        videoId != null &&
-            widget.youtubeLibraryController.lyricsVideoId == videoId
+    final localLyricsPath = track.localLyricsPath;
+    _usesRemoteLyrics =
+        (localLyricsPath == null || localLyricsPath.isEmpty) && videoId != null;
+    _usesTimedLyrics = _usesRemoteLyrics || localLyricsPath?.isNotEmpty == true;
+    _isLoadingLocalLyrics = localLyricsPath?.isNotEmpty == true;
+    _lyrics = localLyricsPath?.isNotEmpty == true
+        ? const <YouTubeLyricLine>[]
+        : videoId != null &&
+              widget.youtubeLibraryController.lyricsVideoId == videoId
         ? widget.youtubeLibraryController.lyricsLines
         : videoId != null
         ? const <YouTubeLyricLine>[]
@@ -198,7 +211,7 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
     final track = widget.playerController.currentTrack!;
     if (track.id != _trackId) {
       setState(_resetForCurrentTrack);
-      _requestRemoteLyrics(track);
+      _requestLyrics(track);
       _scheduleScroll();
       return;
     }
@@ -229,7 +242,8 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
   void _syncRemoteLyrics() {
     final track = widget.playerController.currentTrack!;
     final videoId = _videoIdFor(track);
-    if (videoId == null ||
+    if (!_usesRemoteLyrics ||
+        videoId == null ||
         widget.youtubeLibraryController.lyricsVideoId != videoId) {
       return;
     }
@@ -246,7 +260,12 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
     _scheduleScroll();
   }
 
-  void _requestRemoteLyrics(Track track) {
+  void _requestLyrics(Track track) {
+    final localLyricsPath = track.localLyricsPath;
+    if (localLyricsPath != null && localLyricsPath.isNotEmpty) {
+      unawaited(_loadLocalLyrics(track.id, localLyricsPath));
+      return;
+    }
     final videoId = _videoIdFor(track);
     if (videoId != null) {
       widget.youtubeLibraryController.loadLyrics(
@@ -259,9 +278,28 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
     }
   }
 
+  Future<void> _loadLocalLyrics(String trackId, String path) async {
+    var lines = const <YouTubeLyricLine>[];
+    try {
+      lines = _parseBundledLyrics(await widget.readLyricsFile(path));
+    } on Object {
+      lines = const <YouTubeLyricLine>[];
+    }
+    if (!mounted || widget.playerController.currentTrack?.id != trackId) {
+      return;
+    }
+    setState(() {
+      _lyrics = lines;
+      _lineKeys = List<GlobalKey>.generate(lines.length, (_) => GlobalKey());
+      _isLoadingLocalLyrics = false;
+      _activeLine = _activeLineFor(widget.playerController.currentTrack!);
+    });
+    _scheduleScroll();
+  }
+
   int _activeLineFor(Track track) {
     if (_lyrics.isEmpty) return -1;
-    if (_usesRemoteLyrics) {
+    if (_usesTimedLyrics) {
       var activeLine = -1;
       for (var index = 0; index < _lyrics.length; index += 1) {
         final startSeconds = _lyrics[index].startSeconds;
@@ -322,6 +360,34 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
       windowManager.startDragging();
     }
   }
+}
+
+Future<String> _readLyricsFile(String path) => File(path).readAsString();
+
+List<YouTubeLyricLine> _parseBundledLyrics(String value) {
+  final timestamp = RegExp(r'\[(\d+):(\d{2}(?:\.\d{1,3})?)\]');
+  final lines = <YouTubeLyricLine>[];
+  for (final rawLine in value.split(RegExp(r'\r?\n'))) {
+    final matches = timestamp.allMatches(rawLine).toList(growable: false);
+    final text = rawLine.replaceAll(timestamp, '').trim();
+    if (text.isEmpty) {
+      continue;
+    }
+    if (matches.isEmpty) {
+      lines.add(YouTubeLyricLine(text: text));
+      continue;
+    }
+    for (final match in matches) {
+      lines.add(
+        YouTubeLyricLine(
+          text: text,
+          startSeconds:
+              int.parse(match.group(1)!) * 60 + double.parse(match.group(2)!),
+        ),
+      );
+    }
+  }
+  return lines;
 }
 
 class _TrackSummary extends StatelessWidget {

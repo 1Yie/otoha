@@ -61,6 +61,8 @@ class YouTubeLibraryController extends ChangeNotifier {
   YouTubeFeedCollectionDetail? _selectedFeedCollection;
   YouTubeFeedBrowseDetail? _selectedFeedBrowse;
   List<YouTubeFeedSection> _homeSections = const <YouTubeFeedSection>[];
+  List<String> _homeFilters = const <String>[];
+  String? _selectedHomeFilter;
   List<YouTubeFeedSection> _exploreSections = const <YouTubeFeedSection>[];
   List<YouTubeFeedItem> _exploreCategories = const <YouTubeFeedItem>[];
   String? _selectedExploreCategoryId;
@@ -98,6 +100,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   String? _profileAvatarUrl;
   String? _ratingVideoId;
   YouTubeLibraryError? _commentErrorMessage;
+  String? _errorDiagnostic;
   bool _isLoadingComments = false;
   bool _isPostingComment = false;
   DateTime? _accountWriteCooldownUntil;
@@ -112,6 +115,8 @@ class YouTubeLibraryController extends ChangeNotifier {
       _selectedFeedCollection;
   YouTubeFeedBrowseDetail? get selectedFeedBrowse => _selectedFeedBrowse;
   List<YouTubeFeedSection> get homeSections => _homeSections;
+  List<String> get homeFilters => _homeFilters;
+  String? get selectedHomeFilter => _selectedHomeFilter;
   List<YouTubeFeedSection> get exploreSections => _exploreSections;
   List<YouTubeFeedItem> get exploreCategories => _exploreCategories;
   String? get selectedExploreCategoryId => _selectedExploreCategoryId;
@@ -147,6 +152,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   YouTubeLibraryError? get searchErrorMessage => _searchErrorMessage;
   YouTubeLibraryError? get commentErrorMessage => _commentErrorMessage;
+  String? get errorDiagnostic => _errorDiagnostic;
   String? get profileName => _profileName;
   String? get profileAvatarUrl => _profileAvatarUrl;
   bool get isSignedIn => _status == YouTubeAccountStatus.signedIn;
@@ -157,6 +163,7 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   Future<void> initialize() async {
     _status = YouTubeAccountStatus.restoring;
+    _errorDiagnostic = null;
     notifyListeners();
     try {
       final saved = await _credentialStore.read();
@@ -199,6 +206,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   Future<void> signInWithCookie(String cookie) async {
     _status = YouTubeAccountStatus.authorizing;
     _errorMessage = null;
+    _errorDiagnostic = null;
     notifyListeners();
     try {
       final result = await _client.call('auth.cookie.signIn', <String, Object?>{
@@ -232,6 +240,8 @@ class YouTubeLibraryController extends ChangeNotifier {
     _selectedFeedCollection = null;
     _selectedFeedBrowse = null;
     _homeSections = const <YouTubeFeedSection>[];
+    _homeFilters = const <String>[];
+    _selectedHomeFilter = null;
     _isLoadingMoreHome = false;
     _hasMoreHome = false;
     _exploreSections = const <YouTubeFeedSection>[];
@@ -268,6 +278,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     _profileAvatarUrl = null;
     _ratingVideoId = null;
     _commentErrorMessage = null;
+    _errorDiagnostic = null;
     notifyListeners();
   }
 
@@ -291,6 +302,8 @@ class YouTubeLibraryController extends ChangeNotifier {
       _historyTracks = const <YouTubeTrack>[];
       _hasLoadedHistory = false;
       _homeSections = const <YouTubeFeedSection>[];
+      _homeFilters = const <String>[];
+      _selectedHomeFilter = null;
       _exploreSections = const <YouTubeFeedSection>[];
       _exploreCategories = const <YouTubeFeedItem>[];
       _selectedExploreCategoryId = null;
@@ -397,18 +410,48 @@ class YouTubeLibraryController extends ChangeNotifier {
           ? null
           : await _metadataCache?.read('feed.home');
       if (cached != null) {
-        _homeSections = _decodeFeedSections(cached.data);
+        _applyHomeResult(cached.data);
         _hasMoreHome = false;
         notifyListeners();
-        if (cached.isFresh(const Duration(minutes: 10))) {
+        if (_homeFilters.isNotEmpty &&
+            cached.isFresh(const Duration(minutes: 10))) {
           return;
         }
       }
       final result = await _client.call('feed.home');
-      _homeSections = _decodeFeedSections(result);
+      _applyHomeResult(result);
       _hasMoreHome = result['hasMore'] == true;
       await _metadataCache?.write('feed.home', result);
     } on Object catch (error) {
+      _homeErrorMessage = _requestErrorFor(error);
+      _hasMoreHome = false;
+    } finally {
+      _isLoadingHome = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> selectHomeFilter(String filter) async {
+    final value = filter.trim();
+    if (!isSignedIn ||
+        _isLoadingHome ||
+        !_homeFilters.contains(value) ||
+        _selectedHomeFilter == value) {
+      return;
+    }
+    final previousFilter = _selectedHomeFilter;
+    _selectedHomeFilter = value;
+    _isLoadingHome = true;
+    _homeErrorMessage = null;
+    notifyListeners();
+    try {
+      final result = await _client.call('feed.home.filter', <String, Object?>{
+        'filter': value,
+      });
+      _applyHomeResult(result);
+      _hasMoreHome = result['hasMore'] == true;
+    } on Object catch (error) {
+      _selectedHomeFilter = previousFilter;
       _homeErrorMessage = _requestErrorFor(error);
       _hasMoreHome = false;
     } finally {
@@ -717,9 +760,14 @@ class YouTubeLibraryController extends ChangeNotifier {
       lines.isNotEmpty &&
       lines.every((line) => line.startSeconds != null);
 
-  Future<Map<String, Object?>> downloadAudio({
+  Future<Map<String, Object?>> downloadMediaBundle({
     required String videoId,
     required String directory,
+    required String title,
+    required String artist,
+    required String album,
+    required int durationSeconds,
+    required String artworkUrl,
   }) async {
     if (!isSignedIn || videoId.isEmpty) {
       throw const SidecarException('AUTHENTICATION_REQUIRED', '');
@@ -727,6 +775,11 @@ class YouTubeLibraryController extends ChangeNotifier {
     return _client.call('download.track', <String, Object?>{
       'videoId': videoId,
       'directory': directory,
+      'title': title,
+      'artist': artist,
+      'album': album,
+      'durationSeconds': durationSeconds,
+      'artworkUrl': artworkUrl,
     });
   }
 
@@ -885,6 +938,7 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   void clearError() {
     _errorMessage = null;
+    _errorDiagnostic = null;
     if (_status == YouTubeAccountStatus.error) {
       _status = YouTubeAccountStatus.signedOut;
     }
@@ -909,9 +963,11 @@ class YouTubeLibraryController extends ChangeNotifier {
         await _credentialStore.write(jsonEncode(credential.toJson()));
         _status = YouTubeAccountStatus.signedIn;
         _errorMessage = null;
+        _errorDiagnostic = null;
         notifyListeners();
       case 'auth.error':
         _errorMessage = YouTubeLibraryError.authenticationFailed;
+        _errorDiagnostic = 'AUTHENTICATION_FAILED';
         _status = YouTubeAccountStatus.error;
         notifyListeners();
       case 'sidecar.exit':
@@ -1000,6 +1056,15 @@ class YouTubeLibraryController extends ChangeNotifier {
     _selectedExploreCategoryId = null;
   }
 
+  void _applyHomeResult(Map<String, Object?> result) {
+    _homeSections = _decodeFeedSections(result);
+    _homeFilters = (result['filters'] as List<Object?>? ?? const <Object?>[])
+        .whereType<String>()
+        .toSet()
+        .toList(growable: false);
+    _selectedHomeFilter = result['selectedFilter'] as String?;
+  }
+
   List<YouTubeFeedSection> _mergeFeedSections(
     List<YouTubeFeedSection> existing,
     List<YouTubeFeedSection> appended,
@@ -1021,7 +1086,11 @@ class YouTubeLibraryController extends ChangeNotifier {
           items.add(item);
         }
       }
-      merged[index] = YouTubeFeedSection(title: current.title, items: items);
+      merged[index] = YouTubeFeedSection(
+        title: current.title,
+        items: items,
+        itemsPerColumn: current.itemsPerColumn,
+      );
     }
     return List<YouTubeFeedSection>.unmodifiable(merged);
   }
@@ -1051,7 +1120,11 @@ class YouTubeLibraryController extends ChangeNotifier {
               .toList(growable: false);
           return items.isEmpty
               ? null
-              : YouTubeFeedSection(title: section.title, items: items);
+              : YouTubeFeedSection(
+                  title: section.title,
+                  items: items,
+                  itemsPerColumn: section.itemsPerColumn,
+                );
         })
         .whereType<YouTubeFeedSection>()
         .toList(growable: false);
@@ -1090,14 +1163,40 @@ class YouTubeLibraryController extends ChangeNotifier {
         'INVALID_CREDENTIAL',
         'AUTH_REQUIRED',
         'AUTHENTICATION_REQUIRED',
-        'AUTHENTICATION_FAILED',
       }.contains(error.code);
 
   void _setError(Object error, {bool preserveSignedIn = false}) {
     _errorMessage = _requestErrorFor(error);
+    _errorDiagnostic = _diagnosticFor(error);
     if (!preserveSignedIn) {
       _status = YouTubeAccountStatus.error;
     }
     notifyListeners();
+  }
+
+  String? _diagnosticFor(Object error) {
+    if (error is! SidecarException) {
+      return null;
+    }
+    final parts = <String>[error.code];
+    final details = error.details;
+    if (details is Map<Object?, Object?>) {
+      final stage = details['diagnosticStage'];
+      if (stage is String &&
+          RegExp(r'^[A-Za-z0-9_.-]{1,80}$').hasMatch(stage)) {
+        parts.add(stage);
+      }
+      final statusCode = details['statusCode'];
+      if (statusCode is int && statusCode >= 100 && statusCode <= 599) {
+        parts.add('HTTP $statusCode');
+      }
+      final upstreamCode = details['upstreamCode'];
+      if (upstreamCode is String &&
+          upstreamCode != error.code &&
+          RegExp(r'^[A-Za-z0-9_.-]{1,80}$').hasMatch(upstreamCode)) {
+        parts.add(upstreamCode);
+      }
+    }
+    return parts.join(' / ');
   }
 }

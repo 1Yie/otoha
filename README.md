@@ -12,7 +12,7 @@
   <a href="https://github.com/1Yie/otoha/actions/workflows/ci-and-release.yml"><img src="https://github.com/1Yie/otoha/actions/workflows/ci-and-release.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1Yie/otoha" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Flutter-desktop-02569B?logo=flutter" alt="Flutter desktop">
-  <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white" alt="Node.js 20 or newer">
+<img src="https://img.shields.io/badge/Node.js-24%2B-339933?logo=node.js&logoColor=white" alt="Node.js 24 or newer">
 </p>
 
 Otoha is a native Flutter application for Linux, macOS, and Windows. It combines an authenticated YouTube Music library with native audio playback, synchronized lyrics, persistent downloads, and local offline playlists. The application uses a local Node.js sidecar for YouTube.js integration; it is not a web wrapper and does not open a local HTTP port.
@@ -26,7 +26,7 @@ Otoha is a native Flutter application for Linux, macOS, and Windows. It combines
 - Native desktop playback through `media_kit`, including seek, queue, shuffle, repeat, volume, buffering, and output-device selection
 - Persistent playback sessions that restore the queue, current track, position, volume, shuffle, and repeat state without storing transient stream URLs
 - Timestamped LRCLIB lyrics with playback-following line highlighting and an untimed YouTube Music fallback
-- User-initiated audio downloads with persistent local metadata and direct offline playback
+- User-initiated offline media bundles with local audio, artwork, lyrics, metadata, and direct playback
 - Local offline playlists with rename, cover selection, track management, and deletion confirmation
 - English and Simplified Chinese interfaces, including localized remote YouTube Music requests
 - Frameless desktop window, system tray background playback, native application icons, and keyboard shortcuts
@@ -48,7 +48,7 @@ Tagged releases bundle the production sidecar and a Node.js runtime, so end user
 ## Requirements
 
 - Flutter stable with Dart `^3.12.2`
-- Node.js 20 or newer and npm for source builds
+- Node.js 24 or newer and npm for source builds
 - Linux credential storage development files:
   - Debian or Ubuntu: `libsecret-1-dev`
   - Fedora: `libsecret-devel`
@@ -113,13 +113,19 @@ Otoha keeps credential, transient playback, and offline data in separate storage
 
 - Cookies are stored by `flutter_secure_storage` in the OS credential store.
 - Stream URLs and request headers remain in memory and are never persisted.
-- Downloads stream into temporary `.part` files and are atomically completed.
+- Downloads stage audio, artwork, lyrics, and metadata under a per-track `.part`
+  directory before atomically completing the bundle. The default root is
+  `Music/otoha/yt_music_download`; existing custom roots remain unchanged.
 - Download metadata and offline playlists use a dedicated non-credential application-support store.
 - Timestamped lyrics use a separate persistent cache; untimed fallback lyrics remain in memory.
 - Home, Explore, Library, and playlist metadata use a bounded cache that is cleared on sign-out.
 - Search results, comments, Cookies, stream URLs, and headers are not placed in persistent metadata caches.
 
 The sidecar communicates with Flutter through newline-delimited JSON over standard input and output. It does not listen on a TCP port.
+Otoha honors explicit `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`
+environment variables. Linux desktop launches without those variables also
+import a manual system proxy from `gsettings` for sidecar, artwork, avatar, and
+native audio playback requests.
 
 ## Development
 
@@ -156,7 +162,7 @@ flutter build windows
 ```
 
 The Linux release bundle includes the sidecar, its pinned dependencies, and the
-Node.js 20+ runtime used for the build. This keeps Cookie sign-in and playback
+Node.js 24+ runtime used for the build. This keeps Cookie sign-in and playback
 resolution working when the bundle is launched outside the source checkout.
 The GitHub release workflow adds the same runtime files to the Windows
 installer and macOS disk image during their platform-specific packaging steps.

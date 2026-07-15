@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -19,11 +20,33 @@ import 'package:otoha/src/state/app_locale_controller.dart';
 import 'package:otoha/src/state/desktop_shell_controllers.dart';
 import 'package:otoha/src/state/offline_library_controller.dart';
 import 'package:otoha/src/state/youtube_library_controller.dart';
+import 'package:otoha/src/widgets/artwork_image.dart';
 import 'package:otoha/src/widgets/player_bar.dart';
 import 'package:otoha/src/widgets/expanded_lyrics.dart';
 import 'package:otoha/src/widgets/search_palette.dart';
 
 void main() {
+  testWidgets('artwork image reads absolute offline cover paths', (
+    tester,
+  ) async {
+    final artwork = File(
+      '${Directory.current.path}/assets/artwork/cover_01.png',
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: ArtworkImage(
+          assetPath: artwork.path,
+          semanticLabel: 'Offline cover',
+        ),
+      ),
+    );
+
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.image, isA<FileImage>());
+  });
+
   testWidgets('production startup does not expose mock player data', (
     tester,
   ) async {
@@ -239,7 +262,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.runAsync(() async {
       for (var attempt = 0; attempt < 100; attempt += 1) {
-        if (offlineController.downloads.isEmpty) {
+        if (store.snapshot.downloads.isEmpty) {
           return;
         }
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -248,8 +271,114 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.snapshot.downloads, isEmpty);
+    expect(offlineController.downloads, isEmpty);
     expect(store.snapshot.playlists.single.trackVideoIds, isEmpty);
     expect(find.byKey(const Key('offline-library-empty')), findsOneWidget);
+  });
+
+  testWidgets('downloads support batch playlist add and confirmed deletion', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController();
+    final downloads = <DownloadedTrack>[
+      DownloadedTrack(
+        videoId: 'first-video',
+        title: 'First download',
+        artist: 'First artist',
+        album: 'First album',
+        artworkAsset: 'assets/artwork/cover_01.png',
+        durationSeconds: 180,
+        filePath: '${Directory.systemTemp.path}/missing-first.webm',
+        mimeType: 'audio/webm',
+        downloadedAt: DateTime(2026),
+      ),
+      DownloadedTrack(
+        videoId: 'second-video',
+        title: 'Second download',
+        artist: 'Second artist',
+        album: 'Second album',
+        artworkAsset: 'assets/artwork/cover_02.png',
+        durationSeconds: 200,
+        filePath: '${Directory.systemTemp.path}/missing-second.webm',
+        mimeType: 'audio/webm',
+        downloadedAt: DateTime(2026),
+      ),
+    ];
+    final playlist = OfflinePlaylist(
+      id: 'batch-playlist',
+      name: 'Batch playlist',
+      trackVideoIds: const <String>['first-video'],
+      artworkVideoId: 'first-video',
+      createdAt: DateTime(2026),
+    );
+    final store = _MemoryOfflineLibraryStore(
+      OfflineLibrarySnapshot(
+        downloads: downloads,
+        playlists: <OfflinePlaylist>[playlist],
+      ),
+    );
+    final offlineController = _TrackingOfflineLibraryController(
+      store: store,
+      youtubeLibraryController: libraryController,
+    );
+    addTearDown(libraryController.dispose);
+    addTearDown(offlineController.dispose);
+    await tester.pumpWidget(
+      OtohaApp(
+        youtubeLibraryController: libraryController,
+        offlineLibraryController: offlineController,
+      ),
+    );
+    await tester.tap(find.byKey(const Key('sidebar-downloads')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('offline-selection-toggle')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('offline-select-first-video')));
+    await tester.tap(find.byKey(const Key('offline-select-second-video')));
+    await tester.pump();
+
+    expect(find.byKey(const Key('offline-selected-count')), findsOneWidget);
+    expect(find.text('2 selected'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('offline-batch-add')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('offline-playlist-option-batch-playlist')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(store.snapshot.playlists.single.trackVideoIds, <String>[
+      'first-video',
+      'second-video',
+    ]);
+
+    await tester.tap(find.byKey(const Key('offline-selection-toggle')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('offline-select-all')));
+    await tester.pump();
+    expect(find.text('2 selected'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('offline-batch-delete')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('delete-downloads-confirmation')),
+      findsOneWidget,
+    );
+    expect(store.snapshot.downloads, hasLength(2));
+    await tester.tap(find.byKey(const Key('cancel-delete-downloads')));
+    await tester.pumpAndSettle();
+    expect(store.snapshot.downloads, hasLength(2));
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('offline-batch-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-delete-downloads')));
+    await tester.pumpAndSettle();
+
+    expect(offlineController.removeManyCalls, 1);
+    expect(offlineController.lastRemoveManyTrackCount, 2);
+    expect(find.byKey(const Key('offline-selected-count')), findsNothing);
   });
 
   testWidgets('offline playlist supports rename and cover selection', (
@@ -311,6 +440,13 @@ void main() {
     await tester.tap(find.byKey(const Key('offline-playlist-playlist-id')));
     await tester.pumpAndSettle();
 
+    expect(
+      tester.getRect(find.byKey(const Key('back-to-offline-playlists'))).top,
+      tester
+          .getRect(find.byKey(const Key('offline-playlist-detail-artwork')))
+          .top,
+    );
+
     await tester.tap(
       find.byKey(const Key('rename-offline-playlist-playlist-id')),
     );
@@ -335,6 +471,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.snapshot.playlists.single.artworkVideoId, 'second-video');
+
+    await tester.tap(
+      find.byKey(
+        const Key('remove-offline-playlist-track-playlist-id-first-video'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('remove-from-offline-playlist-confirmation')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const Key('cancel-remove-from-offline-playlist')),
+    );
+    await tester.pumpAndSettle();
+    expect(store.snapshot.playlists.single.trackVideoIds, <String>[
+      'first-video',
+      'second-video',
+    ]);
+
+    await tester.tap(
+      find.byKey(
+        const Key('remove-offline-playlist-track-playlist-id-first-video'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('confirm-remove-from-offline-playlist')),
+    );
+    await tester.pumpAndSettle();
+    expect(store.snapshot.playlists.single.trackVideoIds, <String>[
+      'second-video',
+    ]);
 
     await tester.tap(
       find.byKey(const Key('delete-offline-playlist-playlist-id')),
@@ -544,6 +713,35 @@ void main() {
     expect(submit.onPressed, isNotNull);
   });
 
+  testWidgets('authentication panel exposes credential-safe diagnostics', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController(
+      signInError: const SidecarException(
+        'INVALID_COOKIE',
+        '',
+        <String, Object?>{'diagnosticStage': 'auth.library', 'statusCode': 401},
+      ),
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=expired-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('open-account')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('youtube-auth-error')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-auth-diagnostic')), findsOneWidget);
+    expect(
+      find.text('INVALID_COOKIE / auth.library / HTTP 401'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('signed-in account drawer keeps its avatar at 64 pixels', (
     tester,
   ) async {
@@ -652,8 +850,8 @@ void main() {
   testWidgets('signed-in Home and Explore use YouTube feed data', (
     tester,
   ) async {
-    await _setDesktopSurface(tester);
-    final libraryController = _signedOutLibraryController();
+    await _setDesktopSurface(tester, const Size(2200, 720));
+    final libraryController = _signedOutLibraryController(homeItemCount: 20);
     addTearDown(libraryController.dispose);
     await libraryController.signInWithCookie('SID=test-cookie');
     await tester.pumpWidget(
@@ -662,22 +860,183 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('youtube-home-feed')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-home-backdrop')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-home-tab-Podcasts')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-home-tab-Sleep')), findsOneWidget);
+    final homeTabs = find.byKey(const Key('youtube-home-tabs'));
+    expect(
+      tester
+          .getRect(find.byKey(const Key('youtube-home-tab-__for_you__')))
+          .left,
+      closeTo(tester.getRect(homeTabs).left + 2, 0.1),
+    );
+    final homeTabsLeft = find.byKey(const Key('youtube-home-tabs-left'));
+    final homeTabsRight = find.byKey(const Key('youtube-home-tabs-right'));
+    expect(tester.getSize(homeTabsLeft), const Size.square(36));
+    expect(tester.getSize(homeTabsRight), const Size.square(36));
+    expect(
+      tester.getRect(homeTabsLeft).right,
+      tester.getRect(homeTabsRight).left,
+    );
+    expect(tester.getRect(homeTabsRight).right, tester.getRect(homeTabs).right);
+    expect(
+      find.descendant(of: homeTabs, matching: find.byType(ShaderMask)),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(
+              of: homeTabsLeft,
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(
+              of: homeTabsRight,
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(
+              of: homeTabsRight,
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
     expect(find.text('Listen again'), findsOneWidget);
     expect(find.byKey(const Key('youtube-feed-scroll-left-0')), findsOneWidget);
     expect(
       find.byKey(const Key('youtube-feed-scroll-right-0')),
       findsOneWidget,
     );
+    final firstSectionLeft = find.byKey(
+      const Key('youtube-feed-scroll-left-0'),
+    );
+    final firstSectionRight = find.byKey(
+      const Key('youtube-feed-scroll-right-0'),
+    );
+    expect(tester.widget<IconButton>(firstSectionLeft).onPressed, isNull);
+    expect(tester.widget<IconButton>(firstSectionRight).onPressed, isNotNull);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const Key('youtube-feed-scroll-left-1')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const Key('youtube-feed-scroll-right-1')),
+          )
+          .onPressed,
+      isNull,
+    );
+    final sectionList = find.byKey(const Key('youtube-feed-section-list-0'));
+    final sectionScrollable = find.descendant(
+      of: sectionList,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(sectionScrollable).position;
+    final visibleItemCount = (position.viewportDimension / 188).floor();
+    await tester.tap(find.byKey(const Key('youtube-feed-scroll-right-0')));
+    await tester.pumpAndSettle();
+    expect(position.pixels, closeTo(visibleItemCount * 188, 0.1));
+    expect(tester.widget<IconButton>(firstSectionLeft).onPressed, isNotNull);
+    expect(
+      tester
+          .getRect(
+            find.byKey(
+              Key('youtube-feed-song-feed-home-item-$visibleItemCount'),
+            ),
+          )
+          .left,
+      closeTo(tester.getRect(sectionList).left, 0.1),
+    );
+    await tester.tap(find.byKey(const Key('youtube-feed-scroll-left-0')));
+    await tester.pumpAndSettle();
+    expect(position.pixels, closeTo(0, 0.1));
+    expect(tester.widget<IconButton>(firstSectionLeft).onPressed, isNull);
     await tester.tap(find.byKey(const Key('youtube-feed-song-feed-home-item')));
     await tester.pump();
     expect(
       tester.widget<Text>(find.byKey(const Key('player-track'))).data,
       'Live recommendation',
     );
+    await tester.tap(find.byKey(const Key('youtube-home-tab-Sleep')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    final backdropSwitcher = find.byKey(
+      const Key('youtube-feed-backdrop-switcher'),
+    );
+    expect(
+      find.descendant(of: backdropSwitcher, matching: find.byType(Opacity)),
+      findsAtLeastNWidgets(2),
+    );
+    await tester.pumpAndSettle();
+    expect(libraryController.selectedHomeFilter, 'Sleep');
+    expect(find.text('Sleep picks'), findsOneWidget);
+    expect(
+      find.byKey(const Key('youtube-feed-compact-column-0-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('youtube-feed-compact-column-0-2')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('youtube-feed-video-filtered-home-0')),
+      findsOneWidget,
+    );
+    expect(find.text('1:00:00'), findsOneWidget);
+    final compactArtwork = tester.getRect(
+      find.byKey(const Key('youtube-feed-compact-artwork-filtered-home-0')),
+    );
+    final compactTitle = tester.getRect(find.text('Sleep long listen 0'));
+    expect(
+      compactArtwork.left,
+      tester.getRect(find.byKey(const Key('youtube-feed-section-list-0'))).left,
+    );
+    expect(compactTitle.left, closeTo(compactArtwork.right + 8, 0.1));
+    final selectedHomeTab = tester.widget<AnimatedContainer>(
+      find.byKey(const Key('youtube-home-tab-Sleep')),
+    );
+    final selectedDecoration = selectedHomeTab.decoration! as BoxDecoration;
+    expect(selectedDecoration.borderRadius, BorderRadius.circular(22));
+    expect(selectedDecoration.border, isNull);
+    expect(selectedDecoration.color, OtohaColors.text.withValues(alpha: 0.92));
+    expect(
+      find.ancestor(
+        of: find.byKey(const Key('youtube-home-tab-Sleep')),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<AnimatedSwitcher>(backdropSwitcher).duration,
+      const Duration(milliseconds: 520),
+    );
 
     await tester.tap(find.byKey(const Key('sidebar-explore')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('youtube-explore-feed')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-explore-backdrop')), findsOneWidget);
     expect(
       find.byKey(
         const Key(
@@ -832,6 +1191,12 @@ void main() {
 
     expect(find.byKey(const Key('youtube-history-workspace')), findsOneWidget);
     expect(find.text('History track'), findsOneWidget);
+    expect(
+      tester
+          .getSize(find.byKey(const Key('youtube-history-bottom-padding')))
+          .height,
+      40,
+    );
     await tester.tap(
       find.byKey(const Key('youtube-history-track-history-video')),
     );
@@ -1326,6 +1691,71 @@ void main() {
     );
   });
 
+  testWidgets('expanded lyrics read timed text from an offline bundle', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    const lyricsPath = '/offline/video-id/lyrics.lrc';
+    final playerController = PlayerController(<Track>[
+      const Track(
+        id: 'youtube:dQw4w9WgXcQ',
+        title: 'Offline lyrics track',
+        artist: 'Offline artist',
+        album: 'Offline album',
+        artworkAsset: 'assets/artwork/cover_01.png',
+        durationSeconds: 213,
+        lyrics: <String>[],
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        localFilePath: '/offline/video-id/audio.webm',
+        localLyricsPath: lyricsPath,
+      ),
+    ]);
+    final shellController = ShellController();
+    final youtubeLibraryController = _signedOutLibraryController();
+    addTearDown(playerController.dispose);
+    addTearDown(shellController.dispose);
+    addTearDown(youtubeLibraryController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildOtohaTheme(),
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ExpandedLyricsOverlay(
+            playerController: playerController,
+            shellController: shellController,
+            youtubeLibraryController: youtubeLibraryController,
+            readLyricsFile: (path) async {
+              expect(path, lyricsPath);
+              return '[00:01.25]Bundled first line\n'
+                  '[00:03.50]Bundled second line\n';
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bundled first line'), findsOneWidget);
+    expect(find.text('Bundled second line'), findsOneWidget);
+    expect(youtubeLibraryController.lyricsVideoId, isNull);
+    playerController.seekTo(2);
+    await tester.pump();
+    expect(_lyricStyle(tester, 'Bundled first line').color, OtohaColors.accent);
+    playerController.seekTo(4);
+    await tester.pump();
+    expect(
+      _lyricStyle(tester, 'Bundled second line').color,
+      OtohaColors.accent,
+    );
+  });
+
   testWidgets('shell fits at the minimum supported desktop size', (
     tester,
   ) async {
@@ -1395,12 +1825,16 @@ YouTubeLibraryController _signedOutLibraryController({
   Future<Map<String, Object?>>? browseResponse,
   List<Future<Map<String, Object?>>>? historyResponses,
   Future<Map<String, Object?>>? lyricsResponse,
+  SidecarException? signInError,
+  int homeItemCount = 1,
 }) {
   return YouTubeLibraryController(
     client: _NoopSidecarClient(
       browseResponse: browseResponse,
       historyResponses: historyResponses,
       lyricsResponse: lyricsResponse,
+      signInError: signInError,
+      homeItemCount: homeItemCount,
     ),
     credentialStore: _EmptyCredentialStore(),
   );
@@ -1422,6 +1856,8 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     this.browseResponse,
     List<Future<Map<String, Object?>>>? historyResponses,
     this.lyricsResponse,
+    this.signInError,
+    this.homeItemCount = 1,
   }) : historyResponses = List<Future<Map<String, Object?>>>.of(
          historyResponses ?? const <Future<Map<String, Object?>>>[],
        );
@@ -1429,6 +1865,8 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
   final Future<Map<String, Object?>>? browseResponse;
   final List<Future<Map<String, Object?>>> historyResponses;
   final Future<Map<String, Object?>>? lyricsResponse;
+  final SidecarException? signInError;
+  final int homeItemCount;
 
   @override
   Stream<SidecarEvent> get events => const Stream<SidecarEvent>.empty();
@@ -1438,6 +1876,9 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     String method, [
     Map<String, Object?> params = const <String, Object?>{},
   ]) async {
+    if (method == 'auth.cookie.signIn' && signInError != null) {
+      throw signInError!;
+    }
     if (method == 'feed.browse' && browseResponse != null) {
       return await browseResponse!;
     }
@@ -1487,16 +1928,35 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
       },
       'history.get' => _historyResult(),
       'feed.home' => <String, Object?>{
+        'filters': <Object?>[
+          'Podcasts',
+          'Sleep',
+          'Relax',
+          'Feel good',
+          'Energize',
+          'Workout',
+          'Romance',
+          'Sad',
+          'Commute',
+          'Party',
+          'Focus',
+        ],
+        'selectedFilter': null,
         'sections': <Object?>[
           <String, Object?>{
             'title': 'Listen again',
             'items': <Object?>[
-              _feedItem(
-                id: 'feed-home-item',
-                title: 'Live recommendation',
-                itemType: 'song',
-                videoId: 'video-home-item',
-              ),
+              for (var index = 0; index < homeItemCount; index += 1)
+                _feedItem(
+                  id: index == 0 ? 'feed-home-item' : 'feed-home-item-$index',
+                  title: index == 0
+                      ? 'Live recommendation'
+                      : 'Recommendation $index',
+                  itemType: 'song',
+                  videoId: index == 0
+                      ? 'video-home-item'
+                      : 'video-home-item-$index',
+                ),
             ],
           },
           <String, Object?>{
@@ -1510,6 +1970,38 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
             ],
           },
         ],
+      },
+      'feed.home.filter' => <String, Object?>{
+        'sections': <Object?>[
+          <String, Object?>{
+            'title': '${params['filter']} picks',
+            'itemsPerColumn': 4,
+            'items': <Object?>[
+              for (var index = 0; index < 12; index += 1)
+                _feedItem(
+                  id: 'filtered-home-$index',
+                  title: '${params['filter']} long listen $index',
+                  itemType: 'video',
+                  videoId: 'filtered-home-$index',
+                  durationSeconds: 3600 + index,
+                ),
+            ],
+          },
+        ],
+        'filters': <Object?>[
+          'Podcasts',
+          'Sleep',
+          'Relax',
+          'Feel good',
+          'Energize',
+          'Workout',
+          'Romance',
+          'Sad',
+          'Commute',
+          'Party',
+          'Focus',
+        ],
+        'selectedFilter': params['filter'],
       },
       'feed.explore' => <String, Object?>{
         'sections': <Object?>[
@@ -1623,6 +2115,7 @@ Map<String, Object?> _feedResult({
   required String title,
   required String itemType,
   String? videoId,
+  String? thumbnailUrl,
 }) {
   return <String, Object?>{
     'sections': <Object?>[
@@ -1638,7 +2131,7 @@ Map<String, Object?> _feedResult({
             'artists': <String>['Artist'],
             'album': 'Album',
             'durationSeconds': 180,
-            'thumbnailUrl': null,
+            'thumbnailUrl': thumbnailUrl,
           },
         ],
       },
@@ -1666,6 +2159,7 @@ Map<String, Object?> _feedItem({
   required String title,
   required String itemType,
   String? videoId,
+  int durationSeconds = 180,
 }) {
   return <String, Object?>{
     'id': id,
@@ -1675,7 +2169,7 @@ Map<String, Object?> _feedItem({
     'videoId': videoId,
     'artists': <String>['Artist'],
     'album': itemType == 'album' ? title : null,
-    'durationSeconds': 180,
+    'durationSeconds': durationSeconds,
     'thumbnailUrl': null,
   };
 }
@@ -1705,6 +2199,24 @@ class _MemoryOfflineLibraryStore implements OfflineLibraryStore {
   @override
   Future<void> write(OfflineLibrarySnapshot snapshot) async {
     this.snapshot = snapshot;
+  }
+}
+
+class _TrackingOfflineLibraryController extends OfflineLibraryController {
+  _TrackingOfflineLibraryController({
+    required super.store,
+    required super.youtubeLibraryController,
+  });
+
+  int removeManyCalls = 0;
+  int lastRemoveManyTrackCount = 0;
+
+  @override
+  Future<void> removeMany(Iterable<DownloadedTrack> tracks) {
+    removeManyCalls += 1;
+    final selected = tracks.toList(growable: false);
+    lastRemoveManyTrackCount = selected.length;
+    return Future<void>.value();
   }
 }
 

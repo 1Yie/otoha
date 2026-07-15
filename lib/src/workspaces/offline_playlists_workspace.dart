@@ -178,6 +178,7 @@ class _OfflinePlaylistsWorkspaceState extends State<OfflinePlaylistsWorkspace> {
           ),
           sliver: SliverToBoxAdapter(
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Tooltip(
                   message: l10n.back,
@@ -191,6 +192,7 @@ class _OfflinePlaylistsWorkspaceState extends State<OfflinePlaylistsWorkspace> {
                 ),
                 const SizedBox(width: 16),
                 SizedBox.square(
+                  key: const Key('offline-playlist-detail-artwork'),
                   dimension: 144,
                   child: Stack(
                     children: <Widget>[
@@ -317,10 +319,11 @@ class _OfflinePlaylistsWorkspaceState extends State<OfflinePlaylistsWorkspace> {
                   trailing: Tooltip(
                     message: l10n.removeFromPlaylist,
                     child: IconButton(
-                      onPressed: () => widget.controller.removeFromPlaylist(
-                        playlist: playlist,
-                        videoId: track.videoId,
+                      key: Key(
+                        'remove-offline-playlist-track-${playlist.id}-${track.videoId}',
                       ),
+                      onPressed: () =>
+                          _confirmRemoveFromPlaylist(playlist, track),
                       icon: const Icon(Icons.remove_circle_outline_rounded),
                     ),
                   ),
@@ -473,6 +476,39 @@ class _OfflinePlaylistsWorkspaceState extends State<OfflinePlaylistsWorkspace> {
     );
     if (mounted && confirmed == true) {
       await widget.controller.deletePlaylist(playlist);
+    }
+  }
+
+  Future<void> _confirmRemoveFromPlaylist(
+    OfflinePlaylist playlist,
+    DownloadedTrack track,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('remove-from-offline-playlist-confirmation'),
+        title: Text(l10n.removeFromPlaylist),
+        content: Text(l10n.removeFromPlaylistConfirmation),
+        actions: <Widget>[
+          TextButton(
+            key: const Key('cancel-remove-from-offline-playlist'),
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.close),
+          ),
+          FilledButton(
+            key: const Key('confirm-remove-from-offline-playlist'),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.removeFromPlaylist),
+          ),
+        ],
+      ),
+    );
+    if (mounted && confirmed == true) {
+      await widget.controller.removeFromPlaylist(
+        playlist: playlist,
+        videoId: track.videoId,
+      );
     }
   }
 

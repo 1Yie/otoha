@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:media_kit/media_kit.dart';
 
+import 'desktop_proxy_environment.dart';
 import 'youtube_sidecar_client.dart';
 
 enum AudioPlaybackFailure { engineCouldNotPlay, streamUnavailable, startFailed }
@@ -81,7 +82,15 @@ abstract interface class AudioPlaybackEngine {
 }
 
 class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
-  MediaKitAudioPlaybackEngine(this._client) : _player = Player() {
+  factory MediaKitAudioPlaybackEngine(
+    YouTubeSidecarClient client, {
+    Map<String, String> proxyEnvironment = const <String, String>{},
+  }) {
+    return MediaKitAudioPlaybackEngine._(client, proxyEnvironment);
+  }
+
+  MediaKitAudioPlaybackEngine._(this._client, this._proxyEnvironment)
+    : _player = Player() {
     _outputState = _outputStateFor(
       _player.state.audioDevices,
       _player.state.audioDevice,
@@ -111,6 +120,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   }
 
   final YouTubeSidecarClient _client;
+  final Map<String, String> _proxyEnvironment;
   final Player _player;
   final StreamController<AudioPlaybackSnapshot> _states =
       StreamController<AudioPlaybackSnapshot>.broadcast();
@@ -156,11 +166,16 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       if (url == null || url.isEmpty) {
         throw const SidecarException('PLAYBACK_UNAVAILABLE', '');
       }
+      await _configureProxyFor(url);
       await _player.open(Media(url), play: false);
       if (request != _request || _isDisposed) {
         return;
       }
       if (initialPosition > Duration.zero) {
+        await _waitUntilMediaIsSeekable();
+        if (request != _request || _isDisposed) {
+          return;
+        }
         await _player.seek(initialPosition);
       }
       await _player.play();
@@ -201,6 +216,10 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
         return;
       }
       if (initialPosition > Duration.zero) {
+        await _waitUntilMediaIsSeekable();
+        if (request != _request || _isDisposed) {
+          return;
+        }
         await _player.seek(initialPosition);
       }
       await _player.play();
@@ -261,6 +280,30 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     await _player.dispose();
     await _states.close();
     await _outputStates.close();
+  }
+
+  Future<void> _configureProxyFor(String url) async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer) {
+      return;
+    }
+    final proxy = DesktopProxyEnvironment.proxyUrlFor(
+      Uri.parse(url),
+      environment: _proxyEnvironment,
+    );
+    await platform.setProperty(
+      'stream-lavf-o',
+      proxy == null ? '' : 'http_proxy=$proxy',
+    );
+  }
+
+  Future<void> _waitUntilMediaIsSeekable() async {
+    if (_player.state.duration > Duration.zero) {
+      return;
+    }
+    await _player.stream.duration
+        .firstWhere((duration) => duration > Duration.zero)
+        .timeout(const Duration(seconds: 15));
   }
 
   void _update({
