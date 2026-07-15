@@ -15,6 +15,7 @@ import 'package:otoha/src/models/catalog.dart';
 import 'package:otoha/src/models/offline_library.dart';
 import 'package:otoha/src/services/credential_store.dart';
 import 'package:otoha/src/services/offline_library_store.dart';
+import 'package:otoha/src/services/player_session_store.dart';
 import 'package:otoha/src/services/youtube_sidecar_client.dart';
 import 'package:otoha/src/state/app_locale_controller.dart';
 import 'package:otoha/src/state/desktop_shell_controllers.dart';
@@ -26,6 +27,50 @@ import 'package:otoha/src/widgets/expanded_lyrics.dart';
 import 'package:otoha/src/widgets/search_palette.dart';
 
 void main() {
+  testWidgets('restored video stays collapsed until explicitly opened', (
+    tester,
+  ) async {
+    const video = Track(
+      id: 'youtube:restored-video',
+      title: 'Restored video',
+      artist: 'Channel',
+      album: 'YouTube Music',
+      artworkAsset: '',
+      durationSeconds: 180,
+      lyrics: <String>[],
+      youtubeVideoId: 'restored-video',
+      isVideo: true,
+    );
+    final libraryController = _signedOutLibraryController();
+    final store = _FixedPlayerSessionStore(<String, Object?>{
+      'catalog': <Object?>[video.toJson()],
+      'playOrderIds': <Object?>[video.id],
+      'currentTrackId': video.id,
+      'positionSeconds': 30,
+      'volume': 0.72,
+      'isPlaying': false,
+      'isShuffled': false,
+      'repeatMode': PlaybackRepeatMode.off.name,
+    });
+    addTearDown(libraryController.dispose);
+
+    await tester.pumpWidget(
+      OtohaApp(
+        youtubeLibraryController: libraryController,
+        playerSessionStore: store,
+        initialTracks: const <Track>[video],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Restored video'), findsOneWidget);
+    expect(find.byKey(const Key('video-playback-overlay')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('player-now-playing')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('video-playback-overlay')), findsOneWidget);
+  });
+
   testWidgets('artwork image reads absolute offline cover paths', (
     tester,
   ) async {
@@ -969,8 +1014,40 @@ void main() {
           .left,
       closeTo(tester.getRect(sectionList).left, 0.1),
     );
-    await tester.tap(find.byKey(const Key('youtube-feed-scroll-left-0')));
-    await tester.pumpAndSettle();
+    for (var page = 0; page < 10; page += 1) {
+      final rightButton = tester.widget<IconButton>(firstSectionRight);
+      if (rightButton.onPressed == null) {
+        break;
+      }
+      await tester.tap(firstSectionRight);
+      await tester.pumpAndSettle();
+    }
+    expect(position.pixels % 188, closeTo(0, 0.1));
+    final firstVisibleIndex = (position.pixels / 188).round();
+    expect(
+      tester
+          .getRect(
+            find.byKey(
+              Key('youtube-feed-song-feed-home-item-$firstVisibleIndex'),
+            ),
+          )
+          .left,
+      closeTo(tester.getRect(sectionList).left, 0.1),
+    );
+    expect(
+      tester
+          .getRect(find.byKey(const Key('youtube-feed-song-feed-home-item-19')))
+          .right,
+      lessThanOrEqualTo(tester.getRect(sectionList).right + 0.1),
+    );
+    for (var page = 0; page < 10; page += 1) {
+      final leftButton = tester.widget<IconButton>(firstSectionLeft);
+      if (leftButton.onPressed == null) {
+        break;
+      }
+      await tester.tap(firstSectionLeft);
+      await tester.pumpAndSettle();
+    }
     expect(position.pixels, closeTo(0, 0.1));
     expect(tester.widget<IconButton>(firstSectionLeft).onPressed, isNull);
     await tester.tap(find.byKey(const Key('youtube-feed-song-feed-home-item')));
@@ -1093,6 +1170,36 @@ void main() {
               as Icon)
           .icon,
       Icons.pause_rounded,
+    );
+  });
+
+  testWidgets('podcast cards open a dedicated vertical episode page', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController(podcastShow: true);
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const Key('youtube-feed-podcast-podcast-show')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('youtube-podcast-show-detail')),
+      findsOneWidget,
+    );
+    expect(find.text('Podcast show'), findsOneWidget);
+    expect(find.text('Podcast episode'), findsOneWidget);
+    expect(find.text('Wrong recommendation'), findsNothing);
+    expect(
+      find.byKey(const Key('youtube-podcast-episode-podcast-episode')),
+      findsOneWidget,
     );
   });
 
@@ -1806,6 +1913,68 @@ void main() {
     expect(find.text('队列'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('compact feed rows center loading over the selected row', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester, const Size(1120, 720));
+    final trackResponse = Completer<Map<String, Object?>>();
+    final libraryController = _signedOutLibraryController(
+      trackResponse: trackResponse.future,
+      filteredItemDurationSeconds: 0,
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('youtube-home-tab-Sleep')));
+    await tester.pumpAndSettle();
+    final row = find.byKey(const Key('youtube-feed-video-filtered-home-0'));
+    await tester.tap(row);
+    await tester.pump();
+
+    final overlay = find.byKey(
+      const Key('youtube-feed-compact-loading-overlay'),
+    );
+    expect(overlay, findsOneWidget);
+    expect(tester.getCenter(overlay), tester.getCenter(row));
+    expect(
+      find.descendant(
+        of: overlay,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    trackResponse.complete(<String, Object?>{
+      'track': <String, Object?>{
+        'videoId': 'filtered-home-0',
+        'itemType': 'video',
+        'title': 'Sleep long listen 0',
+        'artists': <String>['Artist'],
+        'album': 'YouTube Music',
+        'durationSeconds': 3600,
+        'thumbnailUrl': null,
+      },
+    });
+    await tester.pumpAndSettle();
+    expect(overlay, findsNothing);
+    expect(find.byKey(const Key('video-playback-overlay')), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('player-media-mode')),
+        matching: find.byIcon(Icons.videocam_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('player-media-mode')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('video-playback-overlay')), findsOneWidget);
+  });
 }
 
 TextStyle _lyricStyle(WidgetTester tester, String text) {
@@ -1825,16 +1994,22 @@ YouTubeLibraryController _signedOutLibraryController({
   Future<Map<String, Object?>>? browseResponse,
   List<Future<Map<String, Object?>>>? historyResponses,
   Future<Map<String, Object?>>? lyricsResponse,
+  Future<Map<String, Object?>>? trackResponse,
   SidecarException? signInError,
   int homeItemCount = 1,
+  int filteredItemDurationSeconds = 3600,
+  bool podcastShow = false,
 }) {
   return YouTubeLibraryController(
     client: _NoopSidecarClient(
       browseResponse: browseResponse,
       historyResponses: historyResponses,
       lyricsResponse: lyricsResponse,
+      trackResponse: trackResponse,
       signInError: signInError,
       homeItemCount: homeItemCount,
+      filteredItemDurationSeconds: filteredItemDurationSeconds,
+      podcastShow: podcastShow,
     ),
     credentialStore: _EmptyCredentialStore(),
   );
@@ -1856,8 +2031,11 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     this.browseResponse,
     List<Future<Map<String, Object?>>>? historyResponses,
     this.lyricsResponse,
+    this.trackResponse,
     this.signInError,
     this.homeItemCount = 1,
+    this.filteredItemDurationSeconds = 3600,
+    this.podcastShow = false,
   }) : historyResponses = List<Future<Map<String, Object?>>>.of(
          historyResponses ?? const <Future<Map<String, Object?>>>[],
        );
@@ -1865,8 +2043,11 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
   final Future<Map<String, Object?>>? browseResponse;
   final List<Future<Map<String, Object?>>> historyResponses;
   final Future<Map<String, Object?>>? lyricsResponse;
+  final Future<Map<String, Object?>>? trackResponse;
   final SidecarException? signInError;
   final int homeItemCount;
+  final int filteredItemDurationSeconds;
+  final bool podcastShow;
 
   @override
   Stream<SidecarEvent> get events => const Stream<SidecarEvent>.empty();
@@ -1887,6 +2068,9 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     }
     if (method == 'lyrics.get' && lyricsResponse != null) {
       return await lyricsResponse!;
+    }
+    if (method == 'feed.track' && trackResponse != null) {
+      return await trackResponse!;
     }
     return switch (method) {
       'auth.cookie.signIn' => <String, Object?>{'authenticated': true},
@@ -1943,6 +2127,17 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
         ],
         'selectedFilter': null,
         'sections': <Object?>[
+          if (podcastShow)
+            <String, Object?>{
+              'title': 'Recommended shows',
+              'items': <Object?>[
+                _feedItem(
+                  id: 'podcast-show',
+                  title: 'Podcast show',
+                  itemType: 'podcast',
+                ),
+              ],
+            },
           <String, Object?>{
             'title': 'Listen again',
             'items': <Object?>[
@@ -1983,7 +2178,9 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
                   title: '${params['filter']} long listen $index',
                   itemType: 'video',
                   videoId: 'filtered-home-$index',
-                  durationSeconds: 3600 + index,
+                  durationSeconds: filteredItemDurationSeconds == 0
+                      ? 0
+                      : filteredItemDurationSeconds + index,
                 ),
             ],
           },
@@ -2043,14 +2240,38 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
           },
         ],
       },
-      'feed.browse' => _feedResult(
-        section: params['id'] == 'subscriber-id'
-            ? 'Subscriber picks'
-            : 'Chill picks',
-        id: 'chill-playlist',
-        title: 'Chill playlist',
-        itemType: 'playlist',
-      ),
+      'feed.browse' =>
+        podcastShow && params['itemType'] == 'podcast'
+            ? <String, Object?>{
+                'podcast': <String, Object?>{
+                  'id': params['id']!,
+                  'title': 'Podcast show',
+                  'subtitle': 'Podcast publisher',
+                  'description': 'Show description',
+                  'thumbnailUrl': null,
+                  'episodes': <Object?>[
+                    <String, Object?>{
+                      'id': 'podcast-episode',
+                      'itemType': 'episode',
+                      'title': 'Podcast episode',
+                      'subtitle': 'Today',
+                      'description': 'Episode description',
+                      'videoId': 'podcast-episode',
+                      'artists': <String>[],
+                      'durationSeconds': 0,
+                    },
+                  ],
+                  'hasMore': false,
+                },
+              }
+            : _feedResult(
+                section: params['id'] == 'subscriber-id'
+                    ? 'Subscriber picks'
+                    : 'Chill picks',
+                id: 'chill-playlist',
+                title: 'Chill playlist',
+                itemType: 'playlist',
+              ),
       'feed.collection' => <String, Object?>{
         'tracks': <Object?>[
           <String, Object?>{
@@ -2183,6 +2404,21 @@ class _EmptyCredentialStore implements CredentialStore {
 
   @override
   Future<void> write(String value) async {}
+}
+
+class _FixedPlayerSessionStore implements PlayerSessionStore {
+  _FixedPlayerSessionStore(this.value);
+
+  final Map<String, Object?> value;
+
+  @override
+  Future<Map<String, Object?>?> read() async => value;
+
+  @override
+  Future<void> write(Map<String, Object?> value) async {}
+
+  @override
+  Future<void> delete() async {}
 }
 
 class _MemoryOfflineLibraryStore implements OfflineLibraryStore {

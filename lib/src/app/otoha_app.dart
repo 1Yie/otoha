@@ -59,6 +59,8 @@ class _OtohaAppState extends State<OtohaApp> {
   bool _localeSyncPending = false;
   String? _trayLanguageCode;
   String? _lyricsPrefetchTrackId;
+  String? _autoOpenedVideoTrackId;
+  bool _isRestoringPlayerSession = false;
 
   @override
   void initState() {
@@ -109,7 +111,8 @@ class _OtohaAppState extends State<OtohaApp> {
       unawaited(_youtubeLibraryController.initialize());
     }
     if (_restoresPlayerSession) {
-      unawaited(_playerController.restoreSession());
+      _isRestoringPlayerSession = true;
+      unawaited(_restorePlayerSession());
     }
     if (widget.desktopTrayController case final desktopTrayController?) {
       desktopTrayController.setWindowShownCallback(_restoreShellFocus);
@@ -219,11 +222,51 @@ class _OtohaAppState extends State<OtohaApp> {
     });
   }
 
-  void _prefetchLyricsForCurrentTrack() {
+  void _prefetchLyricsForCurrentTrack() => _handleCurrentTrackChanged();
+
+  Future<void> _restorePlayerSession() async {
+    try {
+      await _playerController.restoreSession();
+    } finally {
+      _isRestoringPlayerSession = false;
+      final track = _playerController.currentTrack;
+      if (track?.isVideo ?? false) {
+        _autoOpenedVideoTrackId = track!.id;
+      }
+    }
+  }
+
+  void _handleCurrentTrackChanged() {
     final track = _playerController.currentTrack;
     if (track == null) {
       _lyricsPrefetchTrackId = null;
+      _autoOpenedVideoTrackId = null;
       return;
+    }
+    if (track.isVideo) {
+      _lyricsPrefetchTrackId = null;
+      if (_isRestoringPlayerSession) {
+        _autoOpenedVideoTrackId = track.id;
+        return;
+      }
+      if (_autoOpenedVideoTrackId == track.id) {
+        return;
+      }
+      _autoOpenedVideoTrackId = track.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _playerController.currentTrack?.id == track.id) {
+          _shellController.openExpandedMedia();
+        }
+      });
+      return;
+    }
+    if (_autoOpenedVideoTrackId != null) {
+      _autoOpenedVideoTrackId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _playerController.currentTrack?.isVideo != true) {
+          _shellController.closeExpandedLyrics();
+        }
+      });
     }
     final videoId = track.youtubeVideoId;
     if (!_youtubeLibraryController.isSignedIn || videoId == null) {

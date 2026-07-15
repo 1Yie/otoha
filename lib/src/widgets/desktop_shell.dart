@@ -13,6 +13,7 @@ import 'right_panel.dart';
 import 'search_palette.dart';
 import 'sidebar.dart';
 import 'title_bar.dart';
+import 'video_playback_overlay.dart';
 
 class DesktopShell extends StatelessWidget {
   const DesktopShell({
@@ -150,15 +151,28 @@ class DesktopShell extends StatelessWidget {
                       child:
                           shellController.isExpandedLyricsOpen &&
                               playerController.currentTrack != null
-                          ? ExpandedLyricsOverlay(
-                              key: const ValueKey<String>('expanded-lyrics'),
-                              playerController: playerController,
-                              shellController: shellController,
-                              youtubeLibraryController:
-                                  youtubeLibraryController,
-                            )
+                          ? playerController.currentTrack!.isVideo
+                                ? VideoPlaybackOverlay(
+                                    key: const ValueKey<String>(
+                                      'expanded-video',
+                                    ),
+                                    track: playerController.currentTrack!,
+                                    playerController: playerController,
+                                    shellController: shellController,
+                                    videoController:
+                                        playerController.videoController,
+                                  )
+                                : ExpandedLyricsOverlay(
+                                    key: const ValueKey<String>(
+                                      'expanded-lyrics',
+                                    ),
+                                    playerController: playerController,
+                                    shellController: shellController,
+                                    youtubeLibraryController:
+                                        youtubeLibraryController,
+                                  )
                           : const SizedBox(
-                              key: ValueKey<String>('no-expanded-lyrics'),
+                              key: ValueKey<String>('no-expanded-media'),
                             ),
                     );
                   },

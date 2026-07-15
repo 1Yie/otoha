@@ -54,6 +54,7 @@
 - `feed.collection`
 - `feed.track`
 - `feed.browse`
+- `feed.browse.more`
 - `interaction.rate`
 - `comments.get`
 - `comments.create`
@@ -98,20 +99,41 @@
   one uses `HomeFeed.applyFilter()` and replaces the visible sections while
   retaining the unfiltered feed as the source for subsequent filter changes.
 - Explore reads the continuation from its parsed `SectionList` because the current `youtubei.js` parser does not expose an `Explore.getContinuation()` helper. When no continuation is present, keep the finite response rather than repeating cards.
-- Feed songs and one-track releases resolve an ephemeral audio-only URL and start native playback; multi-track playlists and albums open track lists.
+- Feed songs, podcast episodes, and video-capable music entries start in audio
+  mode and resolve an ephemeral audio-only URL. The explicit video-mode control
+  reopens the same queue item and position with separate adaptive video and
+  audio URLs; multi-track playlists and albums open track lists.
 - Expanded player lyrics query LRCLIB's cached exact endpoint and title/artist search in parallel, then fall back to LRCLIB's exact external lookup when neither returns timed LRC. If no synchronized result exists, YouTube Music official lyrics are shown without fabricated timing or line-level highlighting.
 - LRCLIB lookup sends current track metadata to a third party. Timestamped lyrics may be cached locally by video ID; untimed YouTube Music fallback text stays in memory and is not written to the timestamped lyric cache.
 - Artist and mood/genre cards retain their browse ID and parameters for `feed.browse`.
-- Artist/channel cards render as circular profiles and open browse results; search excludes non-music entries.
-- Explore category selections are top tabs that replace the current Explore sections; podcast episode sections are excluded.
+- Artist/channel cards render as circular profiles and open browse results.
+- Search retains playable podcast episodes and video-capable music entries.
+- Explore category selections are top tabs that replace the current Explore
+  sections. Podcast-show cards retain their `MPSP` browse ID and open a
+  dedicated show header plus vertical episode list through the authenticated
+  YTMUSIC browse surface. `feed.browse.more` appends only episode continuation
+  rows and does not reuse recommendation shelves as show content.
 - `MusicCarouselShelf.num_items_per_column` is preserved as
   `itemsPerColumn`; values above one render native multi-row compact media
   columns instead of square cover cards.
-- Horizontal feed sections use boundary-aware section-header arrow controls
-  for desktop scrolling.
+- Horizontal feed sections use boundary-aware section-header arrow controls,
+  aligned final-page offsets, and item-boundary snapping so the first visible
+  card is not clipped.
 - Unknown metadata duration remains unknown; do not substitute a simulated duration.
 - Feed-song cards without a duration resolve it through YouTube video metadata before playback.
-- `playback.resolve` is user-initiated and returns only an in-memory audio-only URL. `download.track` is user-initiated and uses the existing authenticated Innertube session so it can reuse the already loaded player. It tries supported music/audio clients in order and stages a per-track bundle containing `audio.<ext>`, `cover.<ext>`, `lyrics.lrc`, and `metadata.json` before atomically renaming the directory into place. The bundle never persists a URL, Cookie, or request headers. A hidden-to-tray session must not trigger downloads, background account activity, or automatic stream resolution.
+- `playback.resolve` is user-initiated. Audio mode returns one in-memory audio
+  URL. Explicit video mode returns separately deciphered audio and video URLs;
+  selection prefers the highest AVC representation up to 1080p plus the
+  original non-DRC audio representation, and libmpv synchronizes both without
+  persisting either URL. Live video uses its HLS manifest when available.
+- `download.track` is user-initiated and uses the existing authenticated
+  Innertube session so it can reuse the already loaded player. It tries
+  supported music/audio clients in order and stages a per-track bundle
+  containing `audio.<ext>`, `cover.<ext>`, `lyrics.lrc`, and `metadata.json`
+  before atomically renaming the directory into place. The bundle never
+  persists a URL, Cookie, or request headers. A hidden-to-tray session must not
+  trigger downloads, background account activity, or automatic stream
+  resolution.
 - New default downloads use `Music/otoha/yt_music_download/<videoId>/`.
   Version-1 libraries that still point at the former default Music root migrate
   to this directory; user-selected custom roots and legacy single-file

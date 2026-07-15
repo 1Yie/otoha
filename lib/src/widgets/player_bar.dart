@@ -333,16 +333,23 @@ class _TransportControls extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         SizedBox(
-          width: 88,
-          child: Text(
-            key: const Key('player-time'),
-            '${formatDuration(playerController.positionSeconds)} / '
-            '${track == null || track.durationSeconds <= 0 ? l10n.unknownDuration : formatDuration(track.durationSeconds)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: OtohaColors.mutedText,
-              fontFamily: 'monospace',
+          width: 160,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                key: const Key('player-time'),
+                '${formatDuration(playerController.positionSeconds)} / '
+                '${track == null || track.durationSeconds <= 0 ? l10n.unknownDuration : formatDuration(track.durationSeconds)}',
+                maxLines: 1,
+                softWrap: false,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: OtohaColors.mutedText,
+                  fontFamily: 'monospace',
+                ),
+              ),
             ),
           ),
         ),
@@ -365,7 +372,11 @@ class _NowPlaying extends StatelessWidget {
     final track = playerController.currentTrack;
     final l10n = AppLocalizations.of(context)!;
     return Tooltip(
-      message: track == null ? l10n.noTrackSelected : l10n.openFullLyrics,
+      message: track == null
+          ? l10n.noTrackSelected
+          : track.isVideo
+          ? l10n.openVideo
+          : l10n.openFullLyrics,
       child: InkWell(
         key: const Key('player-now-playing'),
         onTap: track == null ? null : onOpenLyrics,
@@ -419,6 +430,7 @@ class _NowPlaying extends StatelessWidget {
                           : _playbackErrorLabel(
                               playerController.playbackError!,
                               l10n,
+                              isVideo: track.isVideo,
                             ),
                       key: const Key('player-playback-status'),
                       maxLines: 1,
@@ -440,12 +452,21 @@ class _NowPlaying extends StatelessWidget {
   }
 }
 
-String _playbackErrorLabel(AudioPlaybackFailure error, AppLocalizations l10n) =>
-    switch (error) {
-      AudioPlaybackFailure.engineCouldNotPlay => l10n.audioEngineCouldNotPlay,
-      AudioPlaybackFailure.streamUnavailable => l10n.audioStreamUnavailable,
-      AudioPlaybackFailure.startFailed => l10n.unableToStartAudioPlayback,
-    };
+String _playbackErrorLabel(
+  AudioPlaybackFailure error,
+  AppLocalizations l10n, {
+  required bool isVideo,
+}) => isVideo
+    ? switch (error) {
+        AudioPlaybackFailure.engineCouldNotPlay => l10n.videoEngineCouldNotPlay,
+        AudioPlaybackFailure.streamUnavailable => l10n.videoStreamUnavailable,
+        AudioPlaybackFailure.startFailed => l10n.unableToStartVideoPlayback,
+      }
+    : switch (error) {
+        AudioPlaybackFailure.engineCouldNotPlay => l10n.audioEngineCouldNotPlay,
+        AudioPlaybackFailure.streamUnavailable => l10n.audioStreamUnavailable,
+        AudioPlaybackFailure.startFailed => l10n.unableToStartAudioPlayback,
+      };
 
 class _TrackActions extends StatelessWidget {
   const _TrackActions({
@@ -480,6 +501,20 @@ class _TrackActions extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
+        if (track?.canPlayVideo ?? false)
+          Tooltip(
+            message: track!.isVideo ? l10n.switchToAudio : l10n.switchToVideo,
+            child: IconButton(
+              key: const Key('player-media-mode'),
+              color: track.isVideo ? OtohaColors.accent : null,
+              onPressed: playerController.toggleVideoMode,
+              icon: Icon(
+                track.isVideo
+                    ? Icons.music_note_rounded
+                    : Icons.videocam_rounded,
+              ),
+            ),
+          ),
         Tooltip(
           message: l10n.queue,
           child: IconButton(

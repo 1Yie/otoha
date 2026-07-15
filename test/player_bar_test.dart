@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:otoha/l10n/app_localizations.dart';
@@ -108,18 +109,160 @@ void main() {
       'monospace',
     );
   });
+
+  testWidgets('does not truncate playback times above one hundred minutes', (
+    tester,
+  ) async {
+    final engine = _BufferingAudioPlaybackEngine();
+    final player = PlayerController(<Track>[
+      _youtubeTrack(durationSeconds: 6671),
+    ], audioPlaybackEngine: engine);
+    final shell = ShellController();
+    addTearDown(player.dispose);
+    addTearDown(shell.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: MusicPlayerBar(
+            playerController: player,
+            shellController: shell,
+          ),
+        ),
+      ),
+    );
+
+    player.selectTrack(player.currentTrack!);
+    player.seekTo(const Duration(minutes: 100, seconds: 1).inSeconds);
+    await tester.pump();
+
+    expect(find.text('100:01 / 111:11'), findsOneWidget);
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.byKey(const Key('player-time')),
+    );
+    expect(paragraph.didExceedMaxLines, isFalse);
+  });
+
+  testWidgets('uses video-specific errors for video tracks', (tester) async {
+    final engine = _BufferingAudioPlaybackEngine();
+    final player = PlayerController(<Track>[
+      _youtubeTrack(isVideo: true),
+    ], audioPlaybackEngine: engine);
+    final shell = ShellController();
+    addTearDown(player.dispose);
+    addTearDown(shell.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: MusicPlayerBar(
+            playerController: player,
+            shellController: shell,
+          ),
+        ),
+      ),
+    );
+
+    player.selectTrack(player.currentTrack!);
+    await tester.pump();
+    engine.emit(
+      const AudioPlaybackSnapshot(
+        error: AudioPlaybackFailure.engineCouldNotPlay,
+      ),
+    );
+    await tester.pump();
+    engine.emit(
+      const AudioPlaybackSnapshot(
+        error: AudioPlaybackFailure.engineCouldNotPlay,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(player.playbackError, AudioPlaybackFailure.engineCouldNotPlay);
+    expect(find.text('The video engine could not play this video.'), findsOne);
+    expect(find.textContaining('audio engine'), findsNothing);
+  });
+
+  testWidgets('offers an explicit audio and video mode switch', (tester) async {
+    final engine = _BufferingAudioPlaybackEngine();
+    final player = PlayerController(<Track>[
+      _youtubeTrack(videoAvailable: true),
+    ], audioPlaybackEngine: engine);
+    final shell = ShellController();
+    addTearDown(player.dispose);
+    addTearDown(shell.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: MusicPlayerBar(
+            playerController: player,
+            shellController: shell,
+          ),
+        ),
+      ),
+    );
+
+    player.selectTrack(player.currentTrack!);
+    await tester.pump();
+    expect(player.currentTrack?.isVideo, isFalse);
+    expect(find.byTooltip('Switch to video'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('player-media-mode')),
+        matching: find.byIcon(Icons.videocam_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('player-media-mode')));
+    await tester.pump();
+    expect(player.currentTrack?.isVideo, isTrue);
+    expect(find.byTooltip('Switch to audio'), findsOneWidget);
+  });
 }
 
-Track _youtubeTrack() {
-  return const Track(
+Track _youtubeTrack({
+  int durationSeconds = 180,
+  bool isVideo = false,
+  bool videoAvailable = false,
+}) {
+  return Track(
     id: 'youtube:buffering-track',
     title: 'Buffering track',
     artist: 'Artist',
     album: 'Album',
     artworkAsset: 'assets/artwork/cover_01.png',
-    durationSeconds: 180,
-    lyrics: <String>[],
+    durationSeconds: durationSeconds,
+    lyrics: const <String>[],
     youtubeVideoId: 'buffering-track',
+    isVideo: isVideo,
+    videoAvailable: videoAvailable,
   );
 }
 
@@ -139,6 +282,9 @@ class _BufferingAudioPlaybackEngine implements AudioPlaybackEngine {
   Stream<AudioOutputState> get outputStates => _outputStates.stream;
 
   @override
+  get videoController => null;
+
+  @override
   Future<void> dispose() async {
     await _states.close();
     await _outputStates.close();
@@ -150,6 +296,8 @@ class _BufferingAudioPlaybackEngine implements AudioPlaybackEngine {
   Future<void> open(
     String videoId, {
     Duration initialPosition = Duration.zero,
+    bool isVideo = false,
+    bool autoplay = true,
   }) async {}
 
   @override

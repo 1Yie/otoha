@@ -322,7 +322,7 @@ void main() {
   test('uses fresh remote metadata before requesting Home again', () async {
     final client = _FakeSidecarClient();
     final cache = _MemoryMetadataCache()
-      ..entries['feed.home'] = RemoteMetadataCacheEntry(
+      ..entries['feed.home.v2'] = RemoteMetadataCacheEntry(
         cachedAt: DateTime.now(),
         data: <String, Object?>{
           ...client._feed('Cached Home', 'Cached recommendation', 'song'),
@@ -436,6 +436,50 @@ void main() {
         'FEmusic_moods_and_genres_category:chill-params',
       );
       expect(client.methods.last, 'feed.browse');
+    },
+  );
+
+  test(
+    'opens podcast shows as dedicated episode details with pagination',
+    () async {
+      final client = _FakeSidecarClient();
+      final controller = YouTubeLibraryController(
+        client: client,
+        credentialStore: _MemoryCredentialStore(),
+      );
+      addTearDown(controller.dispose);
+      await controller.signInWithCookie('SID=test-cookie');
+
+      await controller.openFeedBrowse(
+        const YouTubeFeedItem(
+          id: 'MPSPpodcast-show',
+          itemType: 'podcast',
+          title: 'Podcast show',
+          artists: <String>[],
+          durationSeconds: 0,
+        ),
+        source: 'explore',
+      );
+
+      expect(controller.selectedFeedBrowse, isNull);
+      expect(controller.exploreSections.single.title, 'New releases');
+      expect(controller.selectedPodcastShow?.title, 'Podcast show');
+      expect(
+        controller.selectedPodcastShow?.episodes.map((item) => item.title),
+        <String>['Newest episode'],
+      );
+
+      await controller.loadMorePodcastShow();
+
+      expect(
+        controller.selectedPodcastShow?.episodes.map((item) => item.title),
+        <String>['Newest episode', 'Older episode'],
+      );
+      expect(controller.selectedPodcastShow?.hasMore, isFalse);
+      expect(
+        client.methods,
+        containsAllInOrder(<String>['feed.browse', 'feed.browse.more']),
+      );
     },
   );
 
@@ -795,7 +839,46 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
           ],
         };
       case 'feed.browse':
+        if (params['itemType'] == 'podcast') {
+          return <String, Object?>{
+            'podcast': <String, Object?>{
+              'id': params['id']!,
+              'title': 'Podcast show',
+              'subtitle': 'Podcast publisher',
+              'description': 'Show description',
+              'thumbnailUrl': 'https://example.test/podcast.jpg',
+              'episodes': <Object?>[
+                <String, Object?>{
+                  'id': 'newest-episode',
+                  'itemType': 'episode',
+                  'title': 'Newest episode',
+                  'subtitle': 'Today',
+                  'description': 'Episode description',
+                  'videoId': 'newest-episode',
+                  'artists': <String>[],
+                  'durationSeconds': 0,
+                },
+              ],
+              'hasMore': true,
+            },
+          };
+        }
         return _feed('Chill picks', 'Curated playlist', 'playlist');
+      case 'feed.browse.more':
+        return <String, Object?>{
+          'episodes': <Object?>[
+            <String, Object?>{
+              'id': 'older-episode',
+              'itemType': 'episode',
+              'title': 'Older episode',
+              'subtitle': 'Last week',
+              'videoId': 'older-episode',
+              'artists': <String>[],
+              'durationSeconds': 0,
+            },
+          ],
+          'hasMore': false,
+        };
       case 'feed.track':
         return <String, Object?>{
           'track': <String, Object?>{

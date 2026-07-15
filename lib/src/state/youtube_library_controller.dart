@@ -60,6 +60,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   YouTubePlaylistDetail? _selectedPlaylist;
   YouTubeFeedCollectionDetail? _selectedFeedCollection;
   YouTubeFeedBrowseDetail? _selectedFeedBrowse;
+  YouTubePodcastShowDetail? _selectedPodcastShow;
   List<YouTubeFeedSection> _homeSections = const <YouTubeFeedSection>[];
   List<String> _homeFilters = const <String>[];
   String? _selectedHomeFilter;
@@ -90,6 +91,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   bool _isLoadingMoreExplore = false;
   bool _hasMoreExplore = false;
   bool _isLoadingFeedBrowse = false;
+  bool _isLoadingMorePodcast = false;
   bool _isSearching = false;
   bool _isLoadingLyrics = false;
   int _searchRequest = 0;
@@ -114,6 +116,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   YouTubeFeedCollectionDetail? get selectedFeedCollection =>
       _selectedFeedCollection;
   YouTubeFeedBrowseDetail? get selectedFeedBrowse => _selectedFeedBrowse;
+  YouTubePodcastShowDetail? get selectedPodcastShow => _selectedPodcastShow;
   List<YouTubeFeedSection> get homeSections => _homeSections;
   List<String> get homeFilters => _homeFilters;
   String? get selectedHomeFilter => _selectedHomeFilter;
@@ -142,6 +145,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   bool get isLoadingMoreExplore => _isLoadingMoreExplore;
   bool get hasMoreExplore => _hasMoreExplore;
   bool get isLoadingFeedBrowse => _isLoadingFeedBrowse;
+  bool get isLoadingMorePodcast => _isLoadingMorePodcast;
   bool get isSearching => _isSearching;
   bool get isLoadingLyrics => _isLoadingLyrics;
   bool get isLoadingComments => _isLoadingComments;
@@ -239,6 +243,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     _selectedPlaylist = null;
     _selectedFeedCollection = null;
     _selectedFeedBrowse = null;
+    _selectedPodcastShow = null;
     _homeSections = const <YouTubeFeedSection>[];
     _homeFilters = const <String>[];
     _selectedHomeFilter = null;
@@ -249,6 +254,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     _selectedExploreCategoryId = null;
     _isLoadingMoreExplore = false;
     _hasMoreExplore = false;
+    _isLoadingMorePodcast = false;
     _searchResults = const <YouTubeFeedItem>[];
     _lyricsLines = const <YouTubeLyricLine>[];
     _comments = const <YouTubeComment>[];
@@ -299,6 +305,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       _selectedPlaylist = null;
       _selectedFeedCollection = null;
       _selectedFeedBrowse = null;
+      _selectedPodcastShow = null;
       _historyTracks = const <YouTubeTrack>[];
       _hasLoadedHistory = false;
       _homeSections = const <YouTubeFeedSection>[];
@@ -309,6 +316,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       _selectedExploreCategoryId = null;
       _hasMoreHome = false;
       _hasMoreExplore = false;
+      _isLoadingMorePodcast = false;
       notifyListeners();
       await _syncAccountData();
     } on Object {
@@ -408,7 +416,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     try {
       final cached = forceRefresh
           ? null
-          : await _metadataCache?.read('feed.home');
+          : await _metadataCache?.read('feed.home.v2');
       if (cached != null) {
         _applyHomeResult(cached.data);
         _hasMoreHome = false;
@@ -421,7 +429,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       final result = await _client.call('feed.home');
       _applyHomeResult(result);
       _hasMoreHome = result['hasMore'] == true;
-      await _metadataCache?.write('feed.home', result);
+      await _metadataCache?.write('feed.home.v2', result);
     } on Object catch (error) {
       _homeErrorMessage = _requestErrorFor(error);
       _hasMoreHome = false;
@@ -493,7 +501,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     try {
       final cached = forceRefresh
           ? null
-          : await _metadataCache?.read('feed.explore');
+          : await _metadataCache?.read('feed.explore.v2');
       if (cached != null) {
         _applyExploreSections(_decodeFeedSections(cached.data));
         notifyListeners();
@@ -504,7 +512,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       final result = await _client.call('feed.explore');
       _applyExploreSections(_decodeFeedSections(result));
       _hasMoreExplore = result['hasMore'] == true;
-      await _metadataCache?.write('feed.explore', result);
+      await _metadataCache?.write('feed.explore.v2', result);
     } on Object catch (error) {
       _exploreErrorMessage = _requestErrorFor(error);
       _hasMoreExplore = false;
@@ -648,6 +656,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       title: item.title,
       artists: item.artists,
       durationSeconds: item.durationSeconds,
+      itemType: item.itemType,
       album: item.album,
       thumbnailUrl: item.thumbnailUrl,
     );
@@ -670,6 +679,7 @@ class YouTubeLibraryController extends ChangeNotifier {
         title: track.title,
         artists: track.artists.isEmpty ? item.artists : track.artists,
         durationSeconds: track.durationSeconds,
+        itemType: item.itemType,
         album: item.album,
         thumbnailUrl: track.thumbnailUrl ?? item.thumbnailUrl,
       );
@@ -893,15 +903,24 @@ class YouTubeLibraryController extends ChangeNotifier {
         if (item.browseParams != null) 'browseParams': item.browseParams,
       });
       _selectedFeedCollection = null;
-      final sections = _decodeFeedSections(result);
-      if (source == 'explore') {
+      if (item.itemType == 'podcast') {
+        final podcast = (result['podcast']! as Map<Object?, Object?>)
+            .cast<String, Object?>();
         _selectedFeedBrowse = null;
+        _selectedPodcastShow = YouTubePodcastShowDetail.fromJson(
+          podcast,
+          source: source,
+        );
+      } else if (source == 'explore' && item.itemType == 'category') {
+        final sections = _decodeFeedSections(result);
+        _selectedFeedBrowse = null;
+        _selectedPodcastShow = null;
         _exploreSections = _withoutExploreCategories(sections);
         _hasMoreExplore = false;
-        if (item.itemType == 'category') {
-          _selectedExploreCategoryId = item.browseIdentity;
-        }
+        _selectedExploreCategoryId = item.browseIdentity;
       } else {
+        final sections = _decodeFeedSections(result);
+        _selectedPodcastShow = null;
         _selectedFeedBrowse = YouTubeFeedBrowseDetail(
           source: source,
           title: item.title,
@@ -917,9 +936,50 @@ class YouTubeLibraryController extends ChangeNotifier {
     }
   }
 
+  Future<void> loadMorePodcastShow() async {
+    final detail = _selectedPodcastShow;
+    if (detail == null || !detail.hasMore || _isLoadingMorePodcast) {
+      return;
+    }
+    _isLoadingMorePodcast = true;
+    _feedActionErrorMessage = null;
+    notifyListeners();
+    try {
+      final result = await _client.call('feed.browse.more', <String, Object?>{
+        'itemType': 'podcast',
+        'id': detail.id,
+      });
+      if (_selectedPodcastShow?.id != detail.id) {
+        return;
+      }
+      final appended = (result['episodes']! as List<Object?>)
+          .map(
+            (item) => YouTubeFeedItem.fromJson(
+              (item! as Map<Object?, Object?>).cast<String, Object?>(),
+            ),
+          )
+          .toList(growable: false);
+      final byId = <String, YouTubeFeedItem>{
+        for (final episode in detail.episodes) episode.id: episode,
+        for (final episode in appended) episode.id: episode,
+      };
+      _selectedPodcastShow = detail.copyWith(
+        episodes: List<YouTubeFeedItem>.unmodifiable(byId.values),
+        hasMore: result['hasMore'] as bool? ?? false,
+      );
+    } on Object {
+      _feedActionErrorMessage = YouTubeLibraryError.actionFailed;
+    } finally {
+      _isLoadingMorePodcast = false;
+      notifyListeners();
+    }
+  }
+
   void closeFeedDetail() {
     if (_selectedFeedCollection != null) {
       _selectedFeedCollection = null;
+    } else if (_selectedPodcastShow != null) {
+      _selectedPodcastShow = null;
     } else if (_selectedFeedBrowse != null) {
       _selectedFeedBrowse = null;
     } else {

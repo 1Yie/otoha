@@ -459,6 +459,7 @@ Track _asSimulatedTrack(YouTubeTrack track, YouTubeFeedItem source) {
     durationSeconds: track.durationSeconds,
     lyrics: const <String>[],
     youtubeVideoId: track.videoId,
+    videoAvailable: track.isVideo || source.isVideo,
   );
 }
 
@@ -478,7 +479,10 @@ String _youtubeKind(String itemType, AppLocalizations l10n) =>
       'album' => l10n.album,
       'artist' || 'channel' || 'subscriber' => l10n.artist,
       'playlist' => l10n.playlist,
+      'podcast' => l10n.podcast,
       'category' => l10n.genre,
+      'episode' || 'non_music_track' => l10n.episode,
+      'video' => l10n.musicVideo,
       _ => l10n.song,
     };
 
@@ -486,6 +490,9 @@ IconData _youtubeIcon(String itemType) => switch (itemType) {
   'album' => Icons.album_rounded,
   'artist' || 'channel' || 'subscriber' => Icons.person_rounded,
   'playlist' => Icons.queue_music_rounded,
+  'podcast' => Icons.podcasts_rounded,
   'category' => Icons.tune_rounded,
+  'episode' || 'non_music_track' => Icons.podcasts_rounded,
+  'video' => Icons.videocam_rounded,
   _ => Icons.music_note_rounded,
 };

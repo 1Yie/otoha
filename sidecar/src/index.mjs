@@ -32,13 +32,16 @@ const methods = {
   'feed.collection': ({ itemType, id } = {}) =>
     service.getFeedCollection(itemType, id),
   'feed.track': ({ videoId } = {}) => service.getFeedTrack(videoId),
-  'playback.resolve': ({ videoId } = {}) => service.getPlaybackStream(videoId),
+  'playback.resolve': ({ videoId, mediaType } = {}) =>
+    service.getPlaybackStream(videoId, mediaType),
   'download.track': ({ videoId, directory, ...metadata } = {}) =>
     service.downloadMediaBundle(videoId, directory, metadata),
   'lyrics.get': ({ videoId, title, artist, album, durationSeconds } = {}) =>
     service.getLyrics(videoId, { title, artist, album, durationSeconds }),
   'feed.browse': ({ itemType, id, browseParams } = {}) =>
     service.getFeedBrowse(itemType, id, browseParams),
+  'feed.browse.more': ({ itemType, id } = {}) =>
+    service.getMoreFeedBrowse(itemType, id),
 };
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });

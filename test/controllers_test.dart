@@ -158,6 +158,66 @@ void main() {
       expect(controller.playbackError, AudioPlaybackFailure.startFailed);
     });
 
+    test('opens a video track with visible-video playback enabled', () {
+      final engine = _FakeAudioPlaybackEngine();
+      final track = _youtubeTrack('video', isVideo: true);
+      final controller = PlayerController(<Track>[
+        track,
+      ], audioPlaybackEngine: engine);
+      addTearDown(controller.dispose);
+
+      controller.selectTrack(track);
+
+      expect(engine.openedVideoIds, <String>['video']);
+      expect(engine.openedVideoModes, <bool>[true]);
+      expect(Track.fromJson(track.toJson()).isVideo, isTrue);
+    });
+
+    test(
+      'video-capable tracks start as audio and switch at the same position',
+      () async {
+        final engine = _FakeAudioPlaybackEngine();
+        final track = _youtubeTrack('video', videoAvailable: true);
+        final controller = PlayerController(<Track>[
+          track,
+        ], audioPlaybackEngine: engine);
+        addTearDown(controller.dispose);
+
+        controller.selectTrack(track);
+        expect(engine.openedVideoModes, <bool>[false]);
+        engine.emit(
+          const AudioPlaybackSnapshot(position: Duration.zero, isPlaying: true),
+        );
+        await Future<void>.delayed(Duration.zero);
+        engine.emit(
+          const AudioPlaybackSnapshot(
+            position: Duration(seconds: 37),
+            isPlaying: true,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        controller.setVideoMode(true);
+        expect(controller.currentTrack?.isVideo, isTrue);
+        expect(controller.queue.single.isVideo, isTrue);
+        expect(engine.openedVideoModes, <bool>[false, true]);
+        expect(engine.openInitialPositions.last, const Duration(seconds: 37));
+        expect(engine.openedAutoplayModes.last, isTrue);
+
+        controller.togglePlaying();
+        controller.setVideoMode(false);
+        expect(controller.currentTrack?.isVideo, isFalse);
+        expect(controller.currentTrack?.videoAvailable, isTrue);
+        expect(engine.openedVideoModes, <bool>[false, true, false]);
+        expect(engine.openInitialPositions.last, const Duration(seconds: 37));
+        expect(engine.openedAutoplayModes.last, isFalse);
+        expect(
+          Track.fromJson(controller.currentTrack!.toJson()).videoAvailable,
+          isTrue,
+        );
+      },
+    );
+
     test('persists each native audio checkpoint only once', () async {
       final engine = _FakeAudioPlaybackEngine();
       final store = _MemoryPlayerSessionStore();
@@ -201,7 +261,7 @@ void main() {
 
     test('keeps restored position until native seek catches up', () async {
       final store = _MemoryPlayerSessionStore();
-      final track = _youtubeTrack('restored');
+      final track = _youtubeTrack('restored', isVideo: true);
       final sourceEngine = _FakeAudioPlaybackEngine();
       final source = PlayerController(
         <Track>[track],
@@ -228,6 +288,7 @@ void main() {
       expect(restoredEngine.openInitialPositions, <Duration>[
         const Duration(seconds: 73),
       ]);
+      expect(restoredEngine.openedVideoModes, <bool>[true]);
 
       restoredEngine.emit(
         const AudioPlaybackSnapshot(position: Duration.zero, isBuffering: true),
@@ -301,7 +362,11 @@ void main() {
   });
 }
 
-Track _youtubeTrack(String videoId) {
+Track _youtubeTrack(
+  String videoId, {
+  bool isVideo = false,
+  bool videoAvailable = false,
+}) {
   return Track(
     id: 'youtube:$videoId',
     title: 'Track $videoId',
@@ -311,6 +376,8 @@ Track _youtubeTrack(String videoId) {
     durationSeconds: 180,
     lyrics: const <String>[],
     youtubeVideoId: videoId,
+    isVideo: isVideo,
+    videoAvailable: videoAvailable,
   );
 }
 
@@ -348,6 +415,8 @@ class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
       StreamController<AudioOutputState>.broadcast();
   final List<String> openedVideoIds = <String>[];
   final List<Duration> openInitialPositions = <Duration>[];
+  final List<bool> openedVideoModes = <bool>[];
+  final List<bool> openedAutoplayModes = <bool>[];
   final List<String> openedLocalFilePaths = <String>[];
   final List<Duration> seekPositions = <Duration>[];
   final List<double> volumes = <double>[];
@@ -370,6 +439,9 @@ class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
   Stream<AudioOutputState> get outputStates => _outputStates.stream;
 
   @override
+  get videoController => null;
+
+  @override
   Future<void> dispose() async {
     await _states.close();
     await _outputStates.close();
@@ -381,9 +453,13 @@ class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
   Future<void> open(
     String videoId, {
     Duration initialPosition = Duration.zero,
+    bool isVideo = false,
+    bool autoplay = true,
   }) async {
     openedVideoIds.add(videoId);
     openInitialPositions.add(initialPosition);
+    openedVideoModes.add(isVideo);
+    openedAutoplayModes.add(autoplay);
   }
 
   @override

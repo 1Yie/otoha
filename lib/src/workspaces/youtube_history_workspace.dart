@@ -282,5 +282,6 @@ Track _asPlaybackTrack(YouTubeTrack track) {
     durationSeconds: track.durationSeconds,
     lyrics: const <String>[],
     youtubeVideoId: track.videoId,
+    videoAvailable: track.isVideo,
   );
 }

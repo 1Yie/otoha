@@ -15,7 +15,7 @@
 <img src="https://img.shields.io/badge/Node.js-24%2B-339933?logo=node.js&logoColor=white" alt="Node.js 24 or newer">
 </p>
 
-Otoha is a native Flutter application for Linux, macOS, and Windows. It combines an authenticated YouTube Music library with native audio playback, synchronized lyrics, persistent downloads, and local offline playlists. The application uses a local Node.js sidecar for YouTube.js integration; it is not a web wrapper and does not open a local HTTP port.
+Otoha is a native Flutter application for Linux, macOS, and Windows. It combines an authenticated YouTube Music library with native audio and video playback, synchronized lyrics, persistent downloads, and local offline playlists. The application uses a local Node.js sidecar for YouTube.js integration; it is not a web wrapper and does not open a local HTTP port.
 
 > [!IMPORTANT]
 > Otoha is an unofficial client and is not affiliated with, sponsored by, or endorsed by YouTube or Google. You are responsible for complying with YouTube's terms and applicable copyright laws when streaming or downloading media.
@@ -23,7 +23,8 @@ Otoha is a native Flutter application for Linux, macOS, and Windows. It combines
 ## Features
 
 - YouTube Music Home, Explore, Library, History, search, playlists, albums, artists, moods, and genres
-- Native desktop playback through `media_kit`, including seek, queue, shuffle, repeat, volume, buffering, and output-device selection
+- Native desktop playback through `media_kit`, including podcast audio and explicit switching from song-first audio to 1080p adaptive video with Otoha-styled controls
+- Seek, queue, shuffle, repeat, volume, buffering, fullscreen video, and output-device selection
 - Persistent playback sessions that restore the queue, current track, position, volume, shuffle, and repeat state without storing transient stream URLs
 - Timestamped LRCLIB lyrics with playback-following line highlighting and an untimed YouTube Music fallback
 - User-initiated offline media bundles with local audio, artwork, lyrics, metadata, and direct playback
@@ -125,7 +126,7 @@ The sidecar communicates with Flutter through newline-delimited JSON over standa
 Otoha honors explicit `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`
 environment variables. Linux desktop launches without those variables also
 import a manual system proxy from `gsettings` for sidecar, artwork, avatar, and
-native audio playback requests.
+native audio and video playback requests.
 
 ## Development
 
@@ -214,7 +215,7 @@ Do not include Cookies, stream URLs, headers, comment bodies, downloaded media, 
 
 - [Flutter](https://flutter.dev/) for the cross-platform desktop UI toolkit
 - [YouTube.js](https://github.com/LuanRT/YouTube.js) for Innertube integration
-- [media_kit](https://github.com/media-kit/media-kit) for native audio playback
+- [media_kit](https://github.com/media-kit/media-kit) for native media playback
 - [LRCLIB](https://lrclib.net/) for synchronized lyrics
 
 ## License

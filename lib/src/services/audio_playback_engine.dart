@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 import 'desktop_proxy_environment.dart';
 import 'youtube_sidecar_client.dart';
@@ -69,8 +70,14 @@ abstract interface class AudioPlaybackEngine {
   Stream<AudioPlaybackSnapshot> get states;
   AudioOutputState get outputState;
   Stream<AudioOutputState> get outputStates;
+  VideoController? get videoController;
 
-  Future<void> open(String videoId, {Duration initialPosition});
+  Future<void> open(
+    String videoId, {
+    Duration initialPosition,
+    bool isVideo,
+    bool autoplay,
+  });
   Future<void> openLocalFile(String path, {Duration initialPosition});
   Future<void> play();
   Future<void> pause();
@@ -90,7 +97,22 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   }
 
   MediaKitAudioPlaybackEngine._(this._client, this._proxyEnvironment)
-    : _player = Player() {
+    : _player = Player(
+        configuration: const PlayerConfiguration(
+          protocolWhitelist: <String>[
+            'udp',
+            'rtp',
+            'tcp',
+            'tls',
+            'data',
+            'file',
+            'http',
+            'https',
+            'httpproxy',
+            'crypto',
+          ],
+        ),
+      ) {
     _outputState = _outputStateFor(
       _player.state.audioDevices,
       _player.state.audioDevice,
@@ -122,6 +144,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   final YouTubeSidecarClient _client;
   final Map<String, String> _proxyEnvironment;
   final Player _player;
+  VideoController? _videoController;
   final StreamController<AudioPlaybackSnapshot> _states =
       StreamController<AudioPlaybackSnapshot>.broadcast();
   final StreamController<AudioOutputState> _outputStates =
@@ -142,10 +165,19 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   Stream<AudioOutputState> get outputStates => _outputStates.stream;
 
   @override
+  VideoController get videoController =>
+      _videoController ??= VideoController(_player);
+
+  @override
   Future<void> open(
     String videoId, {
     Duration initialPosition = Duration.zero,
+    bool isVideo = false,
+    bool autoplay = true,
   }) async {
+    if (isVideo) {
+      videoController;
+    }
     final request = ++_request;
     _update(
       isPlaying: false,
@@ -156,6 +188,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     try {
       final result = await _client.call('playback.resolve', <String, Object?>{
         'videoId': videoId,
+        'mediaType': isVideo ? 'video' : 'audio',
       });
       if (request != _request || _isDisposed) {
         return;
@@ -163,10 +196,16 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       final stream = (result['stream']! as Map<Object?, Object?>)
           .cast<String, Object?>();
       final url = stream['url'] as String?;
+      final audioUrl = stream['audioUrl'] as String?;
+      await _player.stop();
+      if (request != _request || _isDisposed) {
+        return;
+      }
       if (url == null || url.isEmpty) {
         throw const SidecarException('PLAYBACK_UNAVAILABLE', '');
       }
       await _configureProxyFor(url);
+      await _configureExternalAudio(isVideo ? audioUrl : null);
       await _player.open(Media(url), play: false);
       if (request != _request || _isDisposed) {
         return;
@@ -178,7 +217,9 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
         }
         await _player.seek(initialPosition);
       }
-      await _player.play();
+      if (autoplay) {
+        await _player.play();
+      }
     } on SidecarException {
       if (request == _request && !_isDisposed) {
         _update(
@@ -211,6 +252,11 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       clearError: true,
     );
     try {
+      await _player.stop();
+      if (request != _request || _isDisposed) {
+        return;
+      }
+      await _configureExternalAudio(null);
       await _player.open(Media(path), play: false);
       if (request != _request || _isDisposed) {
         return;
@@ -258,6 +304,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   Future<void> stop() async {
     _request += 1;
     await _player.stop();
+    await _configureExternalAudio(null);
     _update(
       position: Duration.zero,
       isPlaying: false,
@@ -295,6 +342,13 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       'stream-lavf-o',
       proxy == null ? '' : 'http_proxy=$proxy',
     );
+  }
+
+  Future<void> _configureExternalAudio(String? url) async {
+    final platform = _player.platform;
+    if (platform is NativePlayer) {
+      await platform.setProperty('audio-file', url ?? '');
+    }
   }
 
   Future<void> _waitUntilMediaIsSeekable() async {

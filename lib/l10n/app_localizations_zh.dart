@@ -269,6 +269,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get episode => '单集';
 
   @override
+  String get podcast => '播客';
+
+  @override
+  String get podcastEpisodes => '节目';
+
+  @override
+  String get noPodcastEpisodes => '暂无可播放的节目。';
+
+  @override
   String get song => '歌曲';
 
   @override
@@ -279,6 +288,33 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get closeFullLyrics => '关闭完整歌词';
+
+  @override
+  String get openVideo => '打开视频';
+
+  @override
+  String get switchToVideo => '切换到视频';
+
+  @override
+  String get switchToAudio => '切换到音频';
+
+  @override
+  String get collapseVideo => '收起视频';
+
+  @override
+  String get enterFullscreen => '进入全屏';
+
+  @override
+  String get exitFullscreen => '退出全屏';
+
+  @override
+  String get videoEngineCouldNotPlay => '视频引擎无法播放此视频。';
+
+  @override
+  String get videoStreamUnavailable => 'YouTube 未提供可播放的视频流。';
+
+  @override
+  String get unableToStartVideoPlayback => '无法开始播放此视频。';
 
   @override
   String get previousTrack => '上一首歌曲';

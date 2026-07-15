@@ -13,6 +13,8 @@ class Track {
     this.youtubeVideoId,
     this.localFilePath,
     this.localLyricsPath,
+    this.isVideo = false,
+    this.videoAvailable = false,
   });
 
   final String id;
@@ -25,6 +27,27 @@ class Track {
   final String? youtubeVideoId;
   final String? localFilePath;
   final String? localLyricsPath;
+  final bool isVideo;
+  final bool videoAvailable;
+
+  bool get canPlayVideo => videoAvailable || isVideo;
+
+  Track withVideoMode(bool enabled) {
+    return Track(
+      id: id,
+      title: title,
+      artist: artist,
+      album: album,
+      artworkAsset: artworkAsset,
+      durationSeconds: durationSeconds,
+      lyrics: lyrics,
+      youtubeVideoId: youtubeVideoId,
+      localFilePath: localFilePath,
+      localLyricsPath: localLyricsPath,
+      isVideo: enabled && canPlayVideo,
+      videoAvailable: canPlayVideo,
+    );
+  }
 
   factory Track.fromJson(Map<String, Object?> json) {
     return Track(
@@ -38,6 +61,10 @@ class Track {
       youtubeVideoId: json['youtubeVideoId'] as String?,
       localFilePath: json['localFilePath'] as String?,
       localLyricsPath: json['localLyricsPath'] as String?,
+      isVideo: json['isVideo'] as bool? ?? false,
+      videoAvailable:
+          json['videoAvailable'] as bool? ??
+          (json['isVideo'] as bool? ?? false),
     );
   }
 
@@ -52,5 +79,7 @@ class Track {
     'youtubeVideoId': youtubeVideoId,
     'localFilePath': localFilePath,
     'localLyricsPath': localLyricsPath,
+    'isVideo': isVideo,
+    'videoAvailable': videoAvailable,
   };
 }

@@ -57,6 +57,7 @@ class YouTubeTrack {
     required this.title,
     required this.artists,
     required this.durationSeconds,
+    this.itemType = 'song',
     this.album,
     this.thumbnailUrl,
   });
@@ -67,6 +68,7 @@ class YouTubeTrack {
       title: json['title']! as String,
       artists: (json['artists']! as List<Object?>).cast<String>(),
       durationSeconds: json['durationSeconds']! as int,
+      itemType: json['itemType'] as String? ?? 'song',
       album: json['album'] as String?,
       thumbnailUrl: json['thumbnailUrl'] as String?,
     );
@@ -76,8 +78,11 @@ class YouTubeTrack {
   final String title;
   final List<String> artists;
   final int durationSeconds;
+  final String itemType;
   final String? album;
   final String? thumbnailUrl;
+
+  bool get isVideo => itemType == 'video';
 }
 
 @immutable
@@ -199,6 +204,67 @@ class YouTubeFeedBrowseDetail {
 }
 
 @immutable
+class YouTubePodcastShowDetail {
+  const YouTubePodcastShowDetail({
+    required this.source,
+    required this.id,
+    required this.title,
+    required this.episodes,
+    required this.hasMore,
+    this.subtitle,
+    this.description,
+    this.thumbnailUrl,
+  });
+
+  factory YouTubePodcastShowDetail.fromJson(
+    Map<String, Object?> json, {
+    required String source,
+  }) {
+    return YouTubePodcastShowDetail(
+      source: source,
+      id: json['id']! as String,
+      title: json['title']! as String,
+      subtitle: json['subtitle'] as String?,
+      description: json['description'] as String?,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+      episodes: (json['episodes']! as List<Object?>)
+          .map(
+            (item) => YouTubeFeedItem.fromJson(
+              (item! as Map<Object?, Object?>).cast<String, Object?>(),
+            ),
+          )
+          .toList(growable: false),
+      hasMore: json['hasMore'] as bool? ?? false,
+    );
+  }
+
+  final String source;
+  final String id;
+  final String title;
+  final String? subtitle;
+  final String? description;
+  final String? thumbnailUrl;
+  final List<YouTubeFeedItem> episodes;
+  final bool hasMore;
+
+  YouTubePodcastShowDetail copyWith({
+    List<YouTubeFeedItem>? episodes,
+    bool? hasMore,
+  }) {
+    return YouTubePodcastShowDetail(
+      source: source,
+      id: id,
+      title: title,
+      subtitle: subtitle,
+      description: description,
+      thumbnailUrl: thumbnailUrl,
+      episodes: episodes ?? this.episodes,
+      hasMore: hasMore ?? this.hasMore,
+    );
+  }
+}
+
+@immutable
 class YouTubeFeedCollectionDetail {
   const YouTubeFeedCollectionDetail({
     required this.source,
@@ -226,6 +292,7 @@ class YouTubeFeedItem {
     required this.artists,
     required this.durationSeconds,
     this.subtitle,
+    this.description,
     this.videoId,
     this.browseParams,
     this.album,
@@ -238,6 +305,7 @@ class YouTubeFeedItem {
       itemType: json['itemType']! as String,
       title: json['title']! as String,
       subtitle: json['subtitle'] as String?,
+      description: json['description'] as String?,
       videoId: json['videoId'] as String?,
       browseParams: json['browseParams'] as String?,
       artists: (json['artists']! as List<Object?>).cast<String>(),
@@ -251,6 +319,7 @@ class YouTubeFeedItem {
   final String itemType;
   final String title;
   final String? subtitle;
+  final String? description;
   final String? videoId;
   final String? browseParams;
   final List<String> artists;
@@ -261,14 +330,21 @@ class YouTubeFeedItem {
   String get browseIdentity => browseParams == null ? id : '$id:$browseParams';
 
   bool get isPlayable =>
-      const <String>{'song', 'video', 'non_music_track'}.contains(itemType) &&
+      const <String>{
+        'episode',
+        'song',
+        'video',
+        'non_music_track',
+      }.contains(itemType) &&
       videoId != null;
+  bool get isVideo => itemType == 'video';
   bool get isPlaylist => itemType == 'playlist';
   bool get isCollection => isPlaylist || itemType == 'album';
   bool get isBrowsable => const <String>{
     'artist',
     'category',
     'channel',
+    'podcast',
     'subscriber',
   }.contains(itemType);
   bool get isProfile =>

@@ -590,6 +590,24 @@ abstract class AppLocalizations {
   /// **'Episode'**
   String get episode;
 
+  /// No description provided for @podcast.
+  ///
+  /// In en, this message translates to:
+  /// **'Podcast'**
+  String get podcast;
+
+  /// No description provided for @podcastEpisodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Episodes'**
+  String get podcastEpisodes;
+
+  /// No description provided for @noPodcastEpisodes.
+  ///
+  /// In en, this message translates to:
+  /// **'No episodes are available.'**
+  String get noPodcastEpisodes;
+
   /// No description provided for @song.
   ///
   /// In en, this message translates to:
@@ -613,6 +631,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Close full lyrics'**
   String get closeFullLyrics;
+
+  /// No description provided for @openVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Open video'**
+  String get openVideo;
+
+  /// No description provided for @switchToVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to video'**
+  String get switchToVideo;
+
+  /// No description provided for @switchToAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to audio'**
+  String get switchToAudio;
+
+  /// No description provided for @collapseVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Collapse video'**
+  String get collapseVideo;
+
+  /// No description provided for @enterFullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter fullscreen'**
+  String get enterFullscreen;
+
+  /// No description provided for @exitFullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit fullscreen'**
+  String get exitFullscreen;
+
+  /// No description provided for @videoEngineCouldNotPlay.
+  ///
+  /// In en, this message translates to:
+  /// **'The video engine could not play this video.'**
+  String get videoEngineCouldNotPlay;
+
+  /// No description provided for @videoStreamUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'YouTube did not provide a playable video stream.'**
+  String get videoStreamUnavailable;
+
+  /// No description provided for @unableToStartVideoPlayback.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to start video playback.'**
+  String get unableToStartVideoPlayback;
 
   /// No description provided for @previousTrack.
   ///

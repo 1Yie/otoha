@@ -9,6 +9,7 @@ import {
   mapAccountProfile,
   mapCommentThread,
   mapFeedSections,
+  mapRawPodcastShowDetail,
   mapSearchItems,
   mapPlaylist,
   mapTrack,
@@ -57,6 +58,7 @@ test('maps playlist and track parser shapes to the process contract', () => {
     }),
     {
       videoId: 'video-id',
+      itemType: 'song',
       title: 'Track title',
       artists: ['Artist'],
       album: 'Album',
@@ -331,7 +333,7 @@ test('classifies feed navigation and collection items before tracks', () => {
   assert.equal(sections[0].items[3].videoId, 'track-id');
 });
 
-test('filters podcast episodes out of music feed sections', () => {
+test('maps podcast episodes as playable feed items', () => {
   const text = (value) => ({ toString: () => value });
   assert.deepEqual(
     mapFeedSections([
@@ -340,7 +342,10 @@ test('filters podcast episodes out of music feed sections', () => {
         contents: [
           {
             constructor: { type: 'MusicMultiRowListItem' },
+            id: 'MPSP-podcast-browse-id',
             title: text('Podcast episode'),
+            subtitle: text('Podcast creator'),
+            on_tap: { payload: { videoId: 'podcast-id' } },
           },
         ],
       },
@@ -357,6 +362,22 @@ test('filters podcast episodes out of music feed sections', () => {
       },
     ]),
     [
+      {
+        title: 'Popular episodes',
+        items: [
+          {
+            id: 'MPSP-podcast-browse-id',
+            itemType: 'episode',
+            title: 'Podcast episode',
+            subtitle: 'Podcast creator',
+            videoId: 'podcast-id',
+            artists: [],
+            album: null,
+            durationSeconds: 0,
+            thumbnailUrl: null,
+          },
+        ],
+      },
       {
         title: 'Songs',
         items: [
@@ -375,6 +396,30 @@ test('filters podcast episodes out of music feed sections', () => {
       },
     ],
   );
+});
+
+test('maps podcast show browse cards as navigation instead of video', () => {
+  const text = (value) => ({ toString: () => value });
+  const [section] = mapFeedSections([
+    {
+      header: { title: text('Podcasts') },
+      contents: [
+        {
+          constructor: { type: 'MusicTwoRowItem' },
+          item_type: 'video',
+          id: 'MPSP-podcast-show',
+          title: text('Podcast show'),
+          endpoint: {
+            payload: { browseId: 'MPSP-podcast-show' },
+          },
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(section.items[0].itemType, 'podcast');
+  assert.equal(section.items[0].videoId, null);
+  assert.equal(section.items[0].id, 'MPSP-podcast-show');
 });
 
 test('maps searchable music items and removes duplicate entries', () => {
@@ -433,6 +478,17 @@ test('maps searchable music items and removes duplicate entries', () => {
         title: 'Creator',
         subtitle: null,
         videoId: null,
+        artists: [],
+        album: null,
+        durationSeconds: 0,
+        thumbnailUrl: null,
+      },
+      {
+        id: 'podcast-id',
+        itemType: 'non_music_track',
+        title: 'Podcast result',
+        subtitle: null,
+        videoId: 'podcast-id',
         artists: [],
         album: null,
         durationSeconds: 0,
@@ -752,6 +808,7 @@ test('loads authenticated YouTube Music history as playable tracks', async () =>
   assert.deepEqual(result.tracks, [
     {
       videoId: 'history-video',
+      itemType: 'song',
       title: 'History track',
       artists: ['History artist'],
       album: null,
@@ -879,6 +936,7 @@ test('resolves an authenticated audio-only playback stream without credentials',
       mimeType: 'audio/webm; codecs="opus"',
       bitrate: 128000,
       durationSeconds: 213,
+      mediaType: 'audio',
     },
   });
   assert.deepEqual(calls, [
@@ -893,6 +951,115 @@ test('resolves an authenticated audio-only playback stream without credentials',
     },
   ]);
   assert.equal(JSON.stringify(result).includes('SID='), false);
+});
+
+test('falls back to another client for podcast audio playback', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    getStreamingData: async (videoId, options) => {
+      calls.push({ videoId, options });
+      if (options.client === 'YTMUSIC') {
+        throw new Error('No matching formats found');
+      }
+      return {
+        url: 'https://audio.example.test/podcast',
+        mime_type: 'audio/mp4; codecs="mp4a.40.2"',
+        bitrate: 96000,
+        approx_duration_ms: 1800000,
+      };
+    },
+  };
+
+  const result = await service.getPlaybackStream('podcast-id');
+
+  assert.equal(result.stream.mediaType, 'audio');
+  assert.deepEqual(calls.map((call) => call.options.client), [
+    'YTMUSIC',
+    'YTMUSIC_ANDROID',
+  ]);
+});
+
+test('resolves an adaptive DASH video stream for visible playback', async () => {
+  const calls = [];
+  const video2160 = {
+    has_video: true,
+    has_audio: false,
+    height: 2160,
+    bitrate: 12000000,
+    mime_type: 'video/webm; codecs="vp9"',
+    decipher: async () => 'https://video.example.test/2160',
+  };
+  const video1080Vp9 = {
+    has_video: true,
+    has_audio: false,
+    height: 1080,
+    bitrate: 5000000,
+    mime_type: 'video/webm; codecs="vp9"',
+    decipher: async () => 'https://video.example.test/1080-vp9',
+  };
+  const video1080Avc = {
+    has_video: true,
+    has_audio: false,
+    height: 1080,
+    bitrate: 4500000,
+    mime_type: 'video/mp4; codecs="avc1.640028"',
+    width: 1920,
+    decipher: async () => 'https://video.example.test/1080-avc',
+  };
+  const alternateAudio = {
+    has_video: false,
+    has_audio: true,
+    bitrate: 192000,
+    mime_type: 'audio/webm; codecs="opus"',
+    decipher: async () => 'https://audio.example.test/alternate',
+  };
+  const originalAudio = {
+    has_video: false,
+    has_audio: true,
+    is_original: true,
+    bitrate: 128000,
+    mime_type: 'audio/mp4; codecs="mp4a.40.2"',
+    decipher: async () => 'https://audio.example.test/original',
+  };
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    getBasicInfo: async (videoId, options) => {
+      calls.push({ videoId, options });
+      return {
+        basic_info: { duration: 240, is_live: false },
+        streaming_data: {
+          adaptive_formats: [
+            video2160,
+            video1080Vp9,
+            video1080Avc,
+            alternateAudio,
+            originalAudio,
+          ],
+        },
+      };
+    },
+  };
+
+  const result = await service.getPlaybackStream('video-id', 'video');
+
+  assert.equal(result.stream.mediaType, 'video');
+  assert.equal(result.stream.mimeType, 'video/mp4; codecs="avc1.640028"');
+  assert.equal(result.stream.audioMimeType, 'audio/mp4; codecs="mp4a.40.2"');
+  assert.equal(result.stream.url, 'https://video.example.test/1080-avc');
+  assert.equal(result.stream.audioUrl, 'https://audio.example.test/original');
+  assert.equal(result.stream.width, 1920);
+  assert.equal(result.stream.height, 1080);
+  assert.deepEqual(calls, [
+    {
+      videoId: 'video-id',
+      options: {
+        client: 'YTMUSIC',
+      },
+    },
+  ]);
 });
 
 test('does not expose the upstream failure when audio playback cannot resolve', async () => {
@@ -1394,12 +1561,172 @@ test('searches LRCLIB for timed lyrics after an exact lookup misses', async () =
   assert.equal(requests[1].searchParams.has('duration'), false);
 });
 
-test('loads artist and category browse pages through a YTMUSIC browse call', async () => {
+test('loads category and dedicated podcast pages through YTMUSIC browse calls', async () => {
   const calls = [];
   const innertube = {
     actions: {
       execute: async (endpoint, args) => {
         calls.push({ endpoint, args });
+        if (args.continuation) {
+          return {
+            success: true,
+            status_code: 200,
+            data: {
+              continuationContents: {
+                musicShelfContinuation: {
+                contents: [
+                  {
+                      musicMultiRowListItemRenderer: {
+                        title: { runs: [{ text: 'Older episode' }] },
+                        subtitle: { runs: [{ text: 'Last week' }] },
+                        onTap: {
+                          watchEndpoint: {
+                            videoId: 'older-podcast-episode-id',
+                          },
+                        },
+                      },
+                    },
+                ],
+                },
+              },
+            },
+          };
+        }
+        if (args.browseId.startsWith('MPSP')) {
+          return {
+            success: true,
+            status_code: 200,
+            data: {
+              onResponseReceivedActions: [
+                {
+                  navigateAction: {
+                    endpoint: {
+                      commandMetadata: {
+                        webCommandMetadata: {
+                          apiUrl: '/youtubei/v1/browse',
+                        },
+                      },
+                      browseEndpoint: {
+                        browseId: 'VLPLpodcast-show',
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          };
+        }
+        if (args.browseId === 'VLPLpodcast-show') {
+          return {
+            success: true,
+            status_code: 200,
+            data: {
+              header: {
+                musicResponsiveHeaderRenderer: {
+                  title: { runs: [{ text: 'Podcast show' }] },
+                  straplineTextOne: {
+                    runs: [{ text: 'Podcast publisher' }],
+                  },
+                  secondSubtitle: { runs: [{ text: '12 episodes' }] },
+                  description: {
+                    musicDescriptionShelfRenderer: {
+                      description: { runs: [{ text: 'Show description' }] },
+                    },
+                  },
+                  thumbnail: {
+                    musicThumbnailRenderer: {
+                      thumbnail: {
+                        thumbnails: [
+                          { url: 'podcast-cover', width: 544 },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            contents: {
+                twoColumnBrowseResultsRenderer: {
+                  secondaryContents: {
+                    sectionListRenderer: {
+                      contents: [
+                    {
+                          musicCarouselShelfRenderer: {
+                            header: {
+                              musicCarouselShelfBasicHeaderRenderer: {
+                                title: {
+                                  runs: [{ text: 'You might also like' }],
+                                },
+                              },
+                            },
+                            contents: [
+                              {
+                                musicResponsiveListItemRenderer: {
+                                  flexColumns: [
+                                    {
+                                      musicResponsiveListItemFlexColumnRenderer: {
+                                        text: {
+                                          runs: [
+                                            { text: 'Wrong recommendation' },
+                                          ],
+                                        },
+                                      },
+                                    },
+                                  ],
+                                  navigationEndpoint: {
+                                    watchEndpoint: {
+                                      videoId: 'wrong-recommendation',
+                                    },
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          musicShelfRenderer: {
+                            title: {
+                              runs: [{ text: 'Latest episodes' }],
+                            },
+                            contents: [
+                              {
+                                musicMultiRowListItemRenderer: {
+                                  title: {
+                                    runs: [{ text: 'Podcast episode' }],
+                                  },
+                                  subtitle: { runs: [{ text: 'Today' }] },
+                                  secondTitle: {
+                                    runs: [{ text: 'Today · 42 min' }],
+                                  },
+                                  description: {
+                                    runs: [{ text: 'Episode description' }],
+                                  },
+                                  onTap: {
+                                    watchEndpoint: {
+                                      videoId: 'podcast-episode-id',
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                continuationItemRenderer: {
+                                  continuationEndpoint: {
+                                    continuationCommand: {
+                                      token: 'podcast-continuation',
+                                    },
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          };
+        }
         return {
           contents: {
             item: () => ({
@@ -1445,6 +1772,151 @@ test('loads artist and category browse pages through a YTMUSIC browse call', asy
     parse: true,
   });
   assert.equal(result.sections[0].items[0].itemType, 'album');
+
+  const podcast = await service.getFeedBrowse(
+    'podcast',
+    'MPSPpodcast-show',
+  );
+  assert.deepEqual(calls[1].args, {
+    browseId: 'MPSPpodcast-show',
+    client: 'YTMUSIC',
+  });
+  assert.deepEqual(calls[2], {
+    endpoint: 'browse',
+    args: {
+      browseId: 'VLPLpodcast-show',
+      client: 'YTMUSIC',
+    },
+  });
+  assert.deepEqual(podcast, {
+    podcast: {
+      id: 'MPSPpodcast-show',
+      title: 'Podcast show',
+      subtitle: 'Podcast publisher',
+      description: 'Show description',
+      thumbnailUrl: 'podcast-cover',
+      episodes: [
+        {
+          id: 'podcast-episode-id',
+          itemType: 'episode',
+          title: 'Podcast episode',
+          subtitle: 'Today · 42 min',
+          videoId: 'podcast-episode-id',
+          artists: [],
+          album: null,
+          durationSeconds: 2520,
+          thumbnailUrl: null,
+          description: 'Episode description',
+        },
+      ],
+      hasMore: true,
+    },
+  });
+  assert.equal(
+    podcast.podcast.episodes.some((item) => item.id === 'wrong-recommendation'),
+    false,
+  );
+
+  assert.deepEqual(
+    await service.getMoreFeedBrowse('podcast', 'MPSPpodcast-show'),
+    {
+      episodes: [
+        {
+          id: 'older-podcast-episode-id',
+          itemType: 'episode',
+          title: 'Older episode',
+          subtitle: 'Last week',
+          videoId: 'older-podcast-episode-id',
+          artists: [],
+          album: null,
+          durationSeconds: 0,
+          thumbnailUrl: null,
+          description: null,
+        },
+      ],
+      hasMore: false,
+    },
+  );
+  assert.deepEqual(calls[3], {
+    endpoint: '/browse',
+    args: {
+      client: 'YTMUSIC',
+      continuation: 'podcast-continuation',
+    },
+  });
+});
+
+test('maps playlist-style podcast episode shelves from raw browse JSON', () => {
+  const result = mapRawPodcastShowDetail({
+    header: {
+      musicDetailHeaderRenderer: {
+        title: { runs: [{ text: 'Playlist podcast' }] },
+      },
+    },
+    contents: {
+      singleColumnBrowseResultsRenderer: {
+        tabs: [
+          {
+            tabRenderer: {
+              content: {
+                sectionListRenderer: {
+                  contents: [
+                    {
+                      musicPlaylistShelfRenderer: {
+                        contents: [
+                          {
+                            musicResponsiveListItemRenderer: {
+                              flexColumns: [
+                                {
+                                  musicResponsiveListItemFlexColumnRenderer: {
+                                    text: {
+                                      runs: [{ text: 'Playlist episode' }],
+                                    },
+                                  },
+                                },
+                                {
+                                  musicResponsiveListItemFlexColumnRenderer: {
+                                    text: {
+                                      runs: [
+                                        { text: 'June 19 · 25 minutes' },
+                                      ],
+                                    },
+                                  },
+                                },
+                              ],
+                              playlistItemData: {
+                                videoId: 'playlist-episode-id',
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.title, 'Playlist podcast');
+  assert.deepEqual(result.episodes, [
+    {
+      id: 'playlist-episode-id',
+      itemType: 'episode',
+      title: 'Playlist episode',
+      subtitle: 'June 19 · 25 minutes',
+      videoId: 'playlist-episode-id',
+      artists: [],
+      album: null,
+      durationSeconds: 1500,
+      thumbnailUrl: null,
+      description: null,
+    },
+  ]);
 });
 
 test('maps and submits authenticated track interactions without exposing input', async () => {

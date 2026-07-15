@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 import '../models/catalog.dart';
 import '../services/audio_playback_engine.dart';
@@ -124,6 +125,8 @@ class PlayerController extends ChangeNotifier {
   bool get isPlaying => _isPlaying;
   bool get isBuffering => _isBuffering;
   AudioPlaybackFailure? get playbackError => _playbackError;
+  VideoController? get videoController => _audioPlaybackEngine?.videoController;
+  bool get canSwitchToVideo => _currentTrack?.canPlayVideo ?? false;
   bool get isShuffled => _isShuffled;
   PlaybackRepeatMode get repeatMode => _repeatMode;
   List<AudioOutputDevice> get outputDevices => _audioOutputState.devices;
@@ -353,6 +356,37 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setVideoMode(bool enabled) {
+    final currentTrack = _currentTrack;
+    if (currentTrack == null ||
+        !currentTrack.canPlayVideo ||
+        currentTrack.isVideo == enabled) {
+      return;
+    }
+    final replacement = currentTrack.withVideoMode(enabled);
+    final wasPlaying = _isPlaying;
+    _catalog = List<Track>.unmodifiable(
+      _catalog.map(
+        (track) => track.id == currentTrack.id ? replacement : track,
+      ),
+    );
+    _playOrder = _playOrder
+        .map((track) => track.id == currentTrack.id ? replacement : track)
+        .toList(growable: false);
+    _currentTrack = replacement;
+    _activateCurrentTrack(playWhenReady: wasPlaying);
+    _persistSession();
+    notifyListeners();
+  }
+
+  void toggleVideoMode() {
+    final currentTrack = _currentTrack;
+    if (currentTrack == null) {
+      return;
+    }
+    setVideoMode(!currentTrack.isVideo);
+  }
+
   void toggleShuffle() {
     final currentTrack = _currentTrack;
     if (currentTrack == null) {
@@ -414,7 +448,10 @@ class PlayerController extends ChangeNotifier {
       (_currentTrack?.youtubeVideoId != null ||
           _currentTrack?.localFilePath != null);
 
-  void _activateCurrentTrack({bool isRetry = false}) {
+  void _activateCurrentTrack({
+    bool isRetry = false,
+    bool playWhenReady = true,
+  }) {
     final currentTrack = _currentTrack;
     if (currentTrack == null) {
       return;
@@ -426,7 +463,7 @@ class PlayerController extends ChangeNotifier {
       }
       _hasActiveAudio = false;
       _clock?.cancel();
-      _isPlaying = true;
+      _isPlaying = playWhenReady;
       _isBuffering = true;
       final initialPosition = Duration(seconds: _positionSeconds);
       _pendingAudioPositionSeconds = initialPosition.inSeconds;
@@ -443,6 +480,8 @@ class PlayerController extends ChangeNotifier {
           _audioPlaybackEngine!.open(
             currentTrack.youtubeVideoId!,
             initialPosition: initialPosition,
+            isVideo: currentTrack.isVideo,
+            autoplay: playWhenReady,
           ),
         );
       }
@@ -598,6 +637,16 @@ class ShellController extends ChangeNotifier {
       _activePanel = null;
       _isSearchOpen = false;
     }
+    notifyListeners();
+  }
+
+  void openExpandedMedia() {
+    if (_isExpandedLyricsOpen) {
+      return;
+    }
+    _isExpandedLyricsOpen = true;
+    _activePanel = null;
+    _isSearchOpen = false;
     notifyListeners();
   }
 

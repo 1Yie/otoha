@@ -271,6 +271,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get episode => 'Episode';
 
   @override
+  String get podcast => 'Podcast';
+
+  @override
+  String get podcastEpisodes => 'Episodes';
+
+  @override
+  String get noPodcastEpisodes => 'No episodes are available.';
+
+  @override
   String get song => 'Song';
 
   @override
@@ -281,6 +290,35 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get closeFullLyrics => 'Close full lyrics';
+
+  @override
+  String get openVideo => 'Open video';
+
+  @override
+  String get switchToVideo => 'Switch to video';
+
+  @override
+  String get switchToAudio => 'Switch to audio';
+
+  @override
+  String get collapseVideo => 'Collapse video';
+
+  @override
+  String get enterFullscreen => 'Enter fullscreen';
+
+  @override
+  String get exitFullscreen => 'Exit fullscreen';
+
+  @override
+  String get videoEngineCouldNotPlay =>
+      'The video engine could not play this video.';
+
+  @override
+  String get videoStreamUnavailable =>
+      'YouTube did not provide a playable video stream.';
+
+  @override
+  String get unableToStartVideoPlayback => 'Unable to start video playback.';
 
   @override
   String get previousTrack => 'Previous track';

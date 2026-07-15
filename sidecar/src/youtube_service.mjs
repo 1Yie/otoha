@@ -1,4 +1,10 @@
-import { Innertube, Platform, UniversalCache, YTNodes } from 'youtubei.js';
+import {
+  Innertube,
+  Platform,
+  SectionListContinuation,
+  UniversalCache,
+  YTNodes,
+} from 'youtubei.js';
 import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -33,6 +39,8 @@ export class YouTubeService {
     this.homeRootFeed = null;
     this.homeFilters = [];
     this.exploreContinuation = null;
+    this.podcastBrowseId = null;
+    this.podcastBrowseContinuation = null;
     this.nextAccountWriteAt = 0;
   }
 
@@ -284,7 +292,7 @@ export class YouTubeService {
         parse: true,
       });
       const continuation = page.continuation_contents?.as(
-        YTNodes.SectionListContinuation,
+        SectionListContinuation,
       );
       this.exploreContinuation = continuation?.continuation ?? null;
       return {
@@ -485,32 +493,42 @@ export class YouTubeService {
       );
     }
 
-    const info = await this.innertube.getBasicInfo(videoId, {
-      client: 'YTMUSIC',
-    });
-    const basicInfo = info?.basic_info;
-    const title = textValue(basicInfo?.title);
-    if (!title) {
-      throw new SidecarError(
-        'TRACK_METADATA_UNAVAILABLE',
-        'YouTube did not return track metadata for this item.',
-      );
+    let lastFailure;
+    for (const client of DOWNLOAD_CLIENTS) {
+      try {
+        const info = await this.innertube.getBasicInfo(videoId, { client });
+        const basicInfo = info?.basic_info;
+        const title = textValue(basicInfo?.title);
+        if (!title) {
+          lastFailure = new Error('Track metadata was empty');
+          continue;
+        }
+        const artist = textValue(basicInfo?.author?.name ?? basicInfo?.author);
+        return {
+          track: {
+            videoId: basicInfo?.id ?? videoId,
+            title,
+            artists: artist ? [artist] : [],
+            durationSeconds: Number.isInteger(basicInfo?.duration)
+              ? basicInfo.duration
+              : 0,
+            thumbnailUrl:
+              largestArtworkThumbnail(arrayOf(basicInfo?.thumbnail))?.url ??
+              null,
+          },
+        };
+      } catch (error) {
+        lastFailure = error;
+      }
     }
-    const artist = textValue(basicInfo?.author?.name ?? basicInfo?.author);
-    return {
-      track: {
-        videoId: basicInfo?.id ?? videoId,
-        title,
-        artists: artist ? [artist] : [],
-        durationSeconds: Number.isInteger(basicInfo?.duration)
-          ? basicInfo.duration
-          : 0,
-        thumbnailUrl: largestArtworkThumbnail(arrayOf(basicInfo?.thumbnail))?.url ?? null,
-      },
-    };
+    throw new SidecarError(
+      'TRACK_METADATA_UNAVAILABLE',
+      'YouTube did not return track metadata for this item.',
+      describeUpstreamError(lastFailure),
+    );
   }
 
-  async getPlaybackStream(videoId) {
+  async getPlaybackStream(videoId, mediaType = 'audio') {
     this.#requireAuthentication();
     if (!videoId) {
       throw new SidecarError(
@@ -518,45 +536,106 @@ export class YouTubeService {
         'A video ID is required to start playback.',
       );
     }
-
-    try {
-      const format = await this.innertube.getStreamingData(videoId, {
-        client: 'YTMUSIC',
-        type: 'audio',
-        quality: 'best',
-        format: 'any',
-      });
-      if (!format?.url || !format.mime_type) {
-        throw new SidecarError(
-          'PLAYBACK_UNAVAILABLE',
-          'YouTube did not provide an audio stream for this track.',
-        );
-      }
-      return {
-        stream: {
-          url: format.url,
-          mimeType: format.mime_type,
-          bitrate: format.bitrate,
-          durationSeconds: Math.round((format.approx_duration_ms ?? 0) / 1000),
-        },
-      };
-    } catch (error) {
-      if (error instanceof SidecarError) {
-        throw error;
-      }
-      if (/unplayable|login required/i.test(error?.message ?? '')) {
-        throw new SidecarError(
-          'PLAYBACK_UNAVAILABLE',
-          'This track is unavailable for playback.',
-          describeUpstreamError(error),
-        );
-      }
+    if (!['audio', 'video'].includes(mediaType)) {
       throw new SidecarError(
-        'PLAYBACK_RESOLUTION_FAILED',
-        'Unable to prepare this track for playback.',
-        describeUpstreamError(error),
+        'INVALID_MEDIA_TYPE',
+        'Playback media type must be audio or video.',
       );
     }
+
+    let lastFailure;
+    if (mediaType === 'video') {
+      for (const client of DOWNLOAD_CLIENTS) {
+        try {
+          const info = await this.innertube.getBasicInfo(videoId, { client });
+          const hlsUrl = info?.streaming_data?.hls_manifest_url;
+          if (info?.basic_info?.is_live && typeof hlsUrl === 'string') {
+            return {
+              stream: {
+                url: hlsUrl,
+                mimeType: 'application/x-mpegURL',
+                durationSeconds: 0,
+                mediaType,
+              },
+            };
+          }
+          const formats = selectAdaptivePlaybackFormats(info);
+          if (!formats) {
+            lastFailure = new Error('Adaptive audio or video was unavailable');
+            continue;
+          }
+          const [videoUrl, audioUrl] = await Promise.all([
+            formats.video.decipher(this.innertube.session?.player),
+            formats.audio.decipher(this.innertube.session?.player),
+          ]);
+          if (!videoUrl || !audioUrl) {
+            lastFailure = new Error('Adaptive stream URL was empty');
+            continue;
+          }
+          return {
+            stream: {
+              url: videoUrl,
+              audioUrl,
+              mimeType: formats.video.mime_type,
+              audioMimeType: formats.audio.mime_type,
+              width: Number(formats.video.width ?? 0),
+              height: Number(formats.video.height ?? 0),
+              durationSeconds: Number.isInteger(info?.basic_info?.duration)
+                ? info.basic_info.duration
+                : 0,
+              mediaType,
+            },
+          };
+        } catch (error) {
+          lastFailure = error;
+        }
+      }
+    } else {
+      for (const client of DOWNLOAD_CLIENTS) {
+        try {
+          const format = await this.innertube.getStreamingData(videoId, {
+            client,
+            type: 'audio',
+            quality: 'best',
+            format: 'any',
+          });
+          if (!format?.url || !format.mime_type) {
+            lastFailure = new Error('No matching formats found');
+            continue;
+          }
+          return {
+            stream: {
+              url: format.url,
+              mimeType: format.mime_type,
+              bitrate: format.bitrate,
+              durationSeconds: Math.round(
+                (format.approx_duration_ms ?? 0) / 1000,
+              ),
+              mediaType,
+            },
+          };
+        } catch (error) {
+          lastFailure = error;
+        }
+      }
+    }
+
+    if (/unplayable|login required|no matching formats|streaming data not available/i.test(
+      lastFailure?.message ?? '',
+    )) {
+      throw new SidecarError(
+        'PLAYBACK_UNAVAILABLE',
+        mediaType === 'video'
+          ? 'YouTube did not provide a playable video stream.'
+          : 'YouTube did not provide an audio stream for this track.',
+        describeUpstreamError(lastFailure),
+      );
+    }
+    throw new SidecarError(
+      'PLAYBACK_RESOLUTION_FAILED',
+      'Unable to prepare this track for playback.',
+      describeUpstreamError(lastFailure),
+    );
   }
 
   async downloadAudio(videoId, directory) {
@@ -822,21 +901,31 @@ export class YouTubeService {
 
   async getFeedBrowse(itemType, id, params) {
     this.#requireAuthentication();
-    if (!['artist', 'category', 'channel', 'subscriber'].includes(itemType) || !id) {
+    if (
+      !['artist', 'category', 'channel', 'podcast', 'subscriber'].includes(
+        itemType,
+      ) ||
+      !id
+    ) {
       throw new SidecarError(
         'INVALID_FEED_ITEM',
-        'Only artist, channel, or category feed items can be opened as browse pages.',
+        'This feed item cannot be opened as a browse page.',
       );
     }
 
     let page;
     try {
-      page = await this.innertube.actions.execute('browse', {
-        browseId: id,
-        ...(params ? { params } : {}),
-        client: 'YTMUSIC',
-        parse: true,
-      });
+      page = itemType === 'podcast'
+        ? await executeRawPodcastBrowse(this.innertube.actions, {
+            browseId: id,
+            ...(params ? { params } : {}),
+          })
+        : await this.innertube.actions.execute('browse', {
+            browseId: id,
+            ...(params ? { params } : {}),
+            client: 'YTMUSIC',
+            parse: true,
+          });
     } catch (error) {
       throw feedFailure(
         'BROWSE_REQUEST_FAILED',
@@ -846,12 +935,73 @@ export class YouTubeService {
       );
     }
     try {
+      if (itemType === 'podcast') {
+        const podcast = mapRawPodcastShowDetail(page?.data ?? page);
+        this.podcastBrowseId = id;
+        this.podcastBrowseContinuation = podcast.continuation;
+        return {
+          podcast: {
+            id,
+            title: podcast.title,
+            subtitle: podcast.subtitle,
+            description: podcast.description,
+            thumbnailUrl: podcast.thumbnailUrl,
+            episodes: podcast.episodes,
+            hasMore: this.podcastBrowseContinuation !== null,
+          },
+        };
+      }
       return { sections: mapBrowseFeedSections(page) };
     } catch (error) {
       throw feedFailure(
         'BROWSE_PARSE_FAILED',
         'Unable to read this page.',
         'browse.parse',
+        error,
+      );
+    }
+  }
+
+  async getMoreFeedBrowse(itemType, id) {
+    this.#requireAuthentication();
+    if (itemType !== 'podcast' || !id) {
+      throw new SidecarError(
+        'INVALID_FEED_ITEM',
+        'This feed item does not support browse continuation.',
+      );
+    }
+    if (
+      id !== this.podcastBrowseId ||
+      this.podcastBrowseContinuation === null
+    ) {
+      return { episodes: [], hasMore: false };
+    }
+
+    try {
+      const page = await this.innertube.actions.execute('/browse', {
+        client: 'YTMUSIC',
+        continuation: this.podcastBrowseContinuation,
+      });
+      if (page?.success === false) {
+        throw httpResponseError(page.status_code);
+      }
+      const continuation = mapRawPodcastShowContinuation(page?.data ?? page);
+      this.podcastBrowseContinuation = continuation.continuation;
+      return {
+        episodes: continuation.episodes,
+        hasMore: this.podcastBrowseContinuation !== null,
+      };
+    } catch (error) {
+      if (/continuation did not have any content|continuation not found/i.test(
+        error?.message ?? '',
+      )) {
+        this.podcastBrowseContinuation = null;
+        return { episodes: [], hasMore: false };
+      }
+      throw feedFailure(
+        'BROWSE_CONTINUATION_FAILED',
+        'Unable to load more podcast episodes.',
+        'browse.continuation',
         error,
       );
     }
@@ -865,6 +1015,8 @@ export class YouTubeService {
     this.homeRootFeed = null;
     this.homeFilters = [];
     this.exploreContinuation = null;
+    this.podcastBrowseId = null;
+    this.podcastBrowseContinuation = null;
     this.nextAccountWriteAt = 0;
   }
 
@@ -959,7 +1111,7 @@ export function mapTrack(item) {
     : null;
   if (
     !item ||
-    !['song', 'video', 'non_music_track'].includes(itemType) &&
+    !['episode', 'song', 'video', 'non_music_track'].includes(itemType) &&
       !['PlaylistVideo', 'LockupView', 'Video'].includes(type)
   ) {
     return null;
@@ -977,6 +1129,7 @@ export function mapTrack(item) {
     .filter(Boolean);
   return {
     videoId,
+    itemType: itemType ?? 'song',
     title,
     artists: artistNames.length ? artistNames : artistsFromSubtitle(subtitle),
     album: textValue(item.album?.name ?? item.album) ?? albumFromSubtitle(subtitle),
@@ -1004,7 +1157,7 @@ export function mapCommentThread(thread) {
 export function mapFeedSections(rawSections) {
 return listOf(rawSections)
 .map((section, sectionIndex) => {
-const title = textValue(section?.header?.title);
+const title = textValue(section?.header?.title ?? section?.title);
 const items = listOf(section?.contents)
 .map((item, itemIndex) => mapFeedItem(item, sectionIndex, itemIndex))
 .filter(Boolean);
@@ -1028,7 +1181,7 @@ export function mapSearchItems(rawSections) {
     .map((item, index) => mapFeedItem(item, 0, index))
     .filter((item) => {
       if (!item) return false;
-      if (['non_music_track', 'unknown'].includes(item.itemType)) return false;
+      if (item.itemType === 'unknown') return false;
       const key = `${item.itemType}:${item.id}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1042,7 +1195,78 @@ export function mapBrowseFeedSections(page) {
   const root = typeof contents?.item === 'function' ? contents.item() : contents;
   const tabs = listOf(root?.tabs);
   const tab = tabs.find((candidate) => candidate?.selected) ?? tabs[0];
-  return mapFeedSections(tab?.content?.contents);
+  for (const candidate of [tab?.content?.contents, root?.contents]) {
+    const sections = mapFeedSections(candidate);
+    if (sections.length) return sections;
+  }
+
+  const memo = page?.contents_memo;
+  if (typeof memo?.getType !== 'function') return [];
+
+  const shelves = memo.getType(
+    YTNodes.MusicShelf,
+    YTNodes.MusicCarouselShelf,
+    YTNodes.MusicPlaylistShelf,
+  );
+  const shelfSections = mapFeedSections(shelves);
+  if (shelfSections.length) return shelfSections;
+
+  const items = memo
+    .getType(YTNodes.MusicMultiRowListItem, YTNodes.MusicResponsiveListItem)
+    .map((item, index) => mapFeedItem(item, 0, index))
+    .filter(Boolean);
+  if (!items.length) return [];
+
+  const header = memo.getType(YTNodes.MusicResponsiveHeader)?.[0];
+  return [
+    {
+      title: textValue(header?.title) || 'Episodes',
+      items,
+    },
+  ];
+}
+
+export function mapRawPodcastShowDetail(page, fallbackTitle = 'Podcast') {
+  const episodePage = findRawPodcastEpisodePage(page, {
+    allowResponsiveItems: true,
+  });
+  const header = collectRawRenderers(page, [
+    'musicResponsiveHeaderRenderer',
+    'musicDetailHeaderRenderer',
+    'musicEditablePlaylistDetailHeaderRenderer',
+    'musicImmersiveHeaderRenderer',
+  ])
+    .map(unwrapRawPodcastHeader)
+    .find((candidate) => rawTextValue(candidate?.title));
+  return {
+    title: rawTextValue(header?.title) || fallbackTitle,
+    subtitle:
+      rawTextValue(
+        header?.straplineTextOne ??
+          header?.straplineTextOne?.runs ??
+          header?.subtitle,
+      ) || null,
+    description:
+      rawTextValue(
+        header?.description?.musicDescriptionShelfRenderer?.description ??
+          header?.description,
+      ) || null,
+    thumbnailUrl:
+      largestArtworkThumbnail(rawThumbnailCandidates(header))?.url ?? null,
+    episodes: episodePage?.episodes ?? [],
+    continuation: episodePage?.continuation ?? null,
+  };
+}
+
+export function mapRawPodcastShowContinuation(page) {
+  const episodePage = findRawPodcastEpisodePage(page, {
+    allowResponsiveItems: true,
+  });
+  return {
+    episodes: episodePage?.episodes ?? [],
+    continuation:
+      episodePage?.continuation ?? findRawContinuationToken(page) ?? null,
+  };
 }
 
 export function mapFeedItem(item, sectionIndex = 0, itemIndex = 0) {
@@ -1064,7 +1288,6 @@ export function mapFeedItem(item, sectionIndex = 0, itemIndex = 0) {
       )
       ? explicitType
       : inferredType;
-  if (itemType === 'episode') return null;
   const rawId = item?.id ?? item?.content_id ?? payload.browseId ?? payload.videoId;
   const id = itemType === 'playlist' ? normalizePlaylistId(rawId) : rawId;
   const title = textValue(item?.title ?? item?.name ?? item?.button_text);
@@ -1089,7 +1312,7 @@ export function mapFeedItem(item, sectionIndex = 0, itemIndex = 0) {
     title,
     subtitle: subtitle || null,
     videoId: isTrackItemType(itemType)
-      ? item?.id ?? payload.videoId ?? null
+      ? payload.videoId ?? item?.id ?? null
       : null,
     ...(typeof payload.params === 'string' ? { browseParams: payload.params } : {}),
     artists: resolvedArtists,
@@ -1097,6 +1320,297 @@ export function mapFeedItem(item, sectionIndex = 0, itemIndex = 0) {
     durationSeconds: item?.duration?.seconds ?? 0,
     thumbnailUrl: largestArtworkThumbnail(thumbnailCandidates(item))?.url ?? null,
   };
+}
+
+function findRawPodcastEpisodePage(
+  page,
+  { allowResponsiveItems = false } = {},
+) {
+  const shelves = collectRawRenderers(page, [
+    'musicShelfRenderer',
+    'musicPlaylistShelfRenderer',
+    'musicShelfContinuation',
+    'musicPlaylistShelfContinuation',
+  ]);
+  for (const shelf of shelves) {
+    const episodePage = mapRawPodcastEpisodePage(shelf, false);
+    if (episodePage) return episodePage;
+  }
+
+  if (allowResponsiveItems) {
+    const playlistShelves = collectRawRenderers(page, [
+      'musicPlaylistShelfRenderer',
+      'musicPlaylistShelfContinuation',
+      'musicShelfContinuation',
+    ]);
+    const responsiveShelves = playlistShelves.length
+      ? playlistShelves
+      : collectRawRenderers(page, ['musicShelfRenderer']);
+    for (const shelf of responsiveShelves) {
+      const episodePage = mapRawPodcastEpisodePage(shelf, true);
+      if (episodePage) return episodePage;
+    }
+  }
+
+  const continuationItems = collectRawValuesForKey(page, 'continuationItems');
+  for (const items of continuationItems) {
+    const episodePage = mapRawPodcastEpisodePage(
+      { contents: items },
+      allowResponsiveItems,
+    );
+    if (episodePage) return episodePage;
+  }
+
+  const rawEpisodes = collectRawRenderers(page, [
+    'musicMultiRowListItemRenderer',
+  ])
+    .map((renderer, index) => mapRawPodcastEpisode(renderer, index))
+    .filter(Boolean);
+  return rawEpisodes.length
+    ? {
+        episodes: deduplicatePodcastEpisodes(rawEpisodes),
+        continuation: findRawContinuationToken(page),
+      }
+    : null;
+}
+
+function mapRawPodcastEpisodePage(shelf, allowResponsiveItems) {
+  const renderers = [];
+  for (const item of listOf(shelf?.contents)) {
+    if (item?.musicMultiRowListItemRenderer) {
+      renderers.push(item.musicMultiRowListItemRenderer);
+    } else if (allowResponsiveItems && item?.musicResponsiveListItemRenderer) {
+      renderers.push(item.musicResponsiveListItemRenderer);
+    }
+  }
+  const episodes = renderers
+    .map((renderer, index) => mapRawPodcastEpisode(renderer, index))
+    .filter(Boolean);
+  if (episodes.length === 0) return null;
+  return {
+    episodes: deduplicatePodcastEpisodes(episodes),
+    continuation: findRawContinuationToken(shelf),
+  };
+}
+
+function mapRawPodcastEpisode(renderer, index) {
+  const videoId = findFirstRawString(renderer, 'videoId');
+  if (!videoId) return null;
+  const flexColumns = listOf(renderer?.flexColumns);
+  const fixedColumns = listOf(renderer?.fixedColumns);
+  const title =
+    rawTextValue(renderer?.title) ||
+    rawTextValue(
+      flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text,
+    );
+  if (!title) return null;
+  const subtitle =
+    rawTextValue(renderer?.secondTitle ?? renderer?.subtitle) ||
+    rawTextValue(
+      flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text,
+    );
+  const durationText =
+    rawTextValue(renderer?.secondTitle) ||
+    rawTextValue(
+      fixedColumns[0]?.musicResponsiveListItemFixedColumnRenderer?.text,
+    ) ||
+    subtitle;
+  return {
+    id: videoId || `episode-0-${index}`,
+    itemType: 'episode',
+    title,
+    subtitle: subtitle || null,
+    videoId,
+    artists: [],
+    album: null,
+    durationSeconds: durationSecondsFromRawText(durationText),
+    thumbnailUrl:
+      largestArtworkThumbnail(rawThumbnailCandidates(renderer))?.url ?? null,
+    description: rawTextValue(renderer?.description) || null,
+  };
+}
+
+function deduplicatePodcastEpisodes(episodes) {
+  return [
+    ...new Map(episodes.map((episode) => [episode.videoId, episode])).values(),
+  ];
+}
+
+function unwrapRawPodcastHeader(header) {
+  return (
+    header?.header?.musicResponsiveHeaderRenderer ??
+    header?.header?.musicDetailHeaderRenderer ??
+    header
+  );
+}
+
+function collectRawRenderers(value, rendererNames, limit = Number.POSITIVE_INFINITY) {
+  const renderers = [];
+  walkRawJson(value, (key, candidate) => {
+    if (rendererNames.includes(key) && candidate && typeof candidate === 'object') {
+      renderers.push(candidate);
+      return renderers.length >= limit;
+    }
+    return false;
+  });
+  return renderers;
+}
+
+function collectRawValuesForKey(value, targetKey) {
+  const values = [];
+  walkRawJson(value, (key, candidate) => {
+    if (key === targetKey) values.push(candidate);
+    return false;
+  });
+  return values;
+}
+
+function walkRawJson(value, visitor, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 24) return false;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (walkRawJson(item, visitor, depth + 1)) return true;
+    }
+    return false;
+  }
+  for (const [key, candidate] of Object.entries(value)) {
+    if (visitor(key, candidate)) return true;
+    if (walkRawJson(candidate, visitor, depth + 1)) return true;
+  }
+  return false;
+}
+
+function rawTextValue(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value.simpleText === 'string') {
+    return value.simpleText.trim() || null;
+  }
+  if (Array.isArray(value.runs)) {
+    const text = value.runs
+      .map((run) => (typeof run?.text === 'string' ? run.text : ''))
+      .join('')
+      .trim();
+    return text || null;
+  }
+  if (value.text && value.text !== value) {
+    return rawTextValue(value.text);
+  }
+  return null;
+}
+
+function rawThumbnailCandidates(value) {
+  const thumbnails = [];
+  for (const candidate of collectRawValuesForKey(value, 'thumbnails')) {
+    for (const thumbnail of listOf(candidate)) {
+      if (thumbnail?.url) thumbnails.push(thumbnail);
+    }
+  }
+  return thumbnails;
+}
+
+function findFirstRawString(value, targetKey) {
+  let result = null;
+  walkRawJson(value, (key, candidate) => {
+    if (key === targetKey && typeof candidate === 'string' && candidate) {
+      result = candidate;
+      return true;
+    }
+    return false;
+  });
+  return result;
+}
+
+function findRawContinuationToken(value) {
+  let token = null;
+  walkRawJson(value, (key, candidate) => {
+    if (
+      key === 'continuationCommand' &&
+      typeof candidate?.token === 'string'
+    ) {
+      token = candidate.token;
+      return true;
+    }
+    if (
+      ['nextContinuationData', 'reloadContinuationData'].includes(key) &&
+      typeof candidate?.continuation === 'string'
+    ) {
+      token = candidate.continuation;
+      return true;
+    }
+    return false;
+  });
+  return token;
+}
+
+function durationSecondsFromRawText(value) {
+  const text = rawTextValue(value) ?? value;
+  if (typeof text !== 'string') return 0;
+  const clock = text.match(/(?:^|\D)(\d{1,3}):(\d{2})(?::(\d{2}))?(?:\D|$)/);
+  if (clock) {
+    return clock[3]
+      ? Number(clock[1]) * 3600 + Number(clock[2]) * 60 + Number(clock[3])
+      : Number(clock[1]) * 60 + Number(clock[2]);
+  }
+  const hours = Number(
+    text.match(/(\d+)\s*(?:hours?|hrs?|小时|小時)/i)?.[1] ?? 0,
+  );
+  const minutes = Number(
+    text.match(/(\d+)\s*(?:minutes?|mins?|分钟|分鐘)/i)?.[1] ?? 0,
+  );
+  const seconds = Number(
+    text.match(/(\d+)\s*(?:seconds?|secs?|秒)/i)?.[1] ?? 0,
+  );
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function httpResponseError(statusCode) {
+  const error = new Error(
+    `YouTube browse request failed with HTTP ${statusCode ?? 'unknown'}.`,
+  );
+  error.status = statusCode;
+  return error;
+}
+
+async function executeRawPodcastBrowse(actions, request) {
+  let response = await actions.execute('browse', {
+    ...request,
+    client: 'YTMUSIC',
+  });
+  for (let redirects = 0; redirects < 2; redirects += 1) {
+    if (response?.success === false) {
+      throw httpResponseError(response.status_code);
+    }
+    const redirect = rawBrowseRedirect(response?.data ?? response);
+    if (!redirect) return response;
+    response = await actions.execute(redirect.endpoint, {
+      browseId: redirect.browseId,
+      ...(redirect.params ? { params: redirect.params } : {}),
+      client: 'YTMUSIC',
+    });
+  }
+  if (response?.success === false) {
+    throw httpResponseError(response.status_code);
+  }
+  return response;
+}
+
+function rawBrowseRedirect(page) {
+  for (const action of listOf(page?.onResponseReceivedActions)) {
+    const endpoint = action?.navigateAction?.endpoint;
+    const browse = endpoint?.browseEndpoint;
+    if (typeof browse?.browseId !== 'string' || !browse.browseId) continue;
+    const apiUrl = endpoint?.commandMetadata?.webCommandMetadata?.apiUrl;
+    return {
+      endpoint:
+        typeof apiUrl === 'string' && apiUrl.includes('/youtubei/v1/')
+          ? apiUrl.replace('/youtubei/v1/', '')
+          : 'browse',
+      browseId: browse.browseId,
+      params: typeof browse.params === 'string' ? browse.params : null,
+    };
+  }
+  return null;
 }
 
 function mapPlaylistHeader(id, rawHeader, background) {
@@ -1400,6 +1914,44 @@ export function mapAccountProfile(accountInfo) {
   return displayName || avatarUrl ? { displayName: displayName ?? null, avatarUrl } : null;
 }
 
+function selectAdaptivePlaybackFormats(info) {
+  const formats = arrayOf(info?.streaming_data?.adaptive_formats);
+  const videoFormats = formats.filter(
+    (format) => format?.has_video && !format?.has_audio,
+  );
+  let audioFormats = formats.filter(
+    (format) => format?.has_audio && !format?.has_video && !format?.has_text,
+  );
+  if (videoFormats.length === 0 || audioFormats.length === 0) return null;
+
+  const hdFormats = videoFormats.filter((format) => {
+    const height = Number(format?.height ?? 0);
+    return height > 0 && height <= 1080;
+  });
+  const videoPool = hdFormats.length > 0 ? hdFormats : videoFormats;
+  videoPool.sort((left, right) => {
+    const heightDifference =
+      Number(right?.height ?? 0) - Number(left?.height ?? 0);
+    if (heightDifference !== 0) return heightDifference;
+    const codecDifference =
+      Number(String(right?.mime_type ?? '').includes('avc')) -
+      Number(String(left?.mime_type ?? '').includes('avc'));
+    return codecDifference !== 0
+      ? codecDifference
+      : Number(right?.bitrate ?? 0) - Number(left?.bitrate ?? 0);
+  });
+
+  const originalAudio = audioFormats.filter((format) => format?.is_original);
+  if (originalAudio.length > 0) audioFormats = originalAudio;
+  const unprocessedAudio = audioFormats.filter((format) => !format?.is_drc);
+  if (unprocessedAudio.length > 0) audioFormats = unprocessedAudio;
+  audioFormats.sort(
+    (left, right) =>
+      Number(right?.bitrate ?? 0) - Number(left?.bitrate ?? 0),
+  );
+  return { video: videoPool[0], audio: audioFormats[0] };
+}
+
 function normalizeFeedItemType(value) {
   if (typeof value !== 'string') return null;
   const type = value
@@ -1407,6 +1959,7 @@ function normalizeFeedItemType(value) {
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
     .replace(/^music_/, '');
+  if (type === 'podcast_show') return 'podcast';
   return [
     'album',
     'artist',
@@ -1415,6 +1968,7 @@ function normalizeFeedItemType(value) {
     'episode',
     'non_music_track',
     'playlist',
+    'podcast',
     'song',
     'subscriber',
     'video',
@@ -1424,7 +1978,7 @@ function normalizeFeedItemType(value) {
 }
 
 function isTrackItemType(itemType) {
-  return ['song', 'video', 'non_music_track'].includes(itemType);
+  return ['episode', 'song', 'video', 'non_music_track'].includes(itemType);
 }
 
 function feedItemType(nodeType, payload = {}) {
@@ -1436,6 +1990,7 @@ function feedItemType(nodeType, payload = {}) {
       return 'episode';
   }
   if (browseId === 'FEmusic_moods_and_genres_category') return 'category';
+  if (browseId.startsWith('MPSP')) return 'podcast';
   if (browseId.startsWith('VL')) return 'playlist';
   if (/^MPRE/i.test(browseId)) return 'album';
   if (browseId.startsWith('UC')) return 'artist';

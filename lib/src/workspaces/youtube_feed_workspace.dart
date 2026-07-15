@@ -69,6 +69,17 @@ class YouTubeFeedWorkspace extends StatelessWidget {
         onBack: controller.closeFeedDetail,
       );
     }
+    final podcast = controller.selectedPodcastShow;
+    if (podcast?.source == kind.name) {
+      return _PodcastShowDetail(
+        detail: podcast!,
+        loadingItemId: controller.loadingFeedItemId,
+        isLoadingMore: controller.isLoadingMorePodcast,
+        onBack: controller.closeFeedDetail,
+        onLoadMore: controller.loadMorePodcastShow,
+        onTap: _actionFor,
+      );
+    }
     final browse = controller.selectedFeedBrowse;
     if (browse?.source == kind.name) {
       return _FeedBrowseDetail(
@@ -324,7 +335,14 @@ class YouTubeFeedWorkspace extends StatelessWidget {
 
   Future<void> _playFeedItem(YouTubeFeedItem item) async {
     final track = await youtubeLibraryController.resolveFeedTrack(item);
-    playerController.playTracks(<Track>[_asSimulatedYouTubeTrack(track)]);
+    playerController.playTracks(<Track>[
+      _asSimulatedYouTubeTrack(
+        track,
+        artistFallback: item.artists,
+        subtitleFallback: item.subtitle,
+        itemTypeFallback: item.itemType,
+      ),
+    ]);
   }
 }
 
@@ -886,8 +904,9 @@ class _FeedSectionState extends State<_FeedSection> {
       return;
     }
     final position = _scrollController.position;
+    final maxScrollOffset = _alignedMaxScrollOffset(position);
     final canScrollLeft = position.pixels > 0.5;
-    final canScrollRight = position.pixels < position.maxScrollExtent - 0.5;
+    final canScrollRight = position.pixels < maxScrollOffset - 0.5;
     if (canScrollLeft == _canScrollLeft && canScrollRight == _canScrollRight) {
       return;
     }
@@ -904,9 +923,7 @@ class _FeedSectionState extends State<_FeedSection> {
       return;
     }
     final position = _scrollController.position;
-    final itemExtent = widget.section.itemsPerColumn > 1
-        ? _compactColumnExtent
-        : _cardItemExtent;
+    final itemExtent = _itemExtent;
     final visibleItemCount = (position.viewportDimension / itemExtent).floor();
     final pageExtent =
         (visibleItemCount < 1 ? 1 : visibleItemCount) * itemExtent;
@@ -914,7 +931,7 @@ class _FeedSectionState extends State<_FeedSection> {
         ? ((position.pixels + 0.5) / pageExtent).floor() + 1
         : ((position.pixels - 0.5) / pageExtent).ceil() - 1;
     final target = (targetPage * pageExtent)
-        .clamp(0.0, position.maxScrollExtent)
+        .clamp(0.0, _alignedMaxScrollOffset(position))
         .toDouble();
     if (widget.reduceMotion) {
       _scrollController.jumpTo(target);
@@ -924,6 +941,68 @@ class _FeedSectionState extends State<_FeedSection> {
       target,
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOutCubic,
+    );
+  }
+
+  double get _itemExtent => widget.section.itemsPerColumn > 1
+      ? _compactColumnExtent
+      : _cardItemExtent;
+
+  int get _scrollItemCount => widget.section.itemsPerColumn > 1
+      ? (widget.section.items.length / widget.section.itemsPerColumn).ceil()
+      : widget.section.items.length;
+
+  double _alignedMaxScrollOffset(ScrollPosition position) {
+    final itemCount = _scrollItemCount;
+    if (itemCount <= 0) {
+      return 0;
+    }
+    final contentExtent = itemCount * _itemExtent - 20;
+    final overflow = contentExtent - position.viewportDimension;
+    if (overflow <= 0) {
+      return 0;
+    }
+    return (overflow / _itemExtent).ceil() * _itemExtent;
+  }
+
+  double _trailingPadding(double viewportDimension) {
+    final itemCount = _scrollItemCount;
+    if (itemCount <= 0) {
+      return AppMetrics.workspacePadding;
+    }
+    final contentExtent = itemCount * _itemExtent - 20;
+    final overflow = contentExtent - viewportDimension;
+    if (overflow <= 0) {
+      return AppMetrics.workspacePadding;
+    }
+    final alignedOffset = (overflow / _itemExtent).ceil() * _itemExtent;
+    final requiredPadding = alignedOffset + viewportDimension - contentExtent;
+    return requiredPadding > AppMetrics.workspacePadding
+        ? requiredPadding
+        : AppMetrics.workspacePadding;
+  }
+
+  void _snapToItemBoundary() {
+    if (!_scrollController.hasClients) {
+      return;
+    }
+    final position = _scrollController.position;
+    final target = ((position.pixels / _itemExtent).round() * _itemExtent)
+        .clamp(0.0, _alignedMaxScrollOffset(position))
+        .toDouble();
+    if ((target - position.pixels).abs() <= 0.5) {
+      return;
+    }
+    if (widget.reduceMotion) {
+      _scrollController.jumpTo(target);
+      return;
+    }
+    unawaited(
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+      ),
     );
   }
 
@@ -987,56 +1066,68 @@ class _FeedSectionState extends State<_FeedSection> {
           const SizedBox(height: 16),
           SizedBox(
             height: contentHeight,
-            child: ListView.separated(
-              key: Key('youtube-feed-section-list-${widget.sectionIndex}'),
-              controller: _scrollController,
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(
-                right: AppMetrics.workspacePadding,
-              ),
-              itemCount: usesCompactRows
-                  ? columnCount
-                  : widget.section.items.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 20),
-              itemBuilder: (context, index) {
-                if (usesCompactRows) {
-                  final start = index * itemsPerColumn;
-                  final end = (start + itemsPerColumn).clamp(
-                    0,
-                    widget.section.items.length,
-                  );
-                  final items = widget.section.items.sublist(start, end);
-                  return SizedBox(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final trailingPadding = _trailingPadding(constraints.maxWidth);
+                return NotificationListener<ScrollEndNotification>(
+                  onNotification: (_) {
+                    _snapToItemBoundary();
+                    return false;
+                  },
+                  child: ListView.separated(
                     key: Key(
-                      'youtube-feed-compact-column-'
-                      '${widget.sectionIndex}-$index',
+                      'youtube-feed-section-list-${widget.sectionIndex}',
                     ),
-                    width: _compactColumnWidth,
-                    child: Column(
-                      children: <Widget>[
-                        for (
-                          var rowIndex = 0;
-                          rowIndex < items.length;
-                          rowIndex++
-                        ) ...<Widget>[
-                          _FeedCompactRow(
-                            item: items[rowIndex],
-                            isLoading:
-                                widget.loadingItemId == items[rowIndex].id,
-                            onTap: widget.onTap(items[rowIndex]),
+                    controller: _scrollController,
+                    scrollDirection: Axis.horizontal,
+                    padding: EdgeInsets.only(right: trailingPadding),
+                    itemCount: usesCompactRows
+                        ? columnCount
+                        : widget.section.items.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 20),
+                    itemBuilder: (context, index) {
+                      if (usesCompactRows) {
+                        final start = index * itemsPerColumn;
+                        final end = (start + itemsPerColumn).clamp(
+                          0,
+                          widget.section.items.length,
+                        );
+                        final items = widget.section.items.sublist(start, end);
+                        return SizedBox(
+                          key: Key(
+                            'youtube-feed-compact-column-'
+                            '${widget.sectionIndex}-$index',
                           ),
-                          if (rowIndex < items.length - 1)
-                            const SizedBox(height: _compactRowGap),
-                        ],
-                      ],
-                    ),
-                  );
-                }
-                final item = widget.section.items[index];
-                return _FeedItemCard(
-                  item: item,
-                  isLoading: widget.loadingItemId == item.id,
-                  onTap: widget.onTap(item),
+                          width: _compactColumnWidth,
+                          child: Column(
+                            children: <Widget>[
+                              for (
+                                var rowIndex = 0;
+                                rowIndex < items.length;
+                                rowIndex++
+                              ) ...<Widget>[
+                                _FeedCompactRow(
+                                  item: items[rowIndex],
+                                  isLoading:
+                                      widget.loadingItemId ==
+                                      items[rowIndex].id,
+                                  onTap: widget.onTap(items[rowIndex]),
+                                ),
+                                if (rowIndex < items.length - 1)
+                                  const SizedBox(height: _compactRowGap),
+                              ],
+                            ],
+                          ),
+                        );
+                      }
+                      final item = widget.section.items[index];
+                      return _FeedItemCard(
+                        item: item,
+                        isLoading: widget.loadingItemId == item.id,
+                        onTap: widget.onTap(item),
+                      );
+                    },
+                  ),
                 );
               },
             ),
@@ -1074,57 +1165,69 @@ class _FeedCompactRow extends StatelessWidget {
         child: InkWell(
           key: Key('youtube-feed-${item.itemType}-${item.id}'),
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              children: <Widget>[
-                ClipRRect(
-                  key: Key('youtube-feed-compact-artwork-${item.id}'),
-                  borderRadius: BorderRadius.circular(4),
-                  child: SizedBox(
-                    width: landscapeArtwork ? 72 : 48,
-                    height: 48,
-                    child: ArtworkImage(
-                      assetPath: item.thumbnailUrl ?? '',
-                      semanticLabel: l10n.artwork(item.title),
+          child: Stack(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: <Widget>[
+                    ClipRRect(
+                      key: Key('youtube-feed-compact-artwork-${item.id}'),
+                      borderRadius: BorderRadius.circular(4),
+                      child: SizedBox(
+                        width: landscapeArtwork ? 72 : 48,
+                        height: 48,
+                        child: ArtworkImage(
+                          assetPath: item.thumbnailUrl ?? '',
+                          semanticLabel: l10n.artwork(item.title),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            item.subtitle ?? _typeLabel(item.itemType, l10n),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    if (item.durationSeconds > 0)
+                      Text(
+                        _formatFeedDuration(item.durationSeconds),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                ),
+              ),
+              if (isLoading)
+                const Positioned.fill(
+                  key: Key('youtube-feed-compact-loading-overlay'),
+                  child: ColoredBox(
+                    color: Color(0x99000000),
+                    child: Center(
+                      child: SizedBox.square(
+                        dimension: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        item.subtitle ?? _typeLabel(item.itemType, l10n),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                if (isLoading)
-                  const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else if (item.durationSeconds > 0)
-                  Text(
-                    _formatFeedDuration(item.durationSeconds),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
@@ -1437,6 +1540,279 @@ class _FeedBrowseDetail extends StatelessWidget {
   }
 }
 
+class _PodcastShowDetail extends StatelessWidget {
+  const _PodcastShowDetail({
+    required this.detail,
+    required this.loadingItemId,
+    required this.isLoadingMore,
+    required this.onBack,
+    required this.onLoadMore,
+    required this.onTap,
+  });
+
+  final YouTubePodcastShowDetail detail;
+  final String? loadingItemId;
+  final bool isLoadingMore;
+  final VoidCallback onBack;
+  final Future<void> Function() onLoadMore;
+  final VoidCallback? Function(YouTubeFeedItem item) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification.metrics.extentAfter < 480 &&
+            detail.hasMore &&
+            !isLoadingMore) {
+          unawaited(onLoadMore());
+        }
+        return false;
+      },
+      child: CustomScrollView(
+        key: const Key('youtube-podcast-show-detail'),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              32,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Tooltip(
+                    message: l10n.back,
+                    child: IconButton(
+                      key: const Key('youtube-podcast-show-back'),
+                      onPressed: onBack,
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(AppMetrics.radius),
+                        child: SizedBox.square(
+                          dimension: 144,
+                          child: ArtworkImage(
+                            assetPath: detail.thumbnailUrl ?? '',
+                            semanticLabel: l10n.artwork(detail.title),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 24),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                l10n.podcast,
+                                style: const TextStyle(
+                                  color: OtohaColors.accent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                detail.title,
+                                key: const Key('youtube-podcast-show-title'),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.displaySmall,
+                              ),
+                              if (detail.subtitle case final subtitle?
+                                  when subtitle.isNotEmpty) ...<Widget>[
+                                const SizedBox(height: 8),
+                                Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ],
+                              if (detail.description case final description?
+                                  when description.isNotEmpty) ...<Widget>[
+                                const SizedBox(height: 12),
+                                Text(
+                                  description,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              0,
+              AppMetrics.workspacePadding,
+              12,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                l10n.podcastEpisodes,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ),
+          ),
+          if (detail.episodes.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: Text(l10n.noPodcastEpisodes)),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppMetrics.workspacePadding,
+              ),
+              sliver: SliverList.builder(
+                itemCount: detail.episodes.length,
+                itemBuilder: (context, index) {
+                  final episode = detail.episodes[index];
+                  return _PodcastEpisodeRow(
+                    episode: episode,
+                    isLoading: loadingItemId == episode.id,
+                    onTap: onTap(episode),
+                  );
+                },
+              ),
+            ),
+          if (isLoadingMore)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PodcastEpisodeRow extends StatelessWidget {
+  const _PodcastEpisodeRow({
+    required this.episode,
+    required this.isLoading,
+    required this.onTap,
+  });
+
+  final YouTubeFeedItem episode;
+  final bool isLoading;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: Key('youtube-podcast-episode-${episode.id}'),
+        onTap: onTap,
+        child: Stack(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: SizedBox(
+                      width: 96,
+                      height: 56,
+                      child: ArtworkImage(
+                        assetPath: episode.thumbnailUrl ?? '',
+                        semanticLabel: l10n.artwork(episode.title),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          episode.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        if (episode.subtitle case final subtitle?
+                            when subtitle.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                        if (episode.description case final description?
+                            when description.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 2),
+                          Text(
+                            description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: OtohaColors.mutedText),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (episode.durationSeconds > 0) ...<Widget>[
+                    const SizedBox(width: 16),
+                    Text(
+                      _formatFeedDuration(episode.durationSeconds),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (isLoading)
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x99000000),
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _FeedSkeleton extends StatelessWidget {
   const _FeedSkeleton();
 
@@ -1472,20 +1848,26 @@ Track _asSimulatedYouTubeTrack(
   String? artworkFallback,
   String? albumFallback,
   List<String> artistFallback = const <String>[],
+  String? subtitleFallback,
+  String? itemTypeFallback,
 }) {
+  final artists = track.artists.isNotEmpty
+      ? track.artists
+      : artistFallback.isNotEmpty
+      ? artistFallback
+      : subtitleFallback == null
+      ? const <String>[]
+      : <String>[subtitleFallback];
   return Track(
     id: 'youtube:${track.videoId}',
     title: track.title,
-    artist: track.artists.isNotEmpty
-        ? track.artists.join(', ')
-        : artistFallback.isNotEmpty
-        ? artistFallback.join(', ')
-        : 'YouTube Music',
+    artist: artists.isEmpty ? 'YouTube Music' : artists.join(', '),
     album: track.album ?? albumFallback ?? 'YouTube Music',
     artworkAsset: _detailArtwork(track.thumbnailUrl, artworkFallback),
     durationSeconds: track.durationSeconds,
     lyrics: const <String>[],
     youtubeVideoId: track.videoId,
+    videoAvailable: track.isVideo || itemTypeFallback == 'video',
   );
 }
 
@@ -1496,6 +1878,7 @@ String _typeLabel(String type, AppLocalizations l10n) {
     'category' => l10n.moodAndGenre,
     'episode' => l10n.episode,
     'playlist' => l10n.playlist,
+    'podcast' => l10n.podcast,
     'song' => l10n.song,
     'video' => l10n.musicVideo,
     _ => l10n.youtubeMusic,
