@@ -50,7 +50,7 @@ printf '%s\n' \
   'Priority: optional' \
   'Architecture: amd64' \
   'Maintainer: Ingstar' \
-  'Depends: libayatana-appindicator3-1, libgtk-3-0, libsecret-1-0' \
+  'Depends: libayatana-appindicator3-1, libgtk-3-0, libmpv2, libsecret-1-0' \
   'Description: Otoha desktop music player' \
   > "$stage_directory/DEBIAN/control"
 dpkg-deb --root-owner-group --build \

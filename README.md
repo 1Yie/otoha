@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/1Yie/otoha/actions/workflows/ci-and-release.yml"><img src="https://github.com/1Yie/otoha/actions/workflows/ci-and-release.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/1Yie/otoha/actions/workflows/release.yml"><img src="https://github.com/1Yie/otoha/actions/workflows/release.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1Yie/otoha" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Flutter-desktop-02569B?logo=flutter" alt="Flutter desktop">
 <img src="https://img.shields.io/badge/Node.js-24%2B-339933?logo=node.js&logoColor=white" alt="Node.js 24 or newer">
@@ -50,9 +50,9 @@ Tagged releases bundle the production sidecar and a Node.js runtime, so end user
 
 - Flutter stable with Dart `^3.12.2`
 - Node.js 24 or newer and npm for source builds
-- Linux credential storage development files:
-  - Debian or Ubuntu: `libsecret-1-dev`
-  - Fedora: `libsecret-devel`
+- Linux media playback and credential storage development files:
+  - Debian or Ubuntu: `libmpv-dev` and `libsecret-1-dev`
+  - Fedora: `mpv-devel` and `libsecret-devel`
 
 Platform-specific Flutter desktop build dependencies are also required. See the [Flutter desktop documentation](https://docs.flutter.dev/platform-integration/desktop) for the current toolchain requirements.
 
