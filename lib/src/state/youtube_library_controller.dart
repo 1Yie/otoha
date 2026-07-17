@@ -19,6 +19,8 @@ enum YouTubeLibraryError {
 }
 
 class YouTubeLibraryController extends ChangeNotifier {
+  static const _mediaLibraryCacheKey = 'library.media.v4';
+
   YouTubeLibraryController({
     required YouTubeSidecarClient client,
     required CredentialStore credentialStore,
@@ -56,6 +58,10 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   YouTubeAccountStatus _status = YouTubeAccountStatus.signedOut;
   List<YouTubePlaylist> _playlists = const <YouTubePlaylist>[];
+  List<YouTubePlaylist> _savedCollections = const <YouTubePlaylist>[];
+  List<YouTubeFeedItem> _podcasts = const <YouTubeFeedItem>[];
+  List<YouTubeFeedItem> _albums = const <YouTubeFeedItem>[];
+  List<YouTubeFeedItem> _followedArtists = const <YouTubeFeedItem>[];
   List<YouTubeTrack> _historyTracks = const <YouTubeTrack>[];
   YouTubePlaylistDetail? _selectedPlaylist;
   YouTubeFeedCollectionDetail? _selectedFeedCollection;
@@ -71,6 +77,9 @@ class YouTubeLibraryController extends ChangeNotifier {
   List<YouTubeLyricLine> _lyricsLines = const <YouTubeLyricLine>[];
   List<YouTubeComment> _comments = const <YouTubeComment>[];
   final Map<String, YouTubeRating> _ratings = <String, YouTubeRating>{};
+  final Set<String> _followingArtistIds = <String>{};
+  final Set<String> _savedEpisodeVideoIds = <String>{};
+  final Set<String> _podcastEpisodeVideoIds = <String>{};
   String? _lyricsVideoId;
   String? _commentsVideoId;
   bool _hasLoadedLyrics = false;
@@ -80,13 +89,18 @@ class YouTubeLibraryController extends ChangeNotifier {
   YouTubeLibraryError? _exploreErrorMessage;
   YouTubeLibraryError? _feedActionErrorMessage;
   String? _loadingFeedItemId;
+  String? _loadingPlaylistId;
   bool _isLoadingLibrary = false;
   bool _isLoadingHistory = false;
+  bool _isLoadingMoreHistory = false;
   bool _hasLoadedHistory = false;
+  bool _hasMoreHistory = false;
   bool _isLoadingPlaylist = false;
+  bool _isLoadingMorePlaylist = false;
   bool _isLoadingHome = false;
   bool _isLoadingMoreHome = false;
   bool _hasMoreHome = false;
+  bool _isHomeContinuationHydrated = false;
   bool _isLoadingExplore = false;
   bool _isLoadingMoreExplore = false;
   bool _hasMoreExplore = false;
@@ -97,10 +111,15 @@ class YouTubeLibraryController extends ChangeNotifier {
   int _searchRequest = 0;
   int _lyricsRequest = 0;
   String _searchQuery = '';
+  YouTubeMusicSearchFilter _searchFilter = YouTubeMusicSearchFilter.all;
   YouTubeLibraryError? _searchErrorMessage;
   String? _profileName;
   String? _profileAvatarUrl;
   String? _ratingVideoId;
+  String? _followingArtistId;
+  String? _savedEpisodeVideoId;
+  String? _podcastLibraryWriteId;
+  String? _albumLibraryWriteId;
   YouTubeLibraryError? _commentErrorMessage;
   String? _errorDiagnostic;
   bool _isLoadingComments = false;
@@ -111,6 +130,10 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   YouTubeAccountStatus get status => _status;
   List<YouTubePlaylist> get playlists => _playlists;
+  List<YouTubePlaylist> get savedCollections => _savedCollections;
+  List<YouTubeFeedItem> get podcasts => _podcasts;
+  List<YouTubeFeedItem> get albums => _albums;
+  List<YouTubeFeedItem> get followedArtists => _followedArtists;
   List<YouTubeTrack> get historyTracks => _historyTracks;
   YouTubePlaylistDetail? get selectedPlaylist => _selectedPlaylist;
   YouTubeFeedCollectionDetail? get selectedFeedCollection =>
@@ -134,10 +157,14 @@ class YouTubeLibraryController extends ChangeNotifier {
   YouTubeLibraryError? get exploreErrorMessage => _exploreErrorMessage;
   YouTubeLibraryError? get feedActionErrorMessage => _feedActionErrorMessage;
   String? get loadingFeedItemId => _loadingFeedItemId;
+  String? get loadingPlaylistId => _loadingPlaylistId;
   bool get isLoadingLibrary => _isLoadingLibrary;
   bool get isLoadingHistory => _isLoadingHistory;
+  bool get isLoadingMoreHistory => _isLoadingMoreHistory;
   bool get hasLoadedHistory => _hasLoadedHistory;
+  bool get hasMoreHistory => _hasMoreHistory;
   bool get isLoadingPlaylist => _isLoadingPlaylist;
+  bool get isLoadingMorePlaylist => _isLoadingMorePlaylist;
   bool get isLoadingHome => _isLoadingHome;
   bool get isLoadingMoreHome => _isLoadingMoreHome;
   bool get hasMoreHome => _hasMoreHome;
@@ -151,9 +178,14 @@ class YouTubeLibraryController extends ChangeNotifier {
   bool get isLoadingComments => _isLoadingComments;
   bool get isPostingComment => _isPostingComment;
   bool get isRating => _ratingVideoId != null;
+  String? get followingArtistId => _followingArtistId;
+  String? get savedEpisodeVideoId => _savedEpisodeVideoId;
+  String? get podcastLibraryWriteId => _podcastLibraryWriteId;
+  String? get albumLibraryWriteId => _albumLibraryWriteId;
   bool get isAccountWriteCoolingDown =>
       _accountWriteCooldownUntil?.isAfter(DateTime.now()) ?? false;
   String get searchQuery => _searchQuery;
+  YouTubeMusicSearchFilter get searchFilter => _searchFilter;
   YouTubeLibraryError? get searchErrorMessage => _searchErrorMessage;
   YouTubeLibraryError? get commentErrorMessage => _commentErrorMessage;
   String? get errorDiagnostic => _errorDiagnostic;
@@ -164,6 +196,21 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   YouTubeRating ratingFor(String videoId) =>
       _ratings[videoId] ?? YouTubeRating.none;
+
+  bool isFollowingArtist(String channelId) =>
+      _followingArtistIds.contains(channelId);
+
+  bool isSavedEpisode(String videoId) =>
+      _savedEpisodeVideoIds.contains(videoId);
+
+  bool isPodcastEpisode(String videoId) =>
+      _podcastEpisodeVideoIds.contains(videoId);
+
+  bool isPodcastSaved(String podcastId) =>
+      _podcasts.any((podcast) => podcast.id == podcastId);
+
+  bool isAlbumSaved(String albumId) =>
+      _albums.any((album) => album.id == albumId);
 
   Future<void> initialize() async {
     _status = YouTubeAccountStatus.restoring;
@@ -239,6 +286,10 @@ class YouTubeLibraryController extends ChangeNotifier {
     await _metadataCache?.clear();
     _status = YouTubeAccountStatus.signedOut;
     _playlists = const <YouTubePlaylist>[];
+    _savedCollections = const <YouTubePlaylist>[];
+    _podcasts = const <YouTubeFeedItem>[];
+    _albums = const <YouTubeFeedItem>[];
+    _followedArtists = const <YouTubeFeedItem>[];
     _historyTracks = const <YouTubeTrack>[];
     _selectedPlaylist = null;
     _selectedFeedCollection = null;
@@ -249,6 +300,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     _selectedHomeFilter = null;
     _isLoadingMoreHome = false;
     _hasMoreHome = false;
+    _isHomeContinuationHydrated = false;
     _exploreSections = const <YouTubeFeedSection>[];
     _exploreCategories = const <YouTubeFeedItem>[];
     _selectedExploreCategoryId = null;
@@ -259,14 +311,21 @@ class YouTubeLibraryController extends ChangeNotifier {
     _lyricsLines = const <YouTubeLyricLine>[];
     _comments = const <YouTubeComment>[];
     _ratings.clear();
+    _followingArtistIds.clear();
+    _savedEpisodeVideoIds.clear();
+    _podcastEpisodeVideoIds.clear();
     _lyricsVideoId = null;
     _commentsVideoId = null;
     _hasLoadedLyrics = false;
     _searchQuery = '';
+    _searchFilter = YouTubeMusicSearchFilter.all;
     _searchErrorMessage = null;
     _isSearching = false;
     _isLoadingHistory = false;
+    _isLoadingMoreHistory = false;
     _hasLoadedHistory = false;
+    _hasMoreHistory = false;
+    _isLoadingMorePlaylist = false;
     _isLoadingLyrics = false;
     _isLoadingComments = false;
     _isPostingComment = false;
@@ -283,6 +342,10 @@ class YouTubeLibraryController extends ChangeNotifier {
     _profileName = null;
     _profileAvatarUrl = null;
     _ratingVideoId = null;
+    _followingArtistId = null;
+    _savedEpisodeVideoId = null;
+    _podcastLibraryWriteId = null;
+    _albumLibraryWriteId = null;
     _commentErrorMessage = null;
     _errorDiagnostic = null;
     notifyListeners();
@@ -306,8 +369,16 @@ class YouTubeLibraryController extends ChangeNotifier {
       _selectedFeedCollection = null;
       _selectedFeedBrowse = null;
       _selectedPodcastShow = null;
+      _savedCollections = const <YouTubePlaylist>[];
+      _podcasts = const <YouTubeFeedItem>[];
+      _albums = const <YouTubeFeedItem>[];
+      _followedArtists = const <YouTubeFeedItem>[];
+      _followingArtistIds.clear();
+      _savedEpisodeVideoIds.clear();
+      _podcastEpisodeVideoIds.clear();
       _historyTracks = const <YouTubeTrack>[];
       _hasLoadedHistory = false;
+      _hasMoreHistory = false;
       _homeSections = const <YouTubeFeedSection>[];
       _homeFilters = const <String>[];
       _selectedHomeFilter = null;
@@ -315,8 +386,11 @@ class YouTubeLibraryController extends ChangeNotifier {
       _exploreCategories = const <YouTubeFeedItem>[];
       _selectedExploreCategoryId = null;
       _hasMoreHome = false;
+      _isHomeContinuationHydrated = false;
       _hasMoreExplore = false;
       _isLoadingMorePodcast = false;
+      _isLoadingMoreHistory = false;
+      _isLoadingMorePlaylist = false;
       notifyListeners();
       await _syncAccountData();
     } on Object {
@@ -325,7 +399,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     }
   }
 
-  Future<void> loadPlaylists() async {
+  Future<void> loadMediaLibrary({bool forceRefresh = false}) async {
     if (!isSignedIn || _isLoadingLibrary) {
       return;
     }
@@ -333,17 +407,19 @@ class YouTubeLibraryController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      final cached = await _metadataCache?.read('library.playlists');
+      final cached = forceRefresh
+          ? null
+          : await _metadataCache?.read(_mediaLibraryCacheKey);
       if (cached != null) {
-        _applyPlaylists(cached.data);
+        _applyMediaLibrary(cached.data);
         notifyListeners();
         if (cached.isFresh(const Duration(minutes: 10))) {
           return;
         }
       }
-      final result = await _client.call('library.playlists');
-      _applyPlaylists(result);
-      await _metadataCache?.write('library.playlists', result);
+      final result = await _client.call('library.media');
+      _applyMediaLibrary(result);
+      await _metadataCache?.write(_mediaLibraryCacheKey, result);
     } on Object catch (error) {
       _setError(error, preserveSignedIn: true);
     } finally {
@@ -355,6 +431,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   Future<void> loadHistory({bool forceRefresh = false}) async {
     if (!isSignedIn ||
         _isLoadingHistory ||
+        _isLoadingMoreHistory ||
         (_hasLoadedHistory && !forceRefresh)) {
       return;
     }
@@ -363,14 +440,9 @@ class YouTubeLibraryController extends ChangeNotifier {
     notifyListeners();
     try {
       final result = await _client.call('history.get');
-      _historyTracks = (result['tracks']! as List<Object?>)
-          .map(
-            (track) => YouTubeTrack.fromJson(
-              (track! as Map<Object?, Object?>).cast<String, Object?>(),
-            ),
-          )
-          .toList(growable: false);
+      _historyTracks = _decodeTracks(result);
       _hasLoadedHistory = true;
+      _hasMoreHistory = result['hasMore'] as bool? ?? false;
     } on Object catch (error) {
       _historyErrorMessage = _requestErrorFor(error);
     } finally {
@@ -379,29 +451,103 @@ class YouTubeLibraryController extends ChangeNotifier {
     }
   }
 
+  Future<void> loadMoreHistory() async {
+    if (!isSignedIn ||
+        !_hasMoreHistory ||
+        _isLoadingHistory ||
+        _isLoadingMoreHistory) {
+      return;
+    }
+    _isLoadingMoreHistory = true;
+    _historyErrorMessage = null;
+    notifyListeners();
+    try {
+      final result = await _client.call('history.more');
+      final byVideoId = <String, YouTubeTrack>{
+        for (final track in _historyTracks) track.videoId: track,
+        for (final track in _decodeTracks(result)) track.videoId: track,
+      };
+      _historyTracks = List<YouTubeTrack>.unmodifiable(byVideoId.values);
+      _hasMoreHistory = result['hasMore'] as bool? ?? false;
+    } on Object catch (error) {
+      _historyErrorMessage = _requestErrorFor(error);
+    } finally {
+      _isLoadingMoreHistory = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> openPlaylist(YouTubePlaylist playlist) async {
+    if (!isSignedIn || _isLoadingPlaylist) {
+      return;
+    }
     _isLoadingPlaylist = true;
+    _loadingPlaylistId = playlist.id;
     _errorMessage = null;
     notifyListeners();
     try {
-      final key = 'library.playlist:${playlist.id}';
-      final cached = await _metadataCache?.read(key);
-      if (cached != null) {
-        _selectedPlaylist = YouTubePlaylistDetail.fromJson(cached.data);
-        notifyListeners();
-        if (cached.isFresh(const Duration(hours: 1))) {
-          return;
-        }
-      }
-      final result = await _client.call('library.playlist', <String, Object?>{
-        'playlistId': playlist.id,
-      });
+      final result = await _client.call(
+        playlist.specialKind == null ? 'library.playlist' : 'library.special',
+        playlist.specialKind == null
+            ? <String, Object?>{'playlistId': playlist.id}
+            : <String, Object?>{'kind': playlist.specialKind},
+      );
       _selectedPlaylist = YouTubePlaylistDetail.fromJson(result);
-      await _metadataCache?.write(key, result);
+      _podcastEpisodeVideoIds.addAll(
+        _selectedPlaylist!.tracks
+            .where((track) => _isPodcastEpisodeItemType(track.itemType))
+            .map((track) => track.videoId),
+      );
+      if (_isSavedEpisodesPlaylist(_selectedPlaylist!.playlist)) {
+        _savedEpisodeVideoIds
+          ..clear()
+          ..addAll(_selectedPlaylist!.tracks.map((track) => track.videoId));
+      }
     } on Object catch (error) {
       _setError(error, preserveSignedIn: true);
     } finally {
       _isLoadingPlaylist = false;
+      _loadingPlaylistId = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMorePlaylist() async {
+    final detail = _selectedPlaylist;
+    if (detail == null ||
+        !detail.hasMore ||
+        _isLoadingPlaylist ||
+        _isLoadingMorePlaylist) {
+      return;
+    }
+    _isLoadingMorePlaylist = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final playlist = detail.playlist;
+      final result = await _client.call(
+        playlist.specialKind == null
+            ? 'library.playlist.more'
+            : 'library.special.more',
+        playlist.specialKind == null
+            ? <String, Object?>{'playlistId': playlist.id}
+            : <String, Object?>{'kind': playlist.specialKind},
+      );
+      if (_selectedPlaylist?.playlist.id != playlist.id) {
+        return;
+      }
+      final byVideoId = <String, YouTubeTrack>{
+        for (final track in detail.tracks) track.videoId: track,
+        for (final track in _decodeTracks(result)) track.videoId: track,
+      };
+      _selectedPlaylist = detail.copyWith(
+        tracks: List<YouTubeTrack>.unmodifiable(byVideoId.values),
+        hasMore: result['hasMore'] as bool? ?? false,
+      );
+    } on Object catch (error) {
+      _setError(error, preserveSignedIn: true);
+    } finally {
+      _isLoadingMorePlaylist = false;
       notifyListeners();
     }
   }
@@ -411,6 +557,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       return;
     }
     _isLoadingHome = true;
+    _isHomeContinuationHydrated = false;
     _homeErrorMessage = null;
     notifyListeners();
     try {
@@ -419,9 +566,10 @@ class YouTubeLibraryController extends ChangeNotifier {
           : await _metadataCache?.read('feed.home.v2');
       if (cached != null) {
         _applyHomeResult(cached.data);
-        _hasMoreHome = false;
+        _hasMoreHome = cached.data['hasMore'] == true;
         notifyListeners();
-        if (_homeFilters.isNotEmpty &&
+        if (!_hasMoreHome &&
+            _homeFilters.isNotEmpty &&
             cached.isFresh(const Duration(minutes: 10))) {
           return;
         }
@@ -429,22 +577,27 @@ class YouTubeLibraryController extends ChangeNotifier {
       final result = await _client.call('feed.home');
       _applyHomeResult(result);
       _hasMoreHome = result['hasMore'] == true;
+      _isHomeContinuationHydrated = true;
       await _metadataCache?.write('feed.home.v2', result);
     } on Object catch (error) {
       _homeErrorMessage = _requestErrorFor(error);
       _hasMoreHome = false;
+      _isHomeContinuationHydrated = false;
     } finally {
       _isLoadingHome = false;
       notifyListeners();
     }
   }
 
-  Future<void> selectHomeFilter(String filter) async {
+  Future<void> selectHomeFilter(
+    String filter, {
+    bool forceRefresh = false,
+  }) async {
     final value = filter.trim();
     if (!isSignedIn ||
         _isLoadingHome ||
         !_homeFilters.contains(value) ||
-        _selectedHomeFilter == value) {
+        (_selectedHomeFilter == value && !forceRefresh)) {
       return;
     }
     final previousFilter = _selectedHomeFilter;
@@ -458,10 +611,12 @@ class YouTubeLibraryController extends ChangeNotifier {
       });
       _applyHomeResult(result);
       _hasMoreHome = result['hasMore'] == true;
+      _isHomeContinuationHydrated = true;
     } on Object catch (error) {
       _selectedHomeFilter = previousFilter;
       _homeErrorMessage = _requestErrorFor(error);
       _hasMoreHome = false;
+      _isHomeContinuationHydrated = false;
     } finally {
       _isLoadingHome = false;
       notifyListeners();
@@ -469,7 +624,11 @@ class YouTubeLibraryController extends ChangeNotifier {
   }
 
   Future<void> loadMoreHome() async {
-    if (!isSignedIn || !_hasMoreHome || _isLoadingHome || _isLoadingMoreHome) {
+    if (!isSignedIn ||
+        !_hasMoreHome ||
+        !_isHomeContinuationHydrated ||
+        _isLoadingHome ||
+        _isLoadingMoreHome) {
       return;
     }
     _isLoadingMoreHome = true;
@@ -501,7 +660,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     try {
       final cached = forceRefresh
           ? null
-          : await _metadataCache?.read('feed.explore.v2');
+          : await _metadataCache?.read('feed.explore.v4');
       if (cached != null) {
         _applyExploreSections(_decodeFeedSections(cached.data));
         notifyListeners();
@@ -512,7 +671,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       final result = await _client.call('feed.explore');
       _applyExploreSections(_decodeFeedSections(result));
       _hasMoreExplore = result['hasMore'] == true;
-      await _metadataCache?.write('feed.explore.v2', result);
+      await _metadataCache?.write('feed.explore.v4', result);
     } on Object catch (error) {
       _exploreErrorMessage = _requestErrorFor(error);
       _hasMoreExplore = false;
@@ -547,11 +706,20 @@ class YouTubeLibraryController extends ChangeNotifier {
     }
   }
 
-  Future<void> searchMusic(String query) async {
+  Future<void> searchMusic(
+    String query, {
+    YouTubeMusicSearchFilter filter = YouTubeMusicSearchFilter.all,
+  }) async {
     final normalizedQuery = query.trim();
     final request = ++_searchRequest;
+    final identityChanged =
+        normalizedQuery != _searchQuery || filter != _searchFilter;
     _searchQuery = normalizedQuery;
+    _searchFilter = filter;
     _searchErrorMessage = null;
+    if (identityChanged) {
+      _searchResults = const <YouTubeFeedItem>[];
+    }
     if (!isSignedIn || normalizedQuery.isEmpty) {
       _searchResults = const <YouTubeFeedItem>[];
       _isSearching = false;
@@ -563,6 +731,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     try {
       final result = await _client.call('search.music', <String, Object?>{
         'query': normalizedQuery,
+        'filter': filter.protocolValue,
       });
       if (request != _searchRequest) {
         return;
@@ -635,11 +804,12 @@ class YouTubeLibraryController extends ChangeNotifier {
     if (tracks.isEmpty) {
       return tracks;
     }
-    if (tracks.length == 1) {
+    if (tracks.length == 1 && item.itemType != 'album') {
       return tracks;
     }
     _selectedFeedCollection = YouTubeFeedCollectionDetail(
       source: source,
+      id: item.itemType == 'album' ? item.id : item.browseIdentity,
       title: item.title,
       itemType: item.itemType,
       tracks: tracks,
@@ -651,6 +821,9 @@ class YouTubeLibraryController extends ChangeNotifier {
   }
 
   Future<YouTubeTrack> resolveFeedTrack(YouTubeFeedItem item) async {
+    if (_isPodcastEpisodeItemType(item.itemType) && item.videoId != null) {
+      _podcastEpisodeVideoIds.add(item.videoId!);
+    }
     final fallback = YouTubeTrack(
       videoId: item.videoId!,
       title: item.title,
@@ -818,6 +991,234 @@ class YouTubeLibraryController extends ChangeNotifier {
     }
   }
 
+  Future<void> toggleArtistFollow(String channelId) async {
+    if (!isSignedIn ||
+        channelId.isEmpty ||
+        _followingArtistId != null ||
+        isAccountWriteCoolingDown) {
+      return;
+    }
+    final shouldFollow = !_followingArtistIds.contains(channelId);
+    _followingArtistId = channelId;
+    _beginAccountWriteCooldown();
+    _feedActionErrorMessage = null;
+    notifyListeners();
+    try {
+      final result = await _client.call(
+        'interaction.subscription',
+        <String, Object?>{'channelId': channelId, 'subscribed': shouldFollow},
+      );
+      final resolvedChannelId =
+          _nonEmptyString(result['channelId']) ?? channelId;
+      final isSubscribed = result['subscribed'] is bool
+          ? result['subscribed']! as bool
+          : shouldFollow;
+      _followingArtistIds.remove(channelId);
+      if (isSubscribed) {
+        _followingArtistIds.add(resolvedChannelId);
+      } else {
+        _followingArtistIds.remove(resolvedChannelId);
+      }
+    } on Object {
+      _feedActionErrorMessage = YouTubeLibraryError.actionFailed;
+    } finally {
+      _followingArtistId = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleSavedEpisode(
+    String videoId, {
+    required String title,
+    required String artist,
+    required String album,
+    required String artworkUrl,
+    required int durationSeconds,
+  }) async {
+    if (!isSignedIn ||
+        videoId.isEmpty ||
+        !isPodcastEpisode(videoId) ||
+        _savedEpisodeVideoId != null ||
+        isAccountWriteCoolingDown) {
+      return;
+    }
+    final shouldSave = !_savedEpisodeVideoIds.contains(videoId);
+    _savedEpisodeVideoId = videoId;
+    _beginAccountWriteCooldown();
+    _feedActionErrorMessage = null;
+    notifyListeners();
+    try {
+      await _client.call('podcast.episode_later.set', <String, Object?>{
+        'videoId': videoId,
+        'saved': shouldSave,
+      });
+      if (shouldSave) {
+        _savedEpisodeVideoIds.add(videoId);
+      } else {
+        _savedEpisodeVideoIds.remove(videoId);
+      }
+      _updateOpenSavedEpisodes(
+        videoId,
+        shouldSave,
+        title: title,
+        artist: artist,
+        album: album,
+        artworkUrl: artworkUrl,
+        durationSeconds: durationSeconds,
+      );
+      await loadMediaLibrary(forceRefresh: true);
+    } on Object {
+      _feedActionErrorMessage = YouTubeLibraryError.actionFailed;
+    } finally {
+      _savedEpisodeVideoId = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> togglePodcastLibrary(YouTubePodcastShowDetail detail) async {
+    if (!isSignedIn ||
+        detail.id.isEmpty ||
+        _podcastLibraryWriteId != null ||
+        isAccountWriteCoolingDown) {
+      return;
+    }
+    final shouldSave = !isPodcastSaved(detail.id);
+    _podcastLibraryWriteId = detail.id;
+    _beginAccountWriteCooldown();
+    _feedActionErrorMessage = null;
+    notifyListeners();
+    try {
+      await _client.call('podcast.library.set', <String, Object?>{
+        'podcastId': detail.libraryId,
+        'saved': shouldSave,
+      });
+      await loadMediaLibrary(forceRefresh: true);
+      _setPodcastSaved(detail, shouldSave);
+    } on Object {
+      _feedActionErrorMessage = YouTubeLibraryError.actionFailed;
+    } finally {
+      _podcastLibraryWriteId = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleAlbumLibrary(YouTubeFeedCollectionDetail detail) async {
+    if (!isSignedIn ||
+        detail.itemType != 'album' ||
+        detail.id.isEmpty ||
+        _albumLibraryWriteId != null ||
+        isAccountWriteCoolingDown) {
+      return;
+    }
+    final wasSaved = isAlbumSaved(detail.id);
+    final shouldSave = !wasSaved;
+    _albumLibraryWriteId = detail.id;
+    _beginAccountWriteCooldown();
+    _feedActionErrorMessage = null;
+    _setAlbumSaved(detail, shouldSave);
+    notifyListeners();
+    bool? confirmedSaved;
+    try {
+      final result = await _client.call('album.library.set', <String, Object?>{
+        'albumId': detail.id,
+        'saved': shouldSave,
+      });
+      confirmedSaved = result['saved'] is bool
+          ? result['saved']! as bool
+          : shouldSave;
+      _setAlbumSaved(detail, confirmedSaved);
+    } on Object {
+      _setAlbumSaved(detail, wasSaved);
+      _feedActionErrorMessage = YouTubeLibraryError.actionFailed;
+    } finally {
+      _albumLibraryWriteId = null;
+      notifyListeners();
+    }
+    if (confirmedSaved == null) {
+      return;
+    }
+    await loadMediaLibrary(forceRefresh: true);
+    _setAlbumSaved(detail, confirmedSaved);
+    notifyListeners();
+  }
+
+  void _setAlbumSaved(YouTubeFeedCollectionDetail detail, bool saved) {
+    final remaining = _albums
+        .where((album) => album.id != detail.id)
+        .toList(growable: false);
+    _albums = List<YouTubeFeedItem>.unmodifiable(<YouTubeFeedItem>[
+      if (saved)
+        YouTubeFeedItem(
+          id: detail.id,
+          itemType: 'album',
+          title: detail.title,
+          subtitle: detail.artists.join(', '),
+          artists: detail.artists,
+          durationSeconds: 0,
+          thumbnailUrl: detail.thumbnailUrl,
+        ),
+      ...remaining,
+    ]);
+  }
+
+  void _setPodcastSaved(YouTubePodcastShowDetail detail, bool saved) {
+    final remaining = _podcasts
+        .where((podcast) => podcast.id != detail.id)
+        .toList(growable: false);
+    _podcasts = List<YouTubeFeedItem>.unmodifiable(<YouTubeFeedItem>[
+      if (saved)
+        YouTubeFeedItem(
+          id: detail.id,
+          itemType: 'podcast',
+          title: detail.title,
+          subtitle: detail.subtitle,
+          description: detail.description,
+          artists: const <String>[],
+          durationSeconds: 0,
+          thumbnailUrl: detail.thumbnailUrl,
+        ),
+      ...remaining,
+    ]);
+  }
+
+  void _updateOpenSavedEpisodes(
+    String videoId,
+    bool shouldSave, {
+    required String title,
+    required String artist,
+    required String album,
+    required String artworkUrl,
+    required int durationSeconds,
+  }) {
+    final detail = _selectedPlaylist;
+    if (!_isSavedEpisodesPlaylist(detail?.playlist)) {
+      return;
+    }
+    final tracks = <YouTubeTrack>[...detail!.tracks];
+    if (shouldSave) {
+      if (tracks.any((track) => track.videoId == videoId)) {
+        return;
+      }
+      tracks.insert(
+        0,
+        YouTubeTrack(
+          videoId: videoId,
+          title: title,
+          artists: artist.isEmpty ? const <String>[] : <String>[artist],
+          durationSeconds: durationSeconds,
+          itemType: 'non_music_track',
+          album: album.isEmpty ? null : album,
+          thumbnailUrl: artworkUrl.isEmpty ? null : artworkUrl,
+        ),
+      );
+    } else {
+      tracks.removeWhere((track) => track.videoId == videoId);
+    }
+    _selectedPlaylist = detail.copyWith(
+      tracks: List<YouTubeTrack>.unmodifiable(tracks),
+    );
+  }
+
   Future<void> loadComments(String videoId, {bool force = false}) async {
     if (!isSignedIn || videoId.isEmpty || _isLoadingComments) {
       return;
@@ -920,10 +1321,33 @@ class YouTubeLibraryController extends ChangeNotifier {
         _selectedExploreCategoryId = item.browseIdentity;
       } else {
         final sections = _decodeFeedSections(result);
+        final artist = result['artist'] is Map<Object?, Object?>
+            ? (result['artist']! as Map<Object?, Object?>)
+                  .cast<String, Object?>()
+            : null;
+        final channelId =
+            _nonEmptyString(artist?['channelId']) ??
+            (item.itemType == 'artist' ? item.id : null);
+        final isSubscribed = artist?['subscribed'];
+        if (channelId != null && isSubscribed is bool) {
+          if (isSubscribed) {
+            _followingArtistIds.add(channelId);
+          } else {
+            _followingArtistIds.remove(channelId);
+          }
+        }
         _selectedPodcastShow = null;
         _selectedFeedBrowse = YouTubeFeedBrowseDetail(
           source: source,
-          title: item.title,
+          id: item.browseIdentity,
+          itemType: item.itemType,
+          title: _nonEmptyString(artist?['title']) ?? item.title,
+          subtitle: _nonEmptyString(artist?['subtitle']) ?? item.subtitle,
+          audience: _nonEmptyString(artist?['audience']),
+          thumbnailUrl:
+              _nonEmptyString(artist?['thumbnailUrl']) ?? item.thumbnailUrl,
+          channelId: channelId,
+          subscriberCount: _nonEmptyString(artist?['subscriberCount']),
           sections: sections,
         );
       }
@@ -993,6 +1417,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       return;
     }
     _selectedPlaylist = null;
+    _isLoadingMorePlaylist = false;
     notifyListeners();
   }
 
@@ -1081,7 +1506,7 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   Future<void> _syncAccountData() async {
     await Future.wait(<Future<void>>[
-      loadPlaylists(),
+      loadMediaLibrary(),
       loadHome(),
       loadExplore(),
     ]);
@@ -1089,6 +1514,22 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   static String _normalizeLocale(String locale) =>
       locale.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
+
+  static String? _nonEmptyString(Object? value) {
+    if (value is! String) {
+      return null;
+    }
+    final normalized = value.trim();
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  static bool _isSavedEpisodesPlaylist(YouTubePlaylist? playlist) {
+    return playlist?.id == 'SE';
+  }
+
+  static bool _isPodcastEpisodeItemType(String itemType) {
+    return itemType == 'episode' || itemType == 'non_music_track';
+  }
 
   List<YouTubeFeedSection> _decodeFeedSections(Map<String, Object?> result) {
     return (result['sections']! as List<Object?>)
@@ -1100,14 +1541,51 @@ class YouTubeLibraryController extends ChangeNotifier {
         .toList(growable: false);
   }
 
-  void _applyPlaylists(Map<String, Object?> result) {
-    _playlists = (result['playlists']! as List<Object?>)
+  void _applyMediaLibrary(Map<String, Object?> result) {
+    _playlists = _decodePlaylists(result['playlists']);
+    _savedCollections = _decodePlaylists(result['savedCollections']);
+    _podcasts = _decodeFeedItems(result['podcasts']);
+    _albums = _decodeFeedItems(result['albums']);
+    _followedArtists = _decodeFeedItems(result['followedArtists']);
+    _followingArtistIds
+      ..clear()
+      ..addAll(_followedArtists.map((artist) => artist.id));
+  }
+
+  List<YouTubePlaylist> _decodePlaylists(Object? value) {
+    return (value as List<Object?>? ?? const <Object?>[])
         .map(
           (item) => YouTubePlaylist.fromJson(
             (item! as Map<Object?, Object?>).cast<String, Object?>(),
           ),
         )
         .toList(growable: false);
+  }
+
+  List<YouTubeFeedItem> _decodeFeedItems(Object? value) {
+    return (value as List<Object?>? ?? const <Object?>[])
+        .map(
+          (item) => YouTubeFeedItem.fromJson(
+            (item! as Map<Object?, Object?>).cast<String, Object?>(),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  List<YouTubeTrack> _decodeTracks(Map<String, Object?> result) {
+    final tracks = (result['tracks'] as List<Object?>? ?? const <Object?>[])
+        .map(
+          (track) => YouTubeTrack.fromJson(
+            (track! as Map<Object?, Object?>).cast<String, Object?>(),
+          ),
+        )
+        .toList(growable: false);
+    _podcastEpisodeVideoIds.addAll(
+      tracks
+          .where((track) => _isPodcastEpisodeItemType(track.itemType))
+          .map((track) => track.videoId),
+    );
+    return tracks;
   }
 
   void _applyExploreSections(List<YouTubeFeedSection> sections) {
@@ -1148,6 +1626,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       }
       merged[index] = YouTubeFeedSection(
         title: current.title,
+        subtitle: current.subtitle,
         items: items,
         itemsPerColumn: current.itemsPerColumn,
       );
@@ -1182,6 +1661,7 @@ class YouTubeLibraryController extends ChangeNotifier {
               ? null
               : YouTubeFeedSection(
                   title: section.title,
+                  subtitle: section.subtitle,
                   items: items,
                   itemsPerColumn: section.itemsPerColumn,
                 );

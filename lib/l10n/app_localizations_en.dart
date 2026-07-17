@@ -70,7 +70,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get explore => 'Explore';
 
   @override
-  String get library => 'Library';
+  String get library => 'Media library';
 
   @override
   String get history => 'History';
@@ -104,6 +104,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get search => 'Search';
+
+  @override
+  String get all => 'All';
 
   @override
   String get searchYourMusic => 'Search your music';
@@ -186,7 +189,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get signOut => 'Sign out';
 
   @override
-  String get syncLibrary => 'Sync library';
+  String get syncLibrary => 'Sync media library';
 
   @override
   String get fullYouTubeMusicSession => 'Full YouTube Music session';
@@ -200,7 +203,62 @@ class AppLocalizationsEn extends AppLocalizations {
   String get yourLibrary => 'YOUR LIBRARY';
 
   @override
+  String get yourMediaLibrary => 'YOUR MEDIA LIBRARY';
+
+  @override
+  String get mediaLibrary => 'Media library';
+
+  @override
   String get yourPlaylists => 'Your playlists';
+
+  @override
+  String get savedMusic => 'Saved music';
+
+  @override
+  String get podcasts => 'Podcasts';
+
+  @override
+  String get albums => 'Albums';
+
+  @override
+  String get saveToLibrary => 'Save to library';
+
+  @override
+  String get removeFromLibrary => 'Remove from library';
+
+  @override
+  String get savePodcastToLibrary => 'Save to library';
+
+  @override
+  String get removePodcastFromLibrary => 'Remove from library';
+
+  @override
+  String get followedArtists => 'Followed artists';
+
+  @override
+  String get follow => 'Follow';
+
+  @override
+  String get following => 'Following';
+
+  @override
+  String monthlyAudience(Object count) {
+    return 'Monthly audience: $count';
+  }
+
+  @override
+  String subscriberCount(Object count) {
+    return 'Subscribers: $count';
+  }
+
+  @override
+  String get saveEpisodeForLater => 'Save episode for later';
+
+  @override
+  String get episodeSavedForLater => 'Episode saved for later';
+
+  @override
+  String get noMediaFound => 'No media found';
 
   @override
   String get noPlaylistsFound => 'No playlists found';
@@ -259,6 +317,20 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String chartRank(int rank) {
+    return 'Rank $rank';
+  }
+
+  @override
+  String get chartTrendUp => 'Trending up';
+
+  @override
+  String get chartTrendDown => 'Trending down';
+
+  @override
+  String get chartTrendNeutral => 'No rank change';
+
+  @override
   String get album => 'Album';
 
   @override
@@ -278,6 +350,34 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noPodcastEpisodes => 'No episodes are available.';
+
+  @override
+  String get comments => 'Comments';
+
+  @override
+  String get noComments => 'No comments yet.';
+
+  @override
+  String get commentsUnavailable =>
+      'Select a signed-in YouTube Music track to view comments.';
+
+  @override
+  String get writeComment => 'Write a comment';
+
+  @override
+  String get postComment => 'Post comment';
+
+  @override
+  String get like => 'Like';
+
+  @override
+  String get removeLike => 'Remove like';
+
+  @override
+  String get dislike => 'Dislike';
+
+  @override
+  String get removeDislike => 'Remove dislike';
 
   @override
   String get song => 'Song';
@@ -390,6 +490,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get about => 'About';
+
+  @override
+  String get licensesAndNotices => 'Licenses and notices';
 
   @override
   String appVersion(String version) {

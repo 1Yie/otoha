@@ -206,4 +206,23 @@ void main() {
     );
     expect(client.recentFailures, hasLength(1));
   });
+
+  test('does not record optional library warnings as failures', () async {
+    final client = YouTubeSidecarClient(
+      executable: 'node',
+      entryPath: File('test/fixtures/sidecar_echo.mjs').absolute.path,
+    );
+    addTearDown(client.dispose);
+    final warning = client.events.firstWhere(
+      (event) => event.name == 'library.section_unavailable',
+    );
+
+    final result = await client.call('partial');
+    final event = await warning;
+
+    expect(result['partial'], isTrue);
+    expect(event.data['method'], 'library.media');
+    expect(event.data['diagnosticStage'], 'library.filter.albums');
+    expect(client.recentFailures, isEmpty);
+  });
 }

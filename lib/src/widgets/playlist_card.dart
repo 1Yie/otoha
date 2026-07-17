@@ -11,6 +11,7 @@ class PlaylistCard extends StatelessWidget {
     required this.artworkPath,
     required this.onTap,
     this.cardKey,
+    this.isLoading = false,
     super.key,
   });
 
@@ -19,58 +20,76 @@ class PlaylistCard extends StatelessWidget {
   final String artworkPath;
   final VoidCallback onTap;
   final Key? cardKey;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Material(
-      key: cardKey,
-      color: Colors.transparent,
-      clipBehavior: Clip.antiAlias,
-      borderRadius: BorderRadius.circular(AppMetrics.radius),
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Align(
+      alignment: Alignment.topLeft,
+      child: SizedBox(
+        width: double.infinity,
+        child: Material(
+          key: cardKey,
+          color: Colors.transparent,
+          clipBehavior: Clip.antiAlias,
+          borderRadius: BorderRadius.circular(AppMetrics.radius),
+          child: Stack(
             children: <Widget>[
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppMetrics.radius),
-                  child: SizedBox.expand(
-                    child: ArtworkImage(
-                      assetPath: artworkPath,
-                      semanticLabel: l10n.artwork(title),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  AspectRatio(
+                    aspectRatio: 1,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppMetrics.radius),
+                      child: SizedBox.expand(
+                        child: ArtworkImage(
+                          assetPath: artworkPath,
+                          semanticLabel: l10n.artwork(title),
+                        ),
+                      ),
                     ),
+                  ),
+                  const SizedBox(height: AppMetrics.unit),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  if (subtitle.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+              if (isLoading)
+                const Positioned.fill(
+                  key: Key('playlist-card-loading-overlay'),
+                  child: ColoredBox(
+                    color: Color(0x99000000),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              Positioned.fill(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(AppMetrics.radius),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
             ],
           ),
-          Positioned.fill(
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(AppMetrics.radius),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

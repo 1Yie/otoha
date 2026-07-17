@@ -221,7 +221,7 @@ abstract class AppLocalizations {
   /// No description provided for @library.
   ///
   /// In en, this message translates to:
-  /// **'Library'**
+  /// **'Media library'**
   String get library;
 
   /// No description provided for @history.
@@ -289,6 +289,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Search'**
   String get search;
+
+  /// No description provided for @all.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get all;
 
   /// No description provided for @searchYourMusic.
   ///
@@ -443,7 +449,7 @@ abstract class AppLocalizations {
   /// No description provided for @syncLibrary.
   ///
   /// In en, this message translates to:
-  /// **'Sync library'**
+  /// **'Sync media library'**
   String get syncLibrary;
 
   /// No description provided for @fullYouTubeMusicSession.
@@ -464,11 +470,113 @@ abstract class AppLocalizations {
   /// **'YOUR LIBRARY'**
   String get yourLibrary;
 
+  /// No description provided for @yourMediaLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'YOUR MEDIA LIBRARY'**
+  String get yourMediaLibrary;
+
+  /// No description provided for @mediaLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Media library'**
+  String get mediaLibrary;
+
   /// No description provided for @yourPlaylists.
   ///
   /// In en, this message translates to:
   /// **'Your playlists'**
   String get yourPlaylists;
+
+  /// No description provided for @savedMusic.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved music'**
+  String get savedMusic;
+
+  /// No description provided for @podcasts.
+  ///
+  /// In en, this message translates to:
+  /// **'Podcasts'**
+  String get podcasts;
+
+  /// No description provided for @albums.
+  ///
+  /// In en, this message translates to:
+  /// **'Albums'**
+  String get albums;
+
+  /// No description provided for @saveToLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to library'**
+  String get saveToLibrary;
+
+  /// No description provided for @removeFromLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from library'**
+  String get removeFromLibrary;
+
+  /// No description provided for @savePodcastToLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to library'**
+  String get savePodcastToLibrary;
+
+  /// No description provided for @removePodcastFromLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from library'**
+  String get removePodcastFromLibrary;
+
+  /// No description provided for @followedArtists.
+  ///
+  /// In en, this message translates to:
+  /// **'Followed artists'**
+  String get followedArtists;
+
+  /// No description provided for @follow.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow'**
+  String get follow;
+
+  /// No description provided for @following.
+  ///
+  /// In en, this message translates to:
+  /// **'Following'**
+  String get following;
+
+  /// No description provided for @monthlyAudience.
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly audience: {count}'**
+  String monthlyAudience(Object count);
+
+  /// No description provided for @subscriberCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscribers: {count}'**
+  String subscriberCount(Object count);
+
+  /// No description provided for @saveEpisodeForLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Save episode for later'**
+  String get saveEpisodeForLater;
+
+  /// No description provided for @episodeSavedForLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Episode saved for later'**
+  String get episodeSavedForLater;
+
+  /// No description provided for @noMediaFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No media found'**
+  String get noMediaFound;
 
   /// No description provided for @noPlaylistsFound.
   ///
@@ -566,6 +674,30 @@ abstract class AppLocalizations {
   /// **'Scroll {section} right'**
   String scrollSectionRight(Object section);
 
+  /// No description provided for @chartRank.
+  ///
+  /// In en, this message translates to:
+  /// **'Rank {rank}'**
+  String chartRank(int rank);
+
+  /// No description provided for @chartTrendUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Trending up'**
+  String get chartTrendUp;
+
+  /// No description provided for @chartTrendDown.
+  ///
+  /// In en, this message translates to:
+  /// **'Trending down'**
+  String get chartTrendDown;
+
+  /// No description provided for @chartTrendNeutral.
+  ///
+  /// In en, this message translates to:
+  /// **'No rank change'**
+  String get chartTrendNeutral;
+
   /// No description provided for @album.
   ///
   /// In en, this message translates to:
@@ -607,6 +739,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No episodes are available.'**
   String get noPodcastEpisodes;
+
+  /// No description provided for @comments.
+  ///
+  /// In en, this message translates to:
+  /// **'Comments'**
+  String get comments;
+
+  /// No description provided for @noComments.
+  ///
+  /// In en, this message translates to:
+  /// **'No comments yet.'**
+  String get noComments;
+
+  /// No description provided for @commentsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a signed-in YouTube Music track to view comments.'**
+  String get commentsUnavailable;
+
+  /// No description provided for @writeComment.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a comment'**
+  String get writeComment;
+
+  /// No description provided for @postComment.
+  ///
+  /// In en, this message translates to:
+  /// **'Post comment'**
+  String get postComment;
+
+  /// No description provided for @like.
+  ///
+  /// In en, this message translates to:
+  /// **'Like'**
+  String get like;
+
+  /// No description provided for @removeLike.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove like'**
+  String get removeLike;
+
+  /// No description provided for @dislike.
+  ///
+  /// In en, this message translates to:
+  /// **'Dislike'**
+  String get dislike;
+
+  /// No description provided for @removeDislike.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove dislike'**
+  String get removeDislike;
 
   /// No description provided for @song.
   ///
@@ -799,6 +985,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'About'**
   String get about;
+
+  /// No description provided for @licensesAndNotices.
+  ///
+  /// In en, this message translates to:
+  /// **'Licenses and notices'**
+  String get licensesAndNotices;
 
   /// No description provided for @appVersion.
   ///

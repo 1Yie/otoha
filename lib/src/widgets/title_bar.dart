@@ -81,7 +81,10 @@ class DesktopTitleBar extends StatelessWidget {
               alignment: Alignment.center,
               child: SizedBox(
                 width: 480,
-                child: _SearchTrigger(onPressed: shellController.openSearch),
+                child: _SearchTrigger(
+                  onPressed: () =>
+                      workspaceController.navigateTo(WorkspacePage.search),
+                ),
               ),
             ),
             Align(
@@ -177,6 +180,7 @@ class DesktopTitleBar extends StatelessWidget {
   String _workspaceLabel(WorkspacePage page, AppLocalizations l10n) =>
       switch (page) {
         WorkspacePage.home => l10n.home,
+        WorkspacePage.search => l10n.search,
         WorkspacePage.explore => l10n.explore,
         WorkspacePage.library => l10n.library,
         WorkspacePage.history => l10n.history,

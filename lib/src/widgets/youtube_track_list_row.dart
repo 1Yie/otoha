@@ -31,77 +31,101 @@ class YouTubeTrackListRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Material(
-      color: isSelected
-          ? OtohaColors.accent.withValues(alpha: 0.10)
-          : Colors.transparent,
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(4),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        key: rowKey,
+        key: Key('youtube-track-action-${track.videoId}'),
         borderRadius: BorderRadius.circular(4),
         onTap: onTap,
-        child: SizedBox(
-          key: isSelected
-              ? Key('youtube-track-selected-${track.videoId}')
-              : null,
-          height: 64,
-          child: Row(
-            children: <Widget>[
-              SizedBox(
-                width: 40,
-                child: Text(
-                  '$index',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-              SizedBox.square(
-                dimension: 44,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: ArtworkImage(
-                    assetPath: _artworkPath(
-                      track.thumbnailUrl,
-                      artworkFallback,
+        child: Stack(
+          key: rowKey,
+          children: <Widget>[
+            SizedBox(
+              height: 64,
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Row(
+                      children: <Widget>[
+                        SizedBox(
+                          width: 40,
+                          child: Text(
+                            '$index',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        SizedBox.square(
+                          dimension: 44,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: ArtworkImage(
+                              assetPath: _artworkPath(
+                                track.thumbnailUrl,
+                                artworkFallback,
+                              ),
+                              semanticLabel: l10n.artwork(track.title),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                track.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _artistText(
+                                  track.artists,
+                                  artistFallback,
+                                  l10n,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          _formatDuration(track.durationSeconds, l10n),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                fontFeatures: const <FontFeature>[
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                        ),
+                      ],
                     ),
-                    semanticLabel: l10n.artwork(track.title),
+                  ),
+                  if (trailing case final trailing?) ...<Widget>[
+                    const SizedBox(width: 12),
+                    trailing,
+                    const SizedBox(width: 8),
+                  ] else
+                    const SizedBox(width: 16),
+                ],
+              ),
+            ),
+            if (isSelected)
+              Positioned.fill(
+                key: Key('youtube-track-selected-${track.videoId}'),
+                child: IgnorePointer(
+                  child: ColoredBox(
+                    color: OtohaColors.accent.withValues(alpha: 0.10),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      track.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _artistText(track.artists, artistFallback, l10n),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                _formatDuration(track.durationSeconds, l10n),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              if (trailing case final trailing?) ...<Widget>[
-                const SizedBox(width: 12),
-                trailing,
-                const SizedBox(width: 8),
-              ] else
-                const SizedBox(width: 16),
-            ],
-          ),
+          ],
         ),
       ),
     );

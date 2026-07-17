@@ -11,11 +11,14 @@ import '../models/youtube_library.dart';
 import '../state/desktop_shell_controllers.dart';
 import '../state/youtube_library_controller.dart';
 import '../widgets/artwork_image.dart';
+import '../widgets/workspace_filter_tabs.dart';
+import '../widgets/workspace_result_row.dart';
 import '../widgets/youtube_track_list_row.dart';
 
 enum YouTubeFeedKind { home, explore }
 
 const String _forYouFilterId = '__for_you__';
+const String _moodAndGenreRootBrowseId = 'FEmusic_moods_and_genres';
 
 class YouTubeFeedWorkspace extends StatelessWidget {
   const YouTubeFeedWorkspace({
@@ -63,27 +66,43 @@ class YouTubeFeedWorkspace extends StatelessWidget {
 
     final collection = controller.selectedFeedCollection;
     if (collection?.source == kind.name) {
-      return _FeedCollectionDetail(
+      return YouTubeFeedCollectionDetailView(
         detail: collection!,
         playerController: playerController,
+        isSaved: controller.isAlbumSaved(collection.id),
+        isSaving: controller.albumLibraryWriteId == collection.id,
+        canToggleLibrary:
+            controller.albumLibraryWriteId == null &&
+            !controller.isAccountWriteCoolingDown,
+        onToggleLibrary: () =>
+            unawaited(controller.toggleAlbumLibrary(collection)),
         onBack: controller.closeFeedDetail,
       );
     }
     final podcast = controller.selectedPodcastShow;
     if (podcast?.source == kind.name) {
-      return _PodcastShowDetail(
+      return YouTubePodcastShowDetailView(
         detail: podcast!,
         loadingItemId: controller.loadingFeedItemId,
         isLoadingMore: controller.isLoadingMorePodcast,
+        isSaved: controller.isPodcastSaved(podcast.id),
+        isSaving: controller.podcastLibraryWriteId == podcast.id,
+        canToggleLibrary:
+            controller.podcastLibraryWriteId == null &&
+            !controller.isAccountWriteCoolingDown,
         onBack: controller.closeFeedDetail,
         onLoadMore: controller.loadMorePodcastShow,
+        onToggleLibrary: () =>
+            unawaited(controller.togglePodcastLibrary(podcast)),
         onTap: _actionFor,
       );
     }
     final browse = controller.selectedFeedBrowse;
     if (browse?.source == kind.name) {
-      return _FeedBrowseDetail(
+      return YouTubeFeedBrowseDetailView(
         detail: browse!,
+        playerController: playerController,
+        youtubeLibraryController: controller,
         loadingItemId: controller.loadingFeedItemId,
         reduceMotion: shellController.reduceMotion,
         onBack: controller.closeFeedDetail,
@@ -101,29 +120,43 @@ class YouTubeFeedWorkspace extends StatelessWidget {
         ? controller.homeErrorMessage
         : controller.exploreErrorMessage;
     final errorMessage = controller.feedActionErrorMessage ?? feedErrorMessage;
-    final refresh = kind == YouTubeFeedKind.home
-        ? () => unawaited(controller.loadHome(forceRefresh: true))
-        : () => unawaited(controller.loadExplore(forceRefresh: true));
 
     final isHome = kind == YouTubeFeedKind.home;
     final isLoadingMore = isHome
         ? controller.isLoadingMoreHome
         : controller.isLoadingMoreExplore;
-    final hasMore = isHome ? controller.hasMoreHome : controller.hasMoreExplore;
+    final exploreCategories = controller.exploreCategories
+        .where((item) => item.id != _moodAndGenreRootBrowseId)
+        .toList(growable: false);
     final filterOptions = isHome
-        ? <_FeedFilterOption>[
+        ? <WorkspaceFilterTabOption<String>>[
             if (controller.homeFilters.isNotEmpty)
-              _FeedFilterOption(id: _forYouFilterId, label: l10n.forYou),
+              WorkspaceFilterTabOption<String>(
+                value: _forYouFilterId,
+                label: l10n.forYou,
+                tabKey: Key('youtube-${kind.name}-tab-$_forYouFilterId'),
+              ),
             for (final filter in controller.homeFilters)
-              _FeedFilterOption(id: filter, label: filter),
+              WorkspaceFilterTabOption<String>(
+                value: filter,
+                label: filter,
+                tabKey: Key('youtube-${kind.name}-tab-$filter'),
+              ),
           ]
-        : <_FeedFilterOption>[
-            if (controller.exploreCategories.isNotEmpty)
-              _FeedFilterOption(id: _forYouFilterId, label: l10n.forYou),
-            for (final category in controller.exploreCategories)
-              _FeedFilterOption(
-                id: category.browseIdentity,
+        : <WorkspaceFilterTabOption<String>>[
+            if (exploreCategories.isNotEmpty)
+              WorkspaceFilterTabOption<String>(
+                value: _forYouFilterId,
+                label: l10n.forYou,
+                tabKey: Key('youtube-${kind.name}-tab-$_forYouFilterId'),
+              ),
+            for (final category in exploreCategories)
+              WorkspaceFilterTabOption<String>(
+                value: category.browseIdentity,
                 label: category.title,
+                tabKey: Key(
+                  'youtube-${kind.name}-tab-${category.browseIdentity}',
+                ),
               ),
           ];
     final selectedFilterId = isHome
@@ -132,12 +165,12 @@ class YouTubeFeedWorkspace extends StatelessWidget {
         : controller.selectedExploreCategoryId ??
               (filterOptions.isEmpty ? null : _forYouFilterId);
 
-    void selectFilter(String id) {
+    void selectFilter(String id, {bool forceRefresh = false}) {
       if (isHome) {
         unawaited(
           id == _forYouFilterId
               ? controller.loadHome(forceRefresh: true)
-              : controller.selectHomeFilter(id),
+              : controller.selectHomeFilter(id, forceRefresh: forceRefresh),
         );
         return;
       }
@@ -145,10 +178,22 @@ class YouTubeFeedWorkspace extends StatelessWidget {
         unawaited(controller.loadExplore(forceRefresh: true));
         return;
       }
-      final category = controller.exploreCategories.firstWhere(
+      final category = exploreCategories.firstWhere(
         (item) => item.browseIdentity == id,
       );
       unawaited(controller.openFeedBrowse(category, source: kind.name));
+    }
+
+    void refresh() {
+      if (selectedFilterId == null || selectedFilterId == _forYouFilterId) {
+        unawaited(
+          isHome
+              ? controller.loadHome(forceRefresh: true)
+              : controller.loadExplore(forceRefresh: true),
+        );
+        return;
+      }
+      selectFilter(selectedFilterId, forceRefresh: true);
     }
 
     return _FeedBackdrop(
@@ -156,147 +201,138 @@ class YouTubeFeedWorkspace extends StatelessWidget {
       identity: '${kind.name}:${selectedFilterId ?? 'default'}',
       artworkUrl: _firstFeedArtwork(sections),
       reduceMotion: shellController.reduceMotion,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (notification) {
-          if (notification.metrics.extentAfter < 640 &&
-              !isLoadingMore &&
-              hasMore) {
-            unawaited(
-              isHome ? controller.loadMoreHome() : controller.loadMoreExplore(),
-            );
-          }
-          return false;
-        },
-        child: CustomScrollView(
-          key: Key('youtube-${kind.name}-feed'),
-          slivers: <Widget>[
-            if (filterOptions.isNotEmpty)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppMetrics.workspacePadding,
-                  24,
-                  AppMetrics.workspacePadding,
-                  16,
-                ),
-                sliver: SliverToBoxAdapter(
-                  child: _FeedFilterTabs(
-                    key: Key('youtube-${kind.name}-tabs'),
-                    kind: kind,
-                    options: filterOptions,
-                    selectedId: selectedFilterId,
-                    reduceMotion: shellController.reduceMotion,
-                    onSelected: selectFilter,
-                  ),
-                ),
-              ),
+      child: _FeedPaginationScroll(
+        youtubeLibraryController: controller,
+        isHome: isHome,
+        scrollKey: Key('youtube-${kind.name}-feed'),
+        slivers: <Widget>[
+          if (filterOptions.isNotEmpty)
             SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                AppMetrics.workspacePadding,
-                filterOptions.isEmpty ? AppMetrics.workspacePadding : 16,
+              padding: const EdgeInsets.fromLTRB(
                 AppMetrics.workspacePadding,
                 24,
+                AppMetrics.workspacePadding,
+                16,
               ),
               sliver: SliverToBoxAdapter(
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            eyebrow,
-                            style: const TextStyle(
-                              color: OtohaColors.accent,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            title,
-                            style: Theme.of(context).textTheme.displaySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    Tooltip(
-                      message: l10n.refreshSection(title),
-                      child: IconButton(
-                        key: Key('youtube-${kind.name}-refresh'),
-                        onPressed: isLoading ? null : refresh,
-                        icon: const Icon(Icons.refresh_rounded),
-                      ),
-                    ),
-                  ],
+                child: WorkspaceFilterTabs<String>(
+                  key: Key('youtube-${kind.name}-tabs'),
+                  options: filterOptions,
+                  selectedValue: selectedFilterId,
+                  reduceMotion: shellController.reduceMotion,
+                  onSelected: selectFilter,
+                  scrollLeftKey: Key('youtube-${kind.name}-tabs-left'),
+                  scrollRightKey: Key('youtube-${kind.name}-tabs-right'),
+                  scrollLeftTooltip: l10n.scrollFeedFiltersLeft,
+                  scrollRightTooltip: l10n.scrollFeedFiltersRight,
                 ),
               ),
             ),
-            if (isLoading)
-              const SliverToBoxAdapter(child: LinearProgressIndicator()),
-            if (errorMessage != null)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppMetrics.workspacePadding,
-                  16,
-                  AppMetrics.workspacePadding,
-                  0,
-                ),
-                sliver: SliverToBoxAdapter(
-                  child: Text(
-                    localizeYouTubeLibraryError(errorMessage, l10n),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              filterOptions.isEmpty ? AppMetrics.workspacePadding : 16,
+              AppMetrics.workspacePadding,
+              24,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          eyebrow,
+                          style: const TextStyle(
+                            color: OtohaColors.accent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.displaySmall,
+                        ),
+                      ],
                     ),
                   ),
+                  Tooltip(
+                    message: l10n.refreshSection(title),
+                    child: IconButton(
+                      key: Key('youtube-${kind.name}-refresh'),
+                      onPressed: isLoading ? null : refresh,
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isLoading)
+            const SliverToBoxAdapter(child: LinearProgressIndicator()),
+          if (errorMessage != null)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                AppMetrics.workspacePadding,
+                16,
+                AppMetrics.workspacePadding,
+                0,
+              ),
+              sliver: SliverToBoxAdapter(
+                child: Text(
+                  localizeYouTubeLibraryError(errorMessage, l10n),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            if (sections.isEmpty && isLoading)
-              const SliverToBoxAdapter(child: _FeedSkeleton())
-            else if (sections.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
+            ),
+          if (sections.isEmpty && isLoading)
+            const SliverToBoxAdapter(child: _FeedSkeleton())
+          else if (sections.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: refresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(l10n.loadAgain),
+                ),
+              ),
+            )
+          else
+            SliverList.builder(
+              itemCount: sections.length,
+              itemBuilder: (context, index) {
+                final section = sections[index];
+                return YouTubeFeedSectionView(
+                  key: ValueKey<String>(
+                    '${kind.name}:${selectedFilterId ?? 'default'}:'
+                    '${section.title}:$index',
+                  ),
+                  section: section,
+                  sectionIndex: index,
+                  loadingItemId: controller.loadingFeedItemId,
+                  reduceMotion: shellController.reduceMotion,
+                  onTap: _actionFor,
+                );
+              },
+            ),
+          if (isLoadingMore)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(
-                  child: TextButton.icon(
-                    onPressed: refresh,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.loadAgain),
-                  ),
-                ),
-              )
-            else
-              SliverList.builder(
-                itemCount: sections.length,
-                itemBuilder: (context, index) {
-                  final section = sections[index];
-                  return _FeedSection(
-                    key: ValueKey<String>(
-                      '${kind.name}:${selectedFilterId ?? 'default'}:'
-                      '${section.title}:$index',
-                    ),
-                    section: section,
-                    sectionIndex: index,
-                    loadingItemId: controller.loadingFeedItemId,
-                    reduceMotion: shellController.reduceMotion,
-                    onTap: _actionFor,
-                  );
-                },
-              ),
-            if (isLoadingMore)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 ),
               ),
-            const SliverToBoxAdapter(child: SizedBox(height: 40)),
-          ],
-        ),
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        ],
       ),
     );
   }
@@ -321,7 +357,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
       item,
       source: kind.name,
     );
-    if (tracks.length == 1) {
+    if (tracks.length == 1 && item.itemType != 'album') {
       playerController.playTracks(<Track>[
         _asSimulatedYouTubeTrack(
           tracks[0],
@@ -346,293 +382,123 @@ class YouTubeFeedWorkspace extends StatelessWidget {
   }
 }
 
-class _FeedFilterOption {
-  const _FeedFilterOption({required this.id, required this.label});
-
-  final String id;
-  final String label;
-}
-
-class _FeedFilterTabs extends StatefulWidget {
-  const _FeedFilterTabs({
-    required this.kind,
-    required this.options,
-    required this.selectedId,
-    required this.reduceMotion,
-    required this.onSelected,
-    super.key,
+class _FeedPaginationScroll extends StatefulWidget {
+  const _FeedPaginationScroll({
+    required this.youtubeLibraryController,
+    required this.isHome,
+    required this.scrollKey,
+    required this.slivers,
   });
 
-  final YouTubeFeedKind kind;
-  final List<_FeedFilterOption> options;
-  final String? selectedId;
-  final bool reduceMotion;
-  final ValueChanged<String> onSelected;
+  final YouTubeLibraryController youtubeLibraryController;
+  final bool isHome;
+  final Key scrollKey;
+  final List<Widget> slivers;
 
   @override
-  State<_FeedFilterTabs> createState() => _FeedFilterTabsState();
+  State<_FeedPaginationScroll> createState() => _FeedPaginationScrollState();
 }
 
-class _FeedFilterTabsState extends State<_FeedFilterTabs> {
-  late final ScrollController _scrollController;
-  final Map<String, GlobalKey> _optionKeys = <String, GlobalKey>{};
-  bool _canScrollLeft = false;
-  bool _canScrollRight = false;
+class _FeedPaginationScrollState extends State<_FeedPaginationScroll> {
+  final ScrollController _scrollController = ScrollController();
+  bool _checkScheduled = false;
+  bool _isRequesting = false;
+  bool _autoRetryBlocked = false;
 
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController()..addListener(_updateScrollActions);
-    _afterLayout();
+    _scrollController.addListener(_handleScroll);
+    widget.youtubeLibraryController.addListener(_schedulePaginationCheck);
+    _schedulePaginationCheck();
   }
 
   @override
-  void didUpdateWidget(covariant _FeedFilterTabs oldWidget) {
+  void didUpdateWidget(covariant _FeedPaginationScroll oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _afterLayout(
-      ensureSelectionVisible: oldWidget.selectedId != widget.selectedId,
-    );
+    if (oldWidget.youtubeLibraryController != widget.youtubeLibraryController) {
+      oldWidget.youtubeLibraryController.removeListener(
+        _schedulePaginationCheck,
+      );
+      widget.youtubeLibraryController.addListener(_schedulePaginationCheck);
+    }
+    _schedulePaginationCheck();
   }
 
   @override
   void dispose() {
-    _scrollController.removeListener(_updateScrollActions);
-    _scrollController.dispose();
+    widget.youtubeLibraryController.removeListener(_schedulePaginationCheck);
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
     super.dispose();
   }
 
-  void _scrollBy(double direction) {
-    if (!_scrollController.hasClients) {
+  void _schedulePaginationCheck() {
+    if (_checkScheduled) {
       return;
     }
-    final position = _scrollController.position;
-    final target = (position.pixels + direction * 280)
-        .clamp(0.0, position.maxScrollExtent)
-        .toDouble();
-    if (widget.reduceMotion) {
-      _scrollController.jumpTo(target);
-      return;
-    }
-    _scrollController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  void _afterLayout({bool ensureSelectionVisible = false}) {
+    _checkScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _updateScrollActions();
-      if (!ensureSelectionVisible || widget.selectedId == null) {
-        return;
-      }
-      final selectedContext = _optionKeys[widget.selectedId]?.currentContext;
-      if (selectedContext != null) {
-        Scrollable.ensureVisible(
-          selectedContext,
-          alignment: 0.5,
-          duration: widget.reduceMotion
-              ? Duration.zero
-              : const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-        );
+      _checkScheduled = false;
+      if (mounted) {
+        _checkPagination();
       }
     });
   }
 
-  void _updateScrollActions() {
-    if (!_scrollController.hasClients) {
+  void _handleScroll() {
+    if (!_isRequesting) {
+      _autoRetryBlocked = false;
+    }
+    _checkPagination(isUserScroll: true);
+  }
+
+  void _checkPagination({bool isUserScroll = false}) {
+    if (!_scrollController.hasClients ||
+        _scrollController.position.extentAfter >= 640 ||
+        _isRequesting ||
+        (_autoRetryBlocked && !isUserScroll)) {
       return;
     }
-    final position = _scrollController.position;
-    final canScrollLeft = position.pixels > 0.5;
-    final canScrollRight = position.pixels < position.maxScrollExtent - 0.5;
-    if (canScrollLeft == _canScrollLeft && canScrollRight == _canScrollRight) {
+    final controller = widget.youtubeLibraryController;
+    if (widget.isHome) {
+      if (controller.hasMoreHome &&
+          !controller.isLoadingHome &&
+          !controller.isLoadingMoreHome) {
+        unawaited(_loadMore(controller.loadMoreHome));
+      }
       return;
     }
-    setState(() {
-      _canScrollLeft = canScrollLeft;
-      _canScrollRight = canScrollRight;
-    });
+    if (controller.hasMoreExplore &&
+        !controller.isLoadingExplore &&
+        !controller.isLoadingMoreExplore) {
+      unawaited(_loadMore(controller.loadMoreExplore));
+    }
+  }
+
+  Future<void> _loadMore(Future<void> Function() request) async {
+    _isRequesting = true;
+    await request();
+    if (!mounted) {
+      return;
+    }
+    final controller = widget.youtubeLibraryController;
+    _autoRetryBlocked = widget.isHome
+        ? controller.homeErrorMessage != null
+        : controller.exploreErrorMessage != null;
+    _isRequesting = false;
+    if (!_autoRetryBlocked) {
+      _schedulePaginationCheck();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return SizedBox(
-      height: 44,
-      child: NotificationListener<ScrollMetricsNotification>(
-        onNotification: (notification) {
-          _afterLayout();
-          return false;
-        },
-        child: Stack(
-          children: <Widget>[
-            Positioned.fill(
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (bounds) => LinearGradient(
-                  colors: <Color>[
-                    _canScrollLeft ? Colors.transparent : Colors.white,
-                    Colors.white,
-                    Colors.white,
-                    _canScrollRight ? Colors.transparent : Colors.white,
-                  ],
-                  stops: const <double>[0, 0.06, 0.86, 1],
-                ).createShader(bounds),
-                child: ListView.separated(
-                  controller: _scrollController,
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(2, 0, 80, 0),
-                  itemCount: widget.options.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final option = widget.options[index];
-                    return _FeedFilterTab(
-                      key: _optionKeys.putIfAbsent(
-                        option.id,
-                        () => GlobalKey(),
-                      ),
-                      tabKey: Key(
-                        'youtube-${widget.kind.name}-tab-${option.id}',
-                      ),
-                      label: option.label,
-                      selected: widget.selectedId == option.id,
-                      reduceMotion: widget.reduceMotion,
-                      onTap: widget.selectedId == option.id
-                          ? null
-                          : () => widget.onSelected(option.id),
-                    );
-                  },
-                ),
-              ),
-            ),
-            Positioned(
-              top: 0,
-              right: 0,
-              bottom: 0,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _FilterScrollButton(
-                    key: Key('youtube-${widget.kind.name}-tabs-left'),
-                    tooltip: l10n.scrollFeedFiltersLeft,
-                    enabled: _canScrollLeft,
-                    icon: Icons.chevron_left_rounded,
-                    onPressed: () => _scrollBy(-1),
-                  ),
-                  _FilterScrollButton(
-                    key: Key('youtube-${widget.kind.name}-tabs-right'),
-                    tooltip: l10n.scrollFeedFiltersRight,
-                    enabled: _canScrollRight,
-                    icon: Icons.chevron_right_rounded,
-                    onPressed: () => _scrollBy(1),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FilterScrollButton extends StatelessWidget {
-  const _FilterScrollButton({
-    required this.tooltip,
-    required this.enabled,
-    required this.icon,
-    required this.onPressed,
-    super.key,
-  });
-
-  final String tooltip;
-  final bool enabled;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: IconButton(
-        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-        padding: EdgeInsets.zero,
-        iconSize: 22,
-        color: OtohaColors.text,
-        disabledColor: OtohaColors.mutedText.withValues(alpha: 0.4),
-        onPressed: enabled ? onPressed : null,
-        icon: Icon(icon),
-      ),
-    );
-  }
-}
-
-class _FeedFilterTab extends StatelessWidget {
-  const _FeedFilterTab({
-    required this.tabKey,
-    required this.label,
-    required this.selected,
-    required this.reduceMotion,
-    required this.onTap,
-    super.key,
-  });
-
-  final Key tabKey;
-  final String label;
-  final bool selected;
-  final bool reduceMotion;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    const tabRadius = BorderRadius.all(Radius.circular(22));
-    return ClipRRect(
-      borderRadius: tabRadius,
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-        child: AnimatedContainer(
-          key: tabKey,
-          duration: reduceMotion
-              ? Duration.zero
-              : const Duration(milliseconds: 280),
-          curve: Curves.linear,
-          constraints: const BoxConstraints(minWidth: 64),
-          decoration: BoxDecoration(
-            color: selected
-                ? OtohaColors.text.withValues(alpha: 0.92)
-                : OtohaColors.surfaceRaised.withValues(alpha: 0.62),
-            borderRadius: tabRadius,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Center(
-                  child: AnimatedDefaultTextStyle(
-                    duration: reduceMotion
-                        ? Duration.zero
-                        : const Duration(milliseconds: 280),
-                    curve: Curves.linear,
-                    style: TextStyle(
-                      color: selected ? OtohaColors.canvas : OtohaColors.text,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    child: Text(label, maxLines: 1),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return CustomScrollView(
+      key: widget.scrollKey,
+      controller: _scrollController,
+      slivers: widget.slivers,
     );
   }
 }
@@ -837,8 +703,8 @@ class _FeedBackdropState extends State<_FeedBackdrop> {
   }
 }
 
-class _FeedSection extends StatefulWidget {
-  const _FeedSection({
+class YouTubeFeedSectionView extends StatefulWidget {
+  const YouTubeFeedSectionView({
     required this.section,
     required this.sectionIndex,
     required this.loadingItemId,
@@ -854,10 +720,10 @@ class _FeedSection extends StatefulWidget {
   final VoidCallback? Function(YouTubeFeedItem item) onTap;
 
   @override
-  State<_FeedSection> createState() => _FeedSectionState();
+  State<YouTubeFeedSectionView> createState() => _YouTubeFeedSectionViewState();
 }
 
-class _FeedSectionState extends State<_FeedSection> {
+class _YouTubeFeedSectionViewState extends State<YouTubeFeedSectionView> {
   static const double _cardItemExtent = 188;
   static const double _compactColumnWidth = 360;
   static const double _compactColumnExtent = 380;
@@ -871,15 +737,17 @@ class _FeedSectionState extends State<_FeedSection> {
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController()..addListener(_updateScrollActions);
+    _scrollController = ScrollController(keepScrollOffset: false)
+      ..addListener(_updateScrollActions);
     _updateScrollActionsAfterLayout();
   }
 
   @override
-  void didUpdateWidget(covariant _FeedSection oldWidget) {
+  void didUpdateWidget(covariant YouTubeFeedSectionView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.section.items.length != widget.section.items.length ||
-        oldWidget.section.itemsPerColumn != widget.section.itemsPerColumn) {
+        oldWidget.section.itemsPerColumn != widget.section.itemsPerColumn ||
+        _sectionUsesCompactRows(oldWidget.section) != _usesCompactRows) {
       _updateScrollActionsAfterLayout();
     }
   }
@@ -944,12 +812,26 @@ class _FeedSectionState extends State<_FeedSection> {
     );
   }
 
-  double get _itemExtent => widget.section.itemsPerColumn > 1
-      ? _compactColumnExtent
-      : _cardItemExtent;
+  bool get _usesCompactRows => _sectionUsesCompactRows(widget.section);
 
-  int get _scrollItemCount => widget.section.itemsPerColumn > 1
-      ? (widget.section.items.length / widget.section.itemsPerColumn).ceil()
+  int get _effectiveItemsPerColumn {
+    final configured = widget.section.itemsPerColumn.clamp(1, 6);
+    if (configured > 1 || !_usesCompactRows) {
+      return configured;
+    }
+    return widget.section.items.length.clamp(1, 4);
+  }
+
+  static bool _sectionUsesCompactRows(YouTubeFeedSection section) {
+    return section.itemsPerColumn > 1 ||
+        section.items.any((item) => item.rank != null);
+  }
+
+  double get _itemExtent =>
+      _usesCompactRows ? _compactColumnExtent : _cardItemExtent;
+
+  int get _scrollItemCount => _usesCompactRows
+      ? (widget.section.items.length / _effectiveItemsPerColumn).ceil()
       : widget.section.items.length;
 
   double _alignedMaxScrollOffset(ScrollPosition position) {
@@ -982,35 +864,11 @@ class _FeedSectionState extends State<_FeedSection> {
         : AppMetrics.workspacePadding;
   }
 
-  void _snapToItemBoundary() {
-    if (!_scrollController.hasClients) {
-      return;
-    }
-    final position = _scrollController.position;
-    final target = ((position.pixels / _itemExtent).round() * _itemExtent)
-        .clamp(0.0, _alignedMaxScrollOffset(position))
-        .toDouble();
-    if ((target - position.pixels).abs() <= 0.5) {
-      return;
-    }
-    if (widget.reduceMotion) {
-      _scrollController.jumpTo(target);
-      return;
-    }
-    unawaited(
-      _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 140),
-        curve: Curves.easeOutCubic,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final itemsPerColumn = widget.section.itemsPerColumn.clamp(1, 6);
-    final usesCompactRows = itemsPerColumn > 1;
+    final itemsPerColumn = _effectiveItemsPerColumn;
+    final usesCompactRows = _usesCompactRows;
     final columnCount = (widget.section.items.length / itemsPerColumn).ceil();
     final contentHeight = usesCompactRows
         ? itemsPerColumn * _compactRowHeight +
@@ -1031,11 +889,27 @@ class _FeedSectionState extends State<_FeedSection> {
             child: Row(
               children: <Widget>[
                 Expanded(
-                  child: Text(
-                    widget.section.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.headlineSmall,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      if (widget.section.subtitle case final subtitle?
+                          when subtitle.isNotEmpty) ...<Widget>[
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                      Text(
+                        widget.section.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                    ],
                   ),
                 ),
                 Tooltip(
@@ -1069,65 +943,56 @@ class _FeedSectionState extends State<_FeedSection> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final trailingPadding = _trailingPadding(constraints.maxWidth);
-                return NotificationListener<ScrollEndNotification>(
-                  onNotification: (_) {
-                    _snapToItemBoundary();
-                    return false;
-                  },
-                  child: ListView.separated(
-                    key: Key(
-                      'youtube-feed-section-list-${widget.sectionIndex}',
-                    ),
-                    controller: _scrollController,
-                    scrollDirection: Axis.horizontal,
-                    padding: EdgeInsets.only(right: trailingPadding),
-                    itemCount: usesCompactRows
-                        ? columnCount
-                        : widget.section.items.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 20),
-                    itemBuilder: (context, index) {
-                      if (usesCompactRows) {
-                        final start = index * itemsPerColumn;
-                        final end = (start + itemsPerColumn).clamp(
-                          0,
-                          widget.section.items.length,
-                        );
-                        final items = widget.section.items.sublist(start, end);
-                        return SizedBox(
-                          key: Key(
-                            'youtube-feed-compact-column-'
-                            '${widget.sectionIndex}-$index',
-                          ),
-                          width: _compactColumnWidth,
-                          child: Column(
-                            children: <Widget>[
-                              for (
-                                var rowIndex = 0;
-                                rowIndex < items.length;
-                                rowIndex++
-                              ) ...<Widget>[
-                                _FeedCompactRow(
-                                  item: items[rowIndex],
-                                  isLoading:
-                                      widget.loadingItemId ==
-                                      items[rowIndex].id,
-                                  onTap: widget.onTap(items[rowIndex]),
-                                ),
-                                if (rowIndex < items.length - 1)
-                                  const SizedBox(height: _compactRowGap),
-                              ],
-                            ],
-                          ),
-                        );
-                      }
-                      final item = widget.section.items[index];
-                      return _FeedItemCard(
-                        item: item,
-                        isLoading: widget.loadingItemId == item.id,
-                        onTap: widget.onTap(item),
+                return ListView.separated(
+                  key: Key('youtube-feed-section-list-${widget.sectionIndex}'),
+                  controller: _scrollController,
+                  scrollDirection: Axis.horizontal,
+                  padding: EdgeInsets.only(right: trailingPadding),
+                  itemCount: usesCompactRows
+                      ? columnCount
+                      : widget.section.items.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 20),
+                  itemBuilder: (context, index) {
+                    if (usesCompactRows) {
+                      final start = index * itemsPerColumn;
+                      final end = (start + itemsPerColumn).clamp(
+                        0,
+                        widget.section.items.length,
                       );
-                    },
-                  ),
+                      final items = widget.section.items.sublist(start, end);
+                      return SizedBox(
+                        key: Key(
+                          'youtube-feed-compact-column-'
+                          '${widget.sectionIndex}-$index',
+                        ),
+                        width: _compactColumnWidth,
+                        child: Column(
+                          children: <Widget>[
+                            for (
+                              var rowIndex = 0;
+                              rowIndex < items.length;
+                              rowIndex++
+                            ) ...<Widget>[
+                              _FeedCompactRow(
+                                item: items[rowIndex],
+                                isLoading:
+                                    widget.loadingItemId == items[rowIndex].id,
+                                onTap: widget.onTap(items[rowIndex]),
+                              ),
+                              if (rowIndex < items.length - 1)
+                                const SizedBox(height: _compactRowGap),
+                            ],
+                          ],
+                        ),
+                      );
+                    }
+                    final item = widget.section.items[index];
+                    return YouTubeFeedItemCard(
+                      item: item,
+                      isLoading: widget.loadingItemId == item.id,
+                      onTap: widget.onTap(item),
+                    );
+                  },
                 );
               },
             ),
@@ -1156,90 +1021,114 @@ class _FeedCompactRow extends StatelessWidget {
       'video',
       'non_music_track',
     }.contains(item.itemType);
-    return SizedBox(
-      height: _FeedSectionState._compactRowHeight,
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(AppMetrics.radius),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: Key('youtube-feed-${item.itemType}-${item.id}'),
-          onTap: onTap,
-          child: Stack(
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: <Widget>[
-                    ClipRRect(
-                      key: Key('youtube-feed-compact-artwork-${item.id}'),
-                      borderRadius: BorderRadius.circular(4),
-                      child: SizedBox(
-                        width: landscapeArtwork ? 72 : 48,
-                        height: 48,
-                        child: ArtworkImage(
-                          assetPath: item.thumbnailUrl ?? '',
-                          semanticLabel: l10n.artwork(item.title),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            item.subtitle ?? _typeLabel(item.itemType, l10n),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    if (item.durationSeconds > 0)
-                      Text(
-                        _formatFeedDuration(item.durationSeconds),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                  ],
+    return WorkspaceResultRow(
+      actionKey: Key('youtube-feed-${item.itemType}-${item.id}'),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (item.rank case final rank?) ...<Widget>[
+            _FeedChartRank(itemId: item.id, rank: rank, trend: item.trend),
+            const SizedBox(width: 8),
+          ],
+          ClipRRect(
+            key: Key('youtube-feed-compact-artwork-${item.id}'),
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              width: landscapeArtwork ? 72 : 48,
+              height: 48,
+              child: ArtworkImage(
+                assetPath: item.thumbnailUrl ?? '',
+                semanticLabel: l10n.artwork(item.title),
+              ),
+            ),
+          ),
+        ],
+      ),
+      title: item.title,
+      subtitle: item.subtitle ?? _typeLabel(item.itemType, l10n),
+      trailing: item.durationSeconds > 0
+          ? Text(
+              _formatFeedDuration(item.durationSeconds),
+              style: Theme.of(context).textTheme.bodySmall,
+            )
+          : null,
+      isLoading: isLoading,
+      loadingOverlayKey: const Key('youtube-feed-compact-loading-overlay'),
+      onTap: onTap,
+    );
+  }
+}
+
+class _FeedChartRank extends StatelessWidget {
+  const _FeedChartRank({
+    required this.itemId,
+    required this.rank,
+    required this.trend,
+  });
+
+  final String itemId;
+  final int rank;
+  final YouTubeChartTrend? trend;
+
+  static const _downColor = Color(0xFFFF315A);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final trendLabel = switch (trend) {
+      YouTubeChartTrend.up => l10n.chartTrendUp,
+      YouTubeChartTrend.down => l10n.chartTrendDown,
+      YouTubeChartTrend.neutral => l10n.chartTrendNeutral,
+      null => null,
+    };
+    final trendIcon = switch (trend) {
+      YouTubeChartTrend.up => Icons.arrow_drop_up_rounded,
+      YouTubeChartTrend.down => Icons.arrow_drop_down_rounded,
+      YouTubeChartTrend.neutral => Icons.circle,
+      null => null,
+    };
+    final trendColor = switch (trend) {
+      YouTubeChartTrend.up => OtohaColors.accent,
+      YouTubeChartTrend.down => _downColor,
+      YouTubeChartTrend.neutral || null => OtohaColors.mutedText,
+    };
+
+    return Semantics(
+      key: Key('youtube-feed-chart-rank-$itemId'),
+      label: <String>[l10n.chartRank(rank), ?trendLabel].join(', '),
+      excludeSemantics: true,
+      child: SizedBox(
+        width: 44,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            if (trendIcon != null) ...<Widget>[
+              SizedBox.square(
+                key: Key('youtube-feed-chart-trend-slot-$itemId'),
+                dimension: 22,
+                child: Icon(
+                  trendIcon,
+                  key: Key('youtube-feed-chart-trend-$itemId'),
+                  size: trend == YouTubeChartTrend.neutral ? 7 : 22,
+                  color: trendColor,
                 ),
               ),
-              if (isLoading)
-                const Positioned.fill(
-                  key: Key('youtube-feed-compact-loading-overlay'),
-                  child: ColoredBox(
-                    color: Color(0x99000000),
-                    child: Center(
-                      child: SizedBox.square(
-                        dimension: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  ),
-                ),
+              const SizedBox(width: 2),
             ],
-          ),
+            Text('$rank', style: Theme.of(context).textTheme.titleSmall),
+          ],
         ),
       ),
     );
   }
 }
 
-class _FeedItemCard extends StatelessWidget {
-  const _FeedItemCard({
+class YouTubeFeedItemCard extends StatelessWidget {
+  const YouTubeFeedItemCard({
     required this.item,
     required this.isLoading,
     required this.onTap,
+    super.key,
   });
 
   final YouTubeFeedItem item;
@@ -1262,24 +1151,17 @@ class _FeedItemCard extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                SizedBox.square(
-                  dimension: 168,
+                AspectRatio(
+                  aspectRatio: 1,
                   child: Stack(
                     fit: StackFit.expand,
                     children: <Widget>[
                       if (profile)
-                        Center(
-                          child: SizedBox.square(
-                            dimension: 168,
-                            child: ClipOval(
-                              key: Key(
-                                'youtube-feed-profile-artwork-${item.id}',
-                              ),
-                              child: ArtworkImage(
-                                assetPath: item.thumbnailUrl ?? '',
-                                semanticLabel: l10n.profileImage(item.title),
-                              ),
-                            ),
+                        ClipOval(
+                          key: Key('youtube-feed-profile-artwork-${item.id}'),
+                          child: ArtworkImage(
+                            assetPath: item.thumbnailUrl ?? '',
+                            semanticLabel: l10n.profileImage(item.title),
                           ),
                         )
                       else
@@ -1360,15 +1242,24 @@ class _FeedItemCard extends StatelessWidget {
   }
 }
 
-class _FeedCollectionDetail extends StatelessWidget {
-  const _FeedCollectionDetail({
+class YouTubeFeedCollectionDetailView extends StatelessWidget {
+  const YouTubeFeedCollectionDetailView({
     required this.detail,
     required this.playerController,
+    required this.isSaved,
+    required this.isSaving,
+    required this.canToggleLibrary,
+    required this.onToggleLibrary,
     required this.onBack,
+    super.key,
   });
 
   final YouTubeFeedCollectionDetail detail;
   final PlayerController playerController;
+  final bool isSaved;
+  final bool isSaving;
+  final bool canToggleLibrary;
+  final VoidCallback onToggleLibrary;
   final VoidCallback onBack;
 
   @override
@@ -1384,104 +1275,132 @@ class _FeedCollectionDetail extends StatelessWidget {
           ),
         )
         .toList(growable: false);
-    return CustomScrollView(
+    return KeyedSubtree(
       key: const Key('youtube-feed-collection-detail'),
-      slivers: <Widget>[
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            AppMetrics.workspacePadding,
-            AppMetrics.workspacePadding,
-            AppMetrics.workspacePadding,
-            24,
-          ),
-          sliver: SliverToBoxAdapter(
-            child: Row(
-              children: <Widget>[
-                Tooltip(
-                  message: l10n.back,
-                  child: IconButton(
-                    key: const Key('youtube-feed-collection-back'),
-                    onPressed: onBack,
-                    icon: const Icon(Icons.arrow_back_rounded),
+      child: CustomScrollView(
+        key: ObjectKey(detail),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              24,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                children: <Widget>[
+                  Tooltip(
+                    message: l10n.back,
+                    child: IconButton(
+                      key: const Key('youtube-feed-collection-back'),
+                      onPressed: onBack,
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        _typeLabel(detail.itemType, l10n).toUpperCase(),
-                        style: const TextStyle(
-                          color: OtohaColors.accent,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          _typeLabel(detail.itemType, l10n).toUpperCase(),
+                          style: const TextStyle(
+                            color: OtohaColors.accent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        detail.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.displaySmall,
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                        Text(
+                          detail.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.displaySmall,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                Text(
-                  l10n.tracksCount(detail.tracks.length),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+                  Text(
+                    l10n.tracksCount(detail.tracks.length),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (detail.itemType == 'album') ...<Widget>[
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      key: const Key('youtube-album-library-toggle'),
+                      onPressed: canToggleLibrary ? onToggleLibrary : null,
+                      icon: isSaving
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              isSaved
+                                  ? Icons.library_add_check_rounded
+                                  : Icons.library_add_rounded,
+                            ),
+                      label: Text(
+                        isSaved ? l10n.removeFromLibrary : l10n.saveToLibrary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppMetrics.workspacePadding,
-          ),
-          sliver: SliverList.separated(
-            itemCount: detail.tracks.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 2),
-            itemBuilder: (context, index) {
-              final sourceTrack = detail.tracks[index];
-              return AnimatedBuilder(
-                animation: playerController,
-                builder: (context, _) => YouTubeTrackListRow(
-                  rowKey: Key(
-                    'youtube-feed-detail-track-${sourceTrack.videoId}',
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppMetrics.workspacePadding,
+            ),
+            sliver: SliverList.separated(
+              itemCount: detail.tracks.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 2),
+              itemBuilder: (context, index) {
+                final sourceTrack = detail.tracks[index];
+                return AnimatedBuilder(
+                  animation: playerController,
+                  builder: (context, _) => YouTubeTrackListRow(
+                    rowKey: Key(
+                      'youtube-feed-detail-track-${sourceTrack.videoId}',
+                    ),
+                    index: index + 1,
+                    track: sourceTrack,
+                    artworkFallback: detail.thumbnailUrl,
+                    artistFallback: detail.artists,
+                    isSelected:
+                        playerController.currentTrack?.id == tracks[index].id,
+                    onTap: () => playerController.playTracks(
+                      tracks,
+                      initialIndex: index,
+                    ),
                   ),
-                  index: index + 1,
-                  track: sourceTrack,
-                  artworkFallback: detail.thumbnailUrl,
-                  artistFallback: detail.artists,
-                  isSelected:
-                      playerController.currentTrack?.id == tracks[index].id,
-                  onTap: () {
-                    playerController.playTracks(tracks);
-                    playerController.selectTrack(tracks[index]);
-                  },
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 40)),
-      ],
+          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        ],
+      ),
     );
   }
 }
 
-class _FeedBrowseDetail extends StatelessWidget {
-  const _FeedBrowseDetail({
+class YouTubeFeedBrowseDetailView extends StatelessWidget {
+  const YouTubeFeedBrowseDetailView({
     required this.detail,
+    required this.playerController,
+    required this.youtubeLibraryController,
     required this.loadingItemId,
     required this.reduceMotion,
     required this.onBack,
     required this.onTap,
+    super.key,
   });
 
   final YouTubeFeedBrowseDetail detail;
+  final PlayerController playerController;
+  final YouTubeLibraryController youtubeLibraryController;
   final String? loadingItemId;
   final bool reduceMotion;
   final VoidCallback onBack;
@@ -1489,72 +1408,290 @@ class _FeedBrowseDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return CustomScrollView(
+    final artistItems = _artistItems();
+    return KeyedSubtree(
       key: const Key('youtube-feed-browse-detail'),
-      slivers: <Widget>[
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            AppMetrics.workspacePadding,
-            AppMetrics.workspacePadding,
-            AppMetrics.workspacePadding,
-            24,
+      child: CustomScrollView(
+        key: ObjectKey(detail),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              24,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: _FeedBrowseDetailHeader(
+                detail: detail,
+                controller: youtubeLibraryController,
+                onShuffle: artistItems.isEmpty
+                    ? null
+                    : () => unawaited(_shuffleArtistTracks(artistItems)),
+                onBack: onBack,
+              ),
+            ),
           ),
-          sliver: SliverToBoxAdapter(
-            child: Row(
-              children: <Widget>[
-                Tooltip(
-                  message: l10n.back,
-                  child: IconButton(
-                    key: const Key('youtube-feed-browse-back'),
-                    onPressed: onBack,
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
+          SliverList.builder(
+            itemCount: detail.sections.length,
+            itemBuilder: (context, index) => YouTubeFeedSectionView(
+              section: detail.sections[index],
+              sectionIndex: index,
+              loadingItemId: loadingItemId,
+              reduceMotion: reduceMotion,
+              onTap: onTap,
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        ],
+      ),
+    );
+  }
+
+  List<YouTubeFeedItem> _artistItems() {
+    if (detail.itemType != 'artist') {
+      return const <YouTubeFeedItem>[];
+    }
+    final seenVideoIds = <String>{};
+    final items = <YouTubeFeedItem>[];
+    for (final section in detail.sections) {
+      for (final item in section.items) {
+        final videoId = item.videoId;
+        if (!item.isPlayable || videoId == null || !seenVideoIds.add(videoId)) {
+          continue;
+        }
+        items.add(item);
+      }
+    }
+    return List<YouTubeFeedItem>.unmodifiable(items);
+  }
+
+  Future<void> _shuffleArtistTracks(List<YouTubeFeedItem> items) async {
+    final tracks = <Track>[];
+    for (final item in items) {
+      final track = await youtubeLibraryController.resolveFeedTrack(item);
+      tracks.add(
+        _asSimulatedYouTubeTrack(
+          track,
+          artworkFallback: detail.thumbnailUrl,
+          albumFallback: detail.title,
+          artistFallback: item.artists.isEmpty
+              ? <String>[detail.title]
+              : item.artists,
+          subtitleFallback: item.subtitle,
+          itemTypeFallback: item.itemType,
+        ),
+      );
+    }
+    if (tracks.isEmpty) {
+      return;
+    }
+    tracks.shuffle();
+    playerController.playTracks(tracks);
+  }
+}
+
+class _FeedBrowseDetailHeader extends StatelessWidget {
+  const _FeedBrowseDetailHeader({
+    required this.detail,
+    required this.controller,
+    required this.onShuffle,
+    required this.onBack,
+  });
+
+  final YouTubeFeedBrowseDetail detail;
+  final YouTubeLibraryController controller;
+  final VoidCallback? onShuffle;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final thumbnailUrl = detail.thumbnailUrl;
+    final isArtist = detail.itemType == 'artist';
+    final subscriberCount = isArtist ? detail.subscriberCount : null;
+    final audience = isArtist ? detail.audience : null;
+    final channelId = isArtist ? detail.channelId : null;
+    final subtitle = isArtist ? audience : detail.subtitle;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        Tooltip(
+          message: l10n.back,
+          child: IconButton(
+            key: const Key('youtube-feed-browse-back'),
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+        ),
+        if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) ...<Widget>[
+          const SizedBox(width: 16),
+          ClipOval(
+            child: SizedBox.square(
+              key: const Key('youtube-feed-browse-artwork'),
+              dimension: 88,
+              child: ArtworkImage(
+                assetPath: thumbnailUrl,
+                semanticLabel: l10n.profileImage(detail.title),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(width: 20),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                detail.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.displaySmall,
+              ),
+              if (subtitle case final value? when value.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 6),
+                Text(
+                  isArtist ? _artistAudienceText(value, l10n) : value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    detail.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.displaySmall,
+              ],
+              if (subscriberCount case final value?
+                  when value.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 4),
+                Text(
+                  _subscriberCountText(value, l10n),
+                  key: const Key('youtube-artist-subscriber-count'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: OtohaColors.mutedText,
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+        if (isArtist && onShuffle != null) ...<Widget>[
+          const SizedBox(width: 12),
+          Tooltip(
+            message: l10n.shuffle,
+            child: IconButton(
+              key: const Key('youtube-artist-shuffle'),
+              onPressed: onShuffle,
+              icon: const Icon(Icons.shuffle_rounded),
             ),
           ),
-        ),
-        SliverList.builder(
-          itemCount: detail.sections.length,
-          itemBuilder: (context, index) => _FeedSection(
-            section: detail.sections[index],
-            sectionIndex: index,
-            loadingItemId: loadingItemId,
-            reduceMotion: reduceMotion,
-            onTap: onTap,
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        ],
+        if (channelId case final value?) ...<Widget>[
+          const SizedBox(width: 20),
+          _ArtistFollowButton(controller: controller, channelId: value),
+        ],
       ],
     );
   }
 }
 
-class _PodcastShowDetail extends StatelessWidget {
-  const _PodcastShowDetail({
+String _artistAudienceText(String value, AppLocalizations l10n) {
+  if (RegExp(
+    r'monthly|audience|listener|观众|聽眾|听众|每月|月度',
+    caseSensitive: false,
+  ).hasMatch(value)) {
+    return value;
+  }
+  return l10n.monthlyAudience(value);
+}
+
+String _subscriberCountText(String value, AppLocalizations l10n) {
+  if (RegExp(
+    r'subscriber|follower|订阅|關注|关注',
+    caseSensitive: false,
+  ).hasMatch(value)) {
+    return value;
+  }
+  return l10n.subscriberCount(value);
+}
+
+class _ArtistFollowButton extends StatelessWidget {
+  const _ArtistFollowButton({
+    required this.controller,
+    required this.channelId,
+  });
+
+  final YouTubeLibraryController controller;
+  final String channelId;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final isFollowing = controller.isFollowingArtist(channelId);
+        final isUpdating = controller.followingArtistId == channelId;
+        return SizedBox(
+          width: 120,
+          child: isFollowing
+              ? OutlinedButton.icon(
+                  key: const Key('youtube-artist-following'),
+                  onPressed: isUpdating || controller.isAccountWriteCoolingDown
+                      ? null
+                      : () =>
+                            unawaited(controller.toggleArtistFollow(channelId)),
+                  icon: isUpdating
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_rounded),
+                  label: Text(l10n.following),
+                )
+              : FilledButton.icon(
+                  key: const Key('youtube-artist-follow'),
+                  onPressed: isUpdating || controller.isAccountWriteCoolingDown
+                      ? null
+                      : () =>
+                            unawaited(controller.toggleArtistFollow(channelId)),
+                  icon: isUpdating
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.person_add_alt_1_rounded),
+                  label: Text(l10n.follow),
+                ),
+        );
+      },
+    );
+  }
+}
+
+class YouTubePodcastShowDetailView extends StatelessWidget {
+  const YouTubePodcastShowDetailView({
     required this.detail,
     required this.loadingItemId,
     required this.isLoadingMore,
+    required this.isSaved,
+    required this.isSaving,
+    required this.canToggleLibrary,
     required this.onBack,
     required this.onLoadMore,
+    required this.onToggleLibrary,
     required this.onTap,
+    super.key,
   });
 
   final YouTubePodcastShowDetail detail;
   final String? loadingItemId;
   final bool isLoadingMore;
+  final bool isSaved;
+  final bool isSaving;
+  final bool canToggleLibrary;
   final VoidCallback onBack;
   final Future<void> Function() onLoadMore;
+  final VoidCallback onToggleLibrary;
   final VoidCallback? Function(YouTubeFeedItem item) onTap;
 
   @override
@@ -1580,7 +1717,7 @@ class _PodcastShowDetail extends StatelessWidget {
               32,
             ),
             sliver: SliverToBoxAdapter(
-              child: Column(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Tooltip(
@@ -1591,68 +1728,87 @@ class _PodcastShowDetail extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back_rounded),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppMetrics.radius),
-                        child: SizedBox.square(
-                          dimension: 144,
-                          child: ArtworkImage(
-                            assetPath: detail.thumbnailUrl ?? '',
-                            semanticLabel: l10n.artwork(detail.title),
-                          ),
-                        ),
+                  const SizedBox(width: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppMetrics.radius),
+                    child: SizedBox.square(
+                      dimension: 144,
+                      child: ArtworkImage(
+                        assetPath: detail.thumbnailUrl ?? '',
+                        semanticLabel: l10n.artwork(detail.title),
                       ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                l10n.podcast,
-                                style: const TextStyle(
-                                  color: OtohaColors.accent,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                detail.title,
-                                key: const Key('youtube-podcast-show-title'),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.displaySmall,
-                              ),
-                              if (detail.subtitle case final subtitle?
-                                  when subtitle.isNotEmpty) ...<Widget>[
-                                const SizedBox(height: 8),
-                                Text(
-                                  subtitle,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodyLarge,
-                                ),
-                              ],
-                              if (detail.description case final description?
-                                  when description.isNotEmpty) ...<Widget>[
-                                const SizedBox(height: 12),
-                                Text(
-                                  description,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                              ],
-                            ],
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            l10n.podcast,
+                            style: const TextStyle(
+                              color: OtohaColors.accent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 8),
+                          Text(
+                            detail.title,
+                            key: const Key('youtube-podcast-show-title'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.displaySmall,
+                          ),
+                          if (detail.subtitle case final subtitle?
+                              when subtitle.isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 8),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ],
+                          if (detail.description case final description?
+                              when description.isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 12),
+                            Text(
+                              description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            key: const Key('youtube-podcast-library-toggle'),
+                            onPressed: canToggleLibrary
+                                ? onToggleLibrary
+                                : null,
+                            icon: isSaving
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Icon(
+                                    isSaved
+                                        ? Icons.library_add_check_rounded
+                                        : Icons.library_add_rounded,
+                                  ),
+                            label: Text(
+                              isSaved
+                                  ? l10n.removeFromLibrary
+                                  : l10n.saveToLibrary,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ],
               ),
@@ -1729,85 +1885,94 @@ class _PodcastEpisodeRow extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        key: Key('youtube-podcast-episode-${episode.id}'),
-        onTap: onTap,
-        child: Stack(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Row(
-                children: <Widget>[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(
-                      width: 96,
-                      height: 56,
-                      child: ArtworkImage(
-                        assetPath: episode.thumbnailUrl ?? '',
-                        semanticLabel: l10n.artwork(episode.title),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          episode.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        if (episode.subtitle case final subtitle?
-                            when subtitle.isNotEmpty) ...<Widget>[
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                        if (episode.description case final description?
-                            when description.isNotEmpty) ...<Widget>[
-                          const SizedBox(height: 2),
-                          Text(
-                            description,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: OtohaColors.mutedText),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (episode.durationSeconds > 0) ...<Widget>[
-                    const SizedBox(width: 16),
-                    Text(
-                      _formatFeedDuration(episode.durationSeconds),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (isLoading)
-              const Positioned.fill(
-                child: ColoredBox(
-                  color: Color(0x99000000),
-                  child: Center(
-                    child: SizedBox.square(
-                      dimension: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+      borderRadius: BorderRadius.circular(4),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(
+              children: <Widget>[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: SizedBox(
+                    width: 96,
+                    height: 56,
+                    child: ArtworkImage(
+                      assetPath: episode.thumbnailUrl ?? '',
+                      semanticLabel: l10n.artwork(episode.title),
                     ),
                   ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        episode.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      if (episode.subtitle case final subtitle?
+                          when subtitle.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                      if (episode.description case final description?
+                          when description.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 2),
+                        Text(
+                          description,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: OtohaColors.mutedText),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (episode.durationSeconds > 0) ...<Widget>[
+                  const SizedBox(width: 16),
+                  Text(
+                    _formatFeedDuration(episode.durationSeconds),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (isLoading)
+            const Positioned.fill(
+              key: Key('youtube-podcast-episode-loading-overlay'),
+              child: ColoredBox(
+                color: Color(0x99000000),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
               ),
-          ],
-        ),
+            ),
+          Positioned.fill(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                key: Key('youtube-podcast-episode-${episode.id}'),
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

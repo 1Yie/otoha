@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:otoha/l10n/app_localizations.dart';
+import 'package:otoha/src/app/theme.dart';
 import 'package:otoha/src/models/catalog.dart';
 import 'package:otoha/src/services/audio_playback_engine.dart';
 import 'package:otoha/src/state/desktop_shell_controllers.dart';
@@ -75,7 +76,7 @@ void main() {
     expect(find.byKey(const Key('player-progress-elapsed')), findsOneWidget);
   });
 
-  testWidgets('uses a monospaced font for elapsed and total time', (
+  testWidgets('uses MiSans with tabular elapsed and total time', (
     tester,
   ) async {
     final player = PlayerController(<Track>[_youtubeTrack()]);
@@ -85,6 +86,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildOtohaTheme(),
         localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
           AppLocalizations.delegate,
           GlobalMaterialLocalizations.delegate,
@@ -101,13 +103,13 @@ void main() {
       ),
     );
 
-    expect(
-      tester
-          .widget<Text>(find.byKey(const Key('player-time')))
-          .style
-          ?.fontFamily,
-      'monospace',
-    );
+    final timeStyle = tester
+        .widget<Text>(find.byKey(const Key('player-time')))
+        .style;
+    expect(timeStyle?.fontFamily, 'MiSans');
+    expect(timeStyle?.fontFeatures, const <FontFeature>[
+      FontFeature.tabularFigures(),
+    ]);
   });
 
   testWidgets('does not truncate playback times above one hundred minutes', (

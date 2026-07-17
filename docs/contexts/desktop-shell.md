@@ -24,7 +24,6 @@
 - `MusicPlayerBar`
 - `RightPanelHost`
 - `CommentsPanel`
-- `SearchPalette`
 - `AccountPanel`
 
 ## File Paths
@@ -37,6 +36,7 @@
 - `lib/src/services/desktop_tray_controller.dart`
 - `lib/src/widgets/`
 - `lib/src/workspaces/workspace_views.dart`
+- `lib/src/workspaces/search_workspace.dart`
 
 ## Commands
 
@@ -54,7 +54,9 @@
 - Respect the reduced-motion setting for nonessential animation.
 - Keep the sidecar and account controller alive across workspace navigation.
 - On desktop, a successful tray initialization intercepts window close to hide the window while retaining the user-started player session. The tray menu is the only explicit exit path and must destroy the tray before closing the process.
-- Search uses signed-in YouTube Music results; local mock search remains the signed-out fallback.
+- Search is a workspace history destination opened from the title bar or `Ctrl/Cmd+K`; it is not a modal overlay or permanent sidebar item.
+- Search uses signed-in YouTube Music results with server-side type filters. Local mock song, album, and artist grouping remains the signed-out fallback.
+- Search-owned collection and browse details return to the same in-memory query and filter.
 - YouTube-track like/dislike controls are direct player actions; comments load and submit through the right-side panel without interrupting playback.
 - Explore moods and genres are top tabs that replace the Explore content beneath them; they are not feed cards.
 - Artwork plus discovery/library metadata use bounded caches. Cookies, audio, stream URLs, comments, lyrics, and search results stay out of persistent cache storage.

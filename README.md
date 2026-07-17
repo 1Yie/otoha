@@ -97,7 +97,7 @@ Otoha stores the credential only in the operating system credential store. Cooki
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+K` / `Cmd+K` | Open search |
+| `Ctrl+K` / `Cmd+K` | Open the Search workspace |
 | `Alt+Left` | Go back in workspace history |
 | `Alt+Right` | Go forward in workspace history |
 | `Space` | Play or pause |
@@ -106,7 +106,7 @@ Otoha stores the credential only in the operating system credential store. Cooki
 | `/` | Cycle repeat mode |
 | `Escape` | Close the topmost overlay |
 
-Playback shortcuts do not intercept text fields such as search, Cookie sign-in, or playlist-name inputs.
+Playback shortcuts do not intercept text fields such as Search, Cookie sign-in, or playlist-name inputs. Search participates in workspace Back and Forward history.
 
 ## Local Data and Privacy
 

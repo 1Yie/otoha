@@ -158,6 +158,35 @@ void main() {
       expect(controller.playbackError, AudioPlaybackFailure.startFailed);
     });
 
+    test('starts a queue at an index and advances after completion', () async {
+      final engine = _FakeAudioPlaybackEngine();
+      final first = _youtubeTrack('first');
+      final second = _youtubeTrack('second');
+      final third = _youtubeTrack('third');
+      final controller = PlayerController(
+        const <Track>[],
+        audioPlaybackEngine: engine,
+      );
+      addTearDown(controller.dispose);
+
+      controller.playTracks(<Track>[first, second, third], initialIndex: 1);
+
+      expect(controller.currentTrack, same(second));
+      expect(controller.queue, <Track>[first, second, third]);
+      expect(engine.openedVideoIds, <String>['second']);
+
+      engine.emit(
+        const AudioPlaybackSnapshot(
+          position: Duration(seconds: 180),
+          isCompleted: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentTrack, same(third));
+      expect(engine.openedVideoIds, <String>['second', 'third']);
+    });
+
     test('opens a video track with visible-video playback enabled', () {
       final engine = _FakeAudioPlaybackEngine();
       final track = _youtubeTrack('video', isVideo: true);

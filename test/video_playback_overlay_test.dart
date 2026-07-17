@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:otoha/l10n/app_localizations.dart';
@@ -13,6 +14,13 @@ import 'package:otoha/src/state/desktop_shell_controllers.dart';
 import 'package:otoha/src/widgets/video_playback_overlay.dart';
 
 void main() {
+  const windowManagerChannel = MethodChannel('window_manager');
+
+  tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(windowManagerChannel, null);
+  });
+
   testWidgets('video overlay keeps a close path without a native surface', (
     tester,
   ) async {
@@ -141,6 +149,140 @@ void main() {
     expect(find.textContaining('audio engine'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('desktop fullscreen keeps the mounted video state in place', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var nativeFullscreen = false;
+    final fullscreenValues = <bool>[];
+    final windowMethods = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(windowManagerChannel, (call) async {
+          windowMethods.add(call.method);
+          switch (call.method) {
+            case 'isFullScreen':
+              return nativeFullscreen;
+            case 'setFullScreen':
+              final arguments = call.arguments! as Map<Object?, Object?>;
+              nativeFullscreen = arguments['isFullScreen']! as bool;
+              fullscreenValues.add(nativeFullscreen);
+              return null;
+          }
+          throw MissingPluginException('Unexpected call: ${call.method}');
+        });
+    final shellController = ShellController()..openExpandedMedia();
+    addTearDown(shellController.dispose);
+    const track = Track(
+      id: 'youtube:video-id',
+      title: 'Live session',
+      artist: 'Channel',
+      album: 'YouTube Music',
+      artworkAsset: '',
+      durationSeconds: 240,
+      lyrics: <String>[],
+      youtubeVideoId: 'video-id',
+      isVideo: true,
+    );
+    final playerController = PlayerController(const <Track>[track]);
+    addTearDown(playerController.dispose);
+    final videoState = _FakeVideoState();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocaleController.supportedLocales,
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: VideoPlaybackOverlay(
+          track: track,
+          playerController: playerController,
+          shellController: shellController,
+          videoStateOverride: videoState,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    windowMethods.clear();
+
+    tester
+        .widget<IconButton>(find.byKey(const Key('video-fullscreen')))
+        .onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(videoState.toggleCalls, 0);
+    expect(windowMethods, <String>['isFullScreen', 'setFullScreen']);
+    expect(fullscreenValues, <bool>[true]);
+    expect(nativeFullscreen, isTrue);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('video-fullscreen')),
+        matching: find.byIcon(Icons.fullscreen_exit_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    nativeFullscreen = false;
+    await _emitWindowEvent(tester, 'leave-full-screen');
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('video-fullscreen')),
+        matching: find.byIcon(Icons.fullscreen_rounded),
+      ),
+      findsOneWidget,
+    );
+    nativeFullscreen = true;
+    await _emitWindowEvent(tester, 'enter-full-screen');
+    await tester.pump();
+
+    tester
+        .widget<IconButton>(find.byKey(const Key('close-video-playback')))
+        .onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(nativeFullscreen, isFalse);
+    expect(fullscreenValues, <bool>[true, false]);
+    expect(videoState.exitCalls, 0);
+    expect(shellController.isExpandedLyricsOpen, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+}
+
+Future<void> _emitWindowEvent(WidgetTester tester, String eventName) {
+  return tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+    'window_manager',
+    const StandardMethodCodec().encodeMethodCall(
+      MethodCall('onEvent', <String, Object?>{'eventName': eventName}),
+    ),
+    (_) {},
+  );
+}
+
+class _FakeVideoState extends VideoState {
+  int toggleCalls = 0;
+  int exitCalls = 0;
+  bool fullscreen = false;
+
+  @override
+  bool isFullscreen() => fullscreen;
+
+  @override
+  Future<void> toggleFullscreen() async {
+    toggleCalls += 1;
+    fullscreen = !fullscreen;
+  }
+
+  @override
+  Future<void> exitFullscreen() async {
+    exitCalls += 1;
+    fullscreen = false;
+  }
 }
 
 class _FailingPlaybackEngine implements AudioPlaybackEngine {

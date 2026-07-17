@@ -10,6 +10,7 @@ import '../services/player_session_store.dart';
 
 enum WorkspacePage {
   home,
+  search,
   explore,
   library,
   history,
@@ -21,8 +22,9 @@ enum WorkspacePage {
 extension WorkspacePageDetails on WorkspacePage {
   String get label => switch (this) {
     WorkspacePage.home => 'Home',
+    WorkspacePage.search => 'Search',
     WorkspacePage.explore => 'Explore',
-    WorkspacePage.library => 'Library',
+    WorkspacePage.library => 'Media library',
     WorkspacePage.history => 'History',
     WorkspacePage.downloads => 'Downloads',
     WorkspacePage.playlists => 'Playlists',
@@ -30,7 +32,7 @@ extension WorkspacePageDetails on WorkspacePage {
   };
 }
 
-enum SidePanel { queue, devices, account }
+enum SidePanel { queue, devices, comments, account }
 
 enum PlaybackRepeatMode { off, all, one }
 
@@ -259,13 +261,14 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void playTracks(List<Track> tracks) {
+  void playTracks(List<Track> tracks, {int initialIndex = 0}) {
     if (tracks.isEmpty) {
       return;
     }
+    final startIndex = initialIndex.clamp(0, tracks.length - 1);
     _catalog = List<Track>.unmodifiable(tracks);
     _playOrder = List<Track>.of(tracks);
-    _currentTrack = tracks.first;
+    _currentTrack = _playOrder[startIndex];
     _positionSeconds = 0;
     _isPlaying = true;
     _isShuffled = false;
@@ -589,12 +592,10 @@ class PlayerController extends ChangeNotifier {
 
 class ShellController extends ChangeNotifier {
   SidePanel? _activePanel;
-  bool _isSearchOpen = false;
   bool _isExpandedLyricsOpen = false;
   bool _reduceMotion = false;
 
   SidePanel? get activePanel => _activePanel;
-  bool get isSearchOpen => _isSearchOpen;
   bool get isExpandedLyricsOpen => _isExpandedLyricsOpen;
   bool get reduceMotion => _reduceMotion;
 
@@ -612,30 +613,10 @@ class ShellController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void openSearch() {
-    if (_isSearchOpen) {
-      return;
-    }
-
-    _isSearchOpen = true;
-    _isExpandedLyricsOpen = false;
-    notifyListeners();
-  }
-
-  void closeSearch() {
-    if (!_isSearchOpen) {
-      return;
-    }
-
-    _isSearchOpen = false;
-    notifyListeners();
-  }
-
   void toggleExpandedLyrics() {
     _isExpandedLyricsOpen = !_isExpandedLyricsOpen;
     if (_isExpandedLyricsOpen) {
       _activePanel = null;
-      _isSearchOpen = false;
     }
     notifyListeners();
   }
@@ -646,7 +627,6 @@ class ShellController extends ChangeNotifier {
     }
     _isExpandedLyricsOpen = true;
     _activePanel = null;
-    _isSearchOpen = false;
     notifyListeners();
   }
 
@@ -660,10 +640,6 @@ class ShellController extends ChangeNotifier {
   }
 
   void closeTopmostOverlay() {
-    if (_isSearchOpen) {
-      closeSearch();
-      return;
-    }
     if (_isExpandedLyricsOpen) {
       closeExpandedLyrics();
       return;

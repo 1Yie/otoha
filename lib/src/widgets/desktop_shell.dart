@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/theme.dart';
+import '../models/catalog.dart';
 import '../state/app_locale_controller.dart';
 import '../state/desktop_shell_controllers.dart';
 import '../state/offline_library_controller.dart';
@@ -10,7 +11,6 @@ import '../workspaces/workspace_views.dart';
 import 'player_bar.dart';
 import 'expanded_lyrics.dart';
 import 'right_panel.dart';
-import 'search_palette.dart';
 import 'sidebar.dart';
 import 'title_bar.dart';
 import 'video_playback_overlay.dart';
@@ -40,9 +40,8 @@ class DesktopShell extends StatelessWidget {
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.keyK, control: true):
-            shellController.openSearch,
-        const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
-            shellController.openSearch,
+            _openSearch,
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _openSearch,
         const SingleActivator(LogicalKeyboardKey.escape):
             shellController.closeTopmostOverlay,
         const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
@@ -99,6 +98,7 @@ class DesktopShell extends StatelessWidget {
                     playerController: playerController,
                     shellController: shellController,
                     offlineLibraryController: offlineLibraryController,
+                    youtubeLibraryController: youtubeLibraryController,
                   ),
                 ],
               ),
@@ -119,79 +119,12 @@ class DesktopShell extends StatelessWidget {
                   },
                 ),
               ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: AnimatedBuilder(
-                  animation: shellController,
-                  builder: (context, _) {
-                    final duration = shellController.reduceMotion
-                        ? Duration.zero
-                        : const Duration(milliseconds: 220);
-                    return AnimatedSwitcher(
-                      duration: duration,
-                      reverseDuration: duration,
-                      transitionBuilder: (child, animation) {
-                        return SlideTransition(
-                          position:
-                              Tween<Offset>(
-                                begin: const Offset(0, 1),
-                                end: Offset.zero,
-                              ).animate(
-                                CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOutCubic,
-                                ),
-                              ),
-                          child: child,
-                        );
-                      },
-                      child:
-                          shellController.isExpandedLyricsOpen &&
-                              playerController.currentTrack != null
-                          ? playerController.currentTrack!.isVideo
-                                ? VideoPlaybackOverlay(
-                                    key: const ValueKey<String>(
-                                      'expanded-video',
-                                    ),
-                                    track: playerController.currentTrack!,
-                                    playerController: playerController,
-                                    shellController: shellController,
-                                    videoController:
-                                        playerController.videoController,
-                                  )
-                                : ExpandedLyricsOverlay(
-                                    key: const ValueKey<String>(
-                                      'expanded-lyrics',
-                                    ),
-                                    playerController: playerController,
-                                    shellController: shellController,
-                                    youtubeLibraryController:
-                                        youtubeLibraryController,
-                                  )
-                          : const SizedBox(
-                              key: ValueKey<String>('no-expanded-media'),
-                            ),
-                    );
-                  },
+              Positioned.fill(
+                child: _ExpandedMediaTransition(
+                  playerController: playerController,
+                  shellController: shellController,
+                  youtubeLibraryController: youtubeLibraryController,
                 ),
-              ),
-              AnimatedBuilder(
-                animation: shellController,
-                builder: (context, _) {
-                  if (!shellController.isSearchOpen) {
-                    return const SizedBox.shrink();
-                  }
-                  return SearchPalette(
-                    workspaceController: workspaceController,
-                    playerController: playerController,
-                    shellController: shellController,
-                    youtubeLibraryController: youtubeLibraryController,
-                    reduceMotion: shellController.reduceMotion,
-                  );
-                },
               ),
             ],
           ),
@@ -206,7 +139,6 @@ class DesktopShell extends StatelessWidget {
         HardwareKeyboard.instance.isMetaPressed ||
         HardwareKeyboard.instance.isAltPressed ||
         HardwareKeyboard.instance.isShiftPressed ||
-        shellController.isSearchOpen ||
         _focusedControlConsumes(event.logicalKey)) {
       return KeyEventResult.ignored;
     }
@@ -223,6 +155,11 @@ class DesktopShell extends StatelessWidget {
         return KeyEventResult.ignored;
     }
     return KeyEventResult.handled;
+  }
+
+  void _openSearch() {
+    shellController.closeExpandedLyrics();
+    workspaceController.navigateTo(WorkspacePage.search);
   }
 
   bool _focusedControlConsumes(LogicalKeyboardKey key) {
@@ -253,6 +190,166 @@ class DesktopShell extends StatelessWidget {
     return (key == LogicalKeyboardKey.arrowLeft ||
             key == LogicalKeyboardKey.arrowRight) &&
         widget is Slider;
+  }
+}
+
+class _ExpandedMediaTransition extends StatefulWidget {
+  const _ExpandedMediaTransition({
+    required this.playerController,
+    required this.shellController,
+    required this.youtubeLibraryController,
+  });
+
+  final PlayerController playerController;
+  final ShellController shellController;
+  final YouTubeLibraryController youtubeLibraryController;
+
+  @override
+  State<_ExpandedMediaTransition> createState() =>
+      _ExpandedMediaTransitionState();
+}
+
+class _ExpandedMediaTransitionState extends State<_ExpandedMediaTransition>
+    with SingleTickerProviderStateMixin {
+  static const _duration = Duration(milliseconds: 280);
+
+  late final AnimationController _controller;
+  late final Animation<Offset> _position;
+  Track? _presentedTrack;
+  bool _targetOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: _duration)
+      ..addStatusListener(_handleAnimationStatus);
+    _position = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _controller,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
+    widget.shellController.addListener(_syncPresentation);
+    widget.playerController.addListener(_syncPresentation);
+    _targetOpen = _shouldOpen;
+    if (_targetOpen) {
+      _presentedTrack = widget.playerController.currentTrack;
+      _controller.value = 1;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ExpandedMediaTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.shellController != widget.shellController) {
+      oldWidget.shellController.removeListener(_syncPresentation);
+      widget.shellController.addListener(_syncPresentation);
+    }
+    if (oldWidget.playerController != widget.playerController) {
+      oldWidget.playerController.removeListener(_syncPresentation);
+      widget.playerController.addListener(_syncPresentation);
+    }
+    _syncPresentation();
+  }
+
+  @override
+  void dispose() {
+    widget.shellController.removeListener(_syncPresentation);
+    widget.playerController.removeListener(_syncPresentation);
+    _controller
+      ..removeStatusListener(_handleAnimationStatus)
+      ..dispose();
+    super.dispose();
+  }
+
+  bool get _shouldOpen =>
+      widget.shellController.isExpandedLyricsOpen &&
+      widget.playerController.currentTrack != null;
+
+  void _syncPresentation() {
+    if (!mounted) {
+      return;
+    }
+    final shouldOpen = _shouldOpen;
+    final track = widget.playerController.currentTrack;
+    final wasOpen = _targetOpen;
+    final previousTrack = _presentedTrack;
+    _targetOpen = shouldOpen;
+
+    var mediaKindChanged = false;
+    if (shouldOpen && track != null) {
+      mediaKindChanged =
+          previousTrack != null && previousTrack.isVideo != track.isVideo;
+      final keepOutgoingVideo =
+          previousTrack?.isVideo == true && !track.isVideo;
+      if (!keepOutgoingVideo && !identical(previousTrack, track)) {
+        setState(() => _presentedTrack = track);
+      }
+    }
+
+    if (widget.shellController.reduceMotion) {
+      _controller.value = shouldOpen ? 1 : 0;
+      if (!shouldOpen && _presentedTrack != null) {
+        setState(() => _presentedTrack = null);
+      }
+      return;
+    }
+
+    _controller.duration = _duration;
+    if (shouldOpen) {
+      if (!wasOpen || mediaKindChanged) {
+        _controller.forward(from: 0);
+      } else if (!_controller.isCompleted) {
+        _controller.forward();
+      }
+      return;
+    }
+    if (_presentedTrack != null && !_controller.isDismissed) {
+      _controller.reverse();
+    }
+  }
+
+  void _handleAnimationStatus(AnimationStatus status) {
+    if (status != AnimationStatus.dismissed ||
+        _targetOpen ||
+        _presentedTrack == null ||
+        !mounted) {
+      return;
+    }
+    setState(() => _presentedTrack = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final track = _presentedTrack;
+    if (track == null) {
+      return const SizedBox(key: ValueKey<String>('no-expanded-media'));
+    }
+    return ClipRect(
+      child: IgnorePointer(
+        ignoring: !_targetOpen,
+        child: SlideTransition(
+          key: const Key('expanded-media-slide'),
+          position: _position,
+          child: track.isVideo
+              ? VideoPlaybackOverlay(
+                  key: const ValueKey<String>('expanded-video'),
+                  track: track,
+                  playerController: widget.playerController,
+                  shellController: widget.shellController,
+                  videoController: widget.playerController.videoController,
+                )
+              : ExpandedLyricsOverlay(
+                  key: const ValueKey<String>('expanded-lyrics'),
+                  playerController: widget.playerController,
+                  shellController: widget.shellController,
+                  youtubeLibraryController: widget.youtubeLibraryController,
+                ),
+        ),
+      ),
+    );
   }
 }
 
@@ -307,6 +404,7 @@ class _WorkspaceRegion extends StatelessWidget {
             key: ValueKey<WorkspacePage>(workspaceController.current),
             child: WorkspaceView(
               page: workspaceController.current,
+              workspaceController: workspaceController,
               playerController: playerController,
               shellController: shellController,
               youtubeLibraryController: youtubeLibraryController,

@@ -152,7 +152,7 @@ class _ConnectedView extends StatelessWidget {
           key: const Key('youtube-library-sync'),
           onPressed: controller.isLoadingLibrary
               ? null
-              : controller.loadPlaylists,
+              : () => controller.loadMediaLibrary(forceRefresh: true),
           icon: const Icon(Icons.sync_rounded),
           label: Text(l10n.syncLibrary),
         ),

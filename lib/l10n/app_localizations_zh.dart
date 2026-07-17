@@ -69,7 +69,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get explore => '探索';
 
   @override
-  String get library => '音乐库';
+  String get library => '媒体库';
 
   @override
   String get history => '历史记录';
@@ -103,6 +103,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get search => '搜索';
+
+  @override
+  String get all => '全部';
 
   @override
   String get searchYourMusic => '搜索你的音乐';
@@ -184,7 +187,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get signOut => '退出登录';
 
   @override
-  String get syncLibrary => '同步音乐库';
+  String get syncLibrary => '同步媒体库';
 
   @override
   String get fullYouTubeMusicSession => '完整 YouTube Music 会话';
@@ -198,7 +201,62 @@ class AppLocalizationsZh extends AppLocalizations {
   String get yourLibrary => '你的音乐库';
 
   @override
-  String get yourPlaylists => '你的播放列表';
+  String get yourMediaLibrary => '你的媒体库';
+
+  @override
+  String get mediaLibrary => '媒体库';
+
+  @override
+  String get yourPlaylists => '播放列表';
+
+  @override
+  String get savedMusic => '已保存的内容';
+
+  @override
+  String get podcasts => '播客';
+
+  @override
+  String get albums => '专辑';
+
+  @override
+  String get saveToLibrary => '保存到媒体库';
+
+  @override
+  String get removeFromLibrary => '从媒体库移除';
+
+  @override
+  String get savePodcastToLibrary => '保存到媒体库';
+
+  @override
+  String get removePodcastFromLibrary => '从媒体库移除';
+
+  @override
+  String get followedArtists => '已关注的音乐人';
+
+  @override
+  String get follow => '关注';
+
+  @override
+  String get following => '已关注';
+
+  @override
+  String monthlyAudience(Object count) {
+    return '每月观众：$count';
+  }
+
+  @override
+  String subscriberCount(Object count) {
+    return '订阅者：$count';
+  }
+
+  @override
+  String get saveEpisodeForLater => '保存分集以供稍后收听';
+
+  @override
+  String get episodeSavedForLater => '分集已保存到稍后再听';
+
+  @override
+  String get noMediaFound => '未找到媒体内容';
 
   @override
   String get noPlaylistsFound => '未找到播放列表';
@@ -257,6 +315,20 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String chartRank(int rank) {
+    return '第 $rank 名';
+  }
+
+  @override
+  String get chartTrendUp => '排名上升';
+
+  @override
+  String get chartTrendDown => '排名下降';
+
+  @override
+  String get chartTrendNeutral => '排名不变';
+
+  @override
   String get album => '专辑';
 
   @override
@@ -276,6 +348,33 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get noPodcastEpisodes => '暂无可播放的节目。';
+
+  @override
+  String get comments => '评论';
+
+  @override
+  String get noComments => '暂无评论。';
+
+  @override
+  String get commentsUnavailable => '请选择已登录的 YouTube Music 曲目以查看评论。';
+
+  @override
+  String get writeComment => '写评论';
+
+  @override
+  String get postComment => '发布评论';
+
+  @override
+  String get like => '喜欢';
+
+  @override
+  String get removeLike => '取消喜欢';
+
+  @override
+  String get dislike => '不喜欢';
+
+  @override
+  String get removeDislike => '取消不喜欢';
 
   @override
   String get song => '歌曲';
@@ -381,6 +480,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get about => '关于';
+
+  @override
+  String get licensesAndNotices => '许可协议与声明';
 
   @override
   String appVersion(String version) {

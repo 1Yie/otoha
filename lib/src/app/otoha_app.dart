@@ -18,6 +18,7 @@ import '../state/app_locale_controller.dart';
 import '../state/offline_library_controller.dart';
 import '../state/youtube_library_controller.dart';
 import '../widgets/desktop_shell.dart';
+import 'bundled_licenses.dart';
 import 'theme.dart';
 
 class OtohaApp extends StatefulWidget {
@@ -65,6 +66,7 @@ class _OtohaAppState extends State<OtohaApp> {
   @override
   void initState() {
     super.initState();
+    registerBundledLicenses();
     _ownsLocaleController = widget.localeController == null;
     _localeController = widget.localeController ?? AppLocaleController();
     _workspaceController = WorkspaceController();

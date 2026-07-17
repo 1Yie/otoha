@@ -464,7 +464,11 @@ class _DownloadSidecarClient extends YouTubeSidecarClient {
     }
     return switch (method) {
       'auth.cookie.signIn' => <String, Object?>{'authenticated': true},
-      'library.playlists' => <String, Object?>{'playlists': <Object?>[]},
+      'library.media' => <String, Object?>{
+        'playlists': <Object?>[],
+        'savedCollections': <Object?>[],
+        'followedArtists': <Object?>[],
+      },
       'feed.home' ||
       'feed.explore' => <String, Object?>{'sections': <Object?>[]},
       _ => <String, Object?>{},

@@ -24,8 +24,8 @@
 - `lib/src/services/`: credential/session storage, bounded artwork/metadata caches, and the local sidecar process client.
 - `lib/src/services/audio_playback_engine.dart`: native `media_kit` audio engine and transient stream resolver boundary.
 - `lib/src/state/`: focused Flutter `ChangeNotifier` controllers.
-- `lib/src/widgets/`: permanent shell layers, title bar, player, search palette, and panels.
-- `lib/src/workspaces/`: replaceable Home, Explore, Library, and Settings views, including YouTube feed carousels and collection details.
+- `lib/src/widgets/`: permanent shell layers, title bar, player, and panels.
+- `lib/src/workspaces/`: replaceable Home, Search, Explore, Library, and Settings views, including YouTube feed carousels and collection details.
 - `assets/artwork/`: eight bundled local album-art PNGs.
 - `test/`: controller and desktop-shell widget tests.
 - `docs/contexts/`: concise subsystem reference cards.

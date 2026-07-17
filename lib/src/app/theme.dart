@@ -38,6 +38,7 @@ ThemeData buildOtohaTheme() {
   return ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
+    fontFamily: 'MiSans',
     colorScheme: colorScheme,
     scaffoldBackgroundColor: OtohaColors.canvas,
     canvasColor: OtohaColors.canvas,

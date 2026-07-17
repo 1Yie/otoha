@@ -15,9 +15,15 @@ const methods = {
   'auth.cookie.signIn': ({ cookie, locale } = {}) =>
     service.signInWithCookie(cookie, locale),
   'auth.signOut': () => service.signOut(),
-  'library.playlists': () => service.getLibraryPlaylists(),
+  'library.media': () => service.getLibraryMedia(),
   'library.playlist': ({ playlistId } = {}) => service.getPlaylist(playlistId),
+  'library.playlist.more': ({ playlistId } = {}) =>
+    service.getMorePlaylist(playlistId),
+  'library.special': ({ kind } = {}) => service.getSpecialCollection(kind),
+  'library.special.more': ({ kind } = {}) =>
+    service.getMoreSpecialCollection(kind),
   'history.get': () => service.getHistory(),
+  'history.more': () => service.getMoreHistory(),
   'feed.home': () => service.getHomeFeed(),
   'feed.home.filter': ({ filter } = {}) => service.applyHomeFilter(filter),
   'feed.home.more': () => service.getMoreHomeFeed(),
@@ -25,10 +31,19 @@ const methods = {
   'feed.explore.more': () => service.getMoreExploreFeed(),
   'interaction.rate': ({ videoId, rating } = {}) =>
     service.rateVideo(videoId, rating),
+  'interaction.subscription': ({ channelId, subscribed } = {}) =>
+    service.setSubscription(channelId, subscribed),
+  'podcast.episode_later.set': ({ videoId, saved } = {}) =>
+    service.setEpisodeForLater(videoId, saved),
+  'podcast.library.set': ({ podcastId, saved } = {}) =>
+    service.setPodcastInLibrary(podcastId, saved),
+  'album.library.set': ({ albumId, saved } = {}) =>
+    service.setAlbumInLibrary(albumId, saved),
   'comments.get': ({ videoId } = {}) => service.getComments(videoId),
   'comments.create': ({ videoId, text } = {}) =>
     service.createComment(videoId, text),
-  'search.music': ({ query } = {}) => service.searchMusic(query),
+  'search.music': ({ query, filter } = {}) =>
+    service.searchMusic(query, filter),
   'feed.collection': ({ itemType, id } = {}) =>
     service.getFeedCollection(itemType, id),
   'feed.track': ({ videoId } = {}) => service.getFeedTrack(videoId),

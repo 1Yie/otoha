@@ -9,6 +9,7 @@ import {
   mapAccountProfile,
   mapCommentThread,
   mapFeedSections,
+  mapRawArtistDetail,
   mapRawPodcastShowDetail,
   mapSearchItems,
   mapPlaylist,
@@ -16,6 +17,335 @@ import {
   serializeError,
   YouTubeService,
 } from '../src/youtube_service.mjs';
+
+function rawChartItem(videoId, rank, iconType) {
+  return {
+    musicResponsiveListItemRenderer: {
+      playlistItemData: { videoId },
+      customIndexColumn: {
+        musicCustomIndexColumnRenderer: {
+          text: { runs: [{ text: rank }] },
+          icon: { iconType },
+        },
+      },
+    },
+  };
+}
+
+function rawExploreChartItem(videoId, title, rank, iconType) {
+  return {
+    musicResponsiveListItemRenderer: {
+      ...rawChartItem(videoId, rank, iconType)
+        .musicResponsiveListItemRenderer,
+      flexColumns: [
+        {
+          musicResponsiveListItemFlexColumnRenderer: {
+            text: {
+              runs: [
+                {
+                  text: title,
+                  navigationEndpoint: {
+                    watchEndpoint: {
+                      videoId,
+                      watchEndpointMusicSupportedConfigs: {
+                        watchEndpointMusicConfig: {
+                          musicVideoType: 'MUSIC_VIDEO_TYPE_ATV',
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          musicResponsiveListItemFlexColumnRenderer: {
+            text: {
+              runs: [
+                {
+                  text: 'Chart artist',
+                  navigationEndpoint: {
+                    browseEndpoint: { browseId: 'UCchart-artist' },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+      navigationEndpoint: { watchEndpoint: { videoId } },
+    },
+  };
+}
+
+function rawChartArtistItem(browseId, title, rank, iconType) {
+  return {
+    musicResponsiveListItemRenderer: {
+      flexColumns: [
+        {
+          musicResponsiveListItemFlexColumnRenderer: {
+            text: {
+              runs: [
+                {
+                  text: title,
+                  navigationEndpoint: {
+                    browseEndpoint: { browseId },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+      navigationEndpoint: {
+        browseEndpoint: {
+          browseId,
+          browseEndpointContextSupportedConfigs: {
+            browseEndpointContextMusicConfig: {
+              pageType: 'MUSIC_PAGE_TYPE_ARTIST',
+            },
+          },
+        },
+      },
+      thumbnail: {
+        musicThumbnailRenderer: {
+          thumbnail: {
+            thumbnails: [
+              {
+                url: `https://example.test/${browseId}.jpg`,
+                width: 60,
+                height: 60,
+              },
+            ],
+          },
+        },
+      },
+      customIndexColumn: {
+        musicCustomIndexColumnRenderer: {
+          text: { runs: [{ text: rank }] },
+          icon: { iconType },
+        },
+      },
+    },
+  };
+}
+
+function parsedChartArtistItem(id, title) {
+  return {
+    item_type: 'artist',
+    id,
+    title,
+    endpoint: {
+      payload: {
+        browseId: id,
+      },
+    },
+  };
+}
+
+function rawLibraryAlbumItem({
+  id,
+  title,
+  artist,
+  params = null,
+  responsive = false,
+}) {
+  const titleValue = {
+    runs: [
+      {
+        text: title,
+        navigationEndpoint: {
+          browseEndpoint: {
+            browseId: id,
+            ...(params ? { params } : {}),
+            browseEndpointContextSupportedConfigs: {
+              browseEndpointContextMusicConfig: {
+                pageType: 'MUSIC_PAGE_TYPE_ALBUM',
+              },
+            },
+          },
+        },
+      },
+    ],
+  };
+  const subtitleValue = {
+    runs: [
+      { text: 'Album' },
+      { text: ' • ' },
+      {
+        text: artist,
+        navigationEndpoint: {
+          browseEndpoint: {
+            browseId: `UC-${artist.toLowerCase().replaceAll(' ', '-')}`,
+            browseEndpointContextSupportedConfigs: {
+              browseEndpointContextMusicConfig: {
+                pageType: 'MUSIC_PAGE_TYPE_ARTIST',
+              },
+            },
+          },
+        },
+      },
+      { text: ' • ' },
+      { text: '2025' },
+    ],
+  };
+  const artwork = {
+    musicThumbnailRenderer: {
+      thumbnail: {
+        thumbnails: [
+          {
+            url: `https://lh3.googleusercontent.com/${id}=w60-h60-l90-rj`,
+            width: 60,
+            height: 60,
+          },
+        ],
+      },
+    },
+  };
+  if (responsive) {
+    return {
+      musicResponsiveListItemRenderer: {
+        flexColumns: [
+          {
+            musicResponsiveListItemFlexColumnRenderer: {
+              text: titleValue,
+            },
+          },
+          {
+            musicResponsiveListItemFlexColumnRenderer: {
+              text: subtitleValue,
+            },
+          },
+        ],
+        thumbnail: artwork,
+      },
+    };
+  }
+  return {
+    musicTwoRowItemRenderer: {
+      title: titleValue,
+      subtitle: subtitleValue,
+      thumbnailRenderer: artwork,
+    },
+  };
+}
+
+function rawLibraryAlbumsResponse({
+  items,
+  continuation = null,
+  continuationPage = false,
+}) {
+  const grid = {
+    items,
+    ...(continuation
+      ? {
+          continuations: [
+            { nextContinuationData: { continuation } },
+          ],
+        }
+      : {}),
+  };
+  return {
+    success: true,
+    status_code: 200,
+    data: continuationPage
+      ? { continuationContents: { gridContinuation: grid } }
+      : {
+          contents: {
+            singleColumnBrowseResultsRenderer: {
+              tabs: [
+                {
+                  tabRenderer: {
+                    selected: true,
+                    content: {
+                      sectionListRenderer: {
+                        contents: [{ gridRenderer: grid }],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+  };
+}
+
+function rawExploreResponse({
+  items = [],
+  sections,
+  continuation = null,
+  includeCharts = true,
+} = {}) {
+  const contentSections =
+    sections ?? (items.length ? [{ title: 'Popular songs', items }] : []);
+  return {
+    success: true,
+    status_code: 200,
+    data: {
+      contents: {
+        singleColumnBrowseResultsRenderer: {
+          tabs: [
+            {
+              tabRenderer: {
+                selected: true,
+                content: {
+                  sectionListRenderer: {
+                    contents: [
+                      ...(includeCharts
+                        ? [
+                            {
+                              gridRenderer: {
+                                items: [
+                                  {
+                                    musicNavigationButtonRenderer: {
+                                      buttonText: {
+                                        runs: [{ text: 'Charts' }],
+                                      },
+                                      clickCommand: {
+                                        browseEndpoint: {
+                                          browseId: 'FEmusic_charts',
+                                          params: 'charts-params',
+                                        },
+                                      },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          ]
+                        : []),
+                      ...contentSections.map((section) => ({
+                        musicCarouselShelfRenderer: {
+                          header: {
+                            musicCarouselShelfBasicHeaderRenderer: {
+                              title: { runs: [{ text: section.title }] },
+                            },
+                          },
+                          contents: section.items,
+                        },
+                      })),
+                    ],
+                    ...(continuation
+                      ? {
+                          continuations: [
+                            {
+                              nextContinuationData: { continuation },
+                            },
+                          ],
+                        }
+                      : {}),
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+  };
+}
 
 test('maps playlist and track parser shapes to the process contract', () => {
   assert.deepEqual(
@@ -65,6 +395,24 @@ test('maps playlist and track parser shapes to the process contract', () => {
       durationSeconds: 183,
       thumbnailUrl:
         'https://lh3.googleusercontent.com/cover=w1200-h1200-l90-rj',
+    },
+  );
+
+  assert.deepEqual(
+    mapTrack({
+      item_type: 'non_music_track',
+      id: 'episode-id',
+      title: 'Podcast episode',
+      second_title: 'Today · 42 min',
+    }),
+    {
+      videoId: 'episode-id',
+      itemType: 'non_music_track',
+      title: 'Podcast episode',
+      artists: [],
+      album: null,
+      durationSeconds: 2520,
+      thumbnailUrl: null,
     },
   );
 });
@@ -498,6 +846,52 @@ test('maps searchable music items and removes duplicate entries', () => {
   );
 });
 
+test('forwards typed music search filters and rejects unsupported values', async () => {
+  const calls = [];
+  const text = (value) => ({ toString: () => value });
+  const service = new YouTubeService();
+  service.innertube = {
+    music: {
+      search: async (query, options) => {
+        calls.push({ query, options });
+        return {
+          contents: [
+            {
+              contents: [
+                {
+                  item_type: 'song',
+                  id: `result-${options.type}`,
+                  title: text(`Result ${options.type}`),
+                  endpoint: {
+                    payload: { videoId: `result-${options.type}` },
+                  },
+                },
+              ],
+            },
+          ],
+        };
+      },
+    },
+  };
+
+  for (const filter of ['all', 'song', 'album', 'artist', 'playlist', 'video']) {
+    const result = await service.searchMusic(`query ${filter}`, filter);
+    assert.equal(result.items[0].id, `result-${filter}`);
+  }
+
+  assert.deepEqual(
+    calls,
+    ['all', 'song', 'album', 'artist', 'playlist', 'video'].map((filter) => ({
+      query: `query ${filter}`,
+      options: { type: filter },
+    })),
+  );
+  await assert.rejects(
+    service.searchMusic('query', 'podcast'),
+    (error) => error.code === 'INVALID_SEARCH_FILTER',
+  );
+});
+
 test('maps a browse result tab into feed sections', () => {
   const page = {
     contents: {
@@ -584,6 +978,451 @@ test('maps singleton browse fields without assuming parser arrays', () => {
   ]);
 });
 
+test('preserves parsed and raw chart rank semantics', () => {
+  const page = {
+    contents: {
+      tabs: {
+        selected: true,
+        content: {
+          contents: {
+            header: { title: 'Popular songs' },
+            contents: [
+              {
+                item_type: 'song',
+                id: 'ranked-up',
+                title: 'Rising track',
+                index: { toString: () => '1' },
+              },
+              {
+                item_type: 'song',
+                id: 'ranked-down',
+                title: 'Falling track',
+              },
+              {
+                item_type: 'song',
+                id: 'ranked-neutral',
+                title: 'Steady track',
+              },
+            ],
+          },
+        },
+      },
+    },
+  };
+  const rawPage = {
+    contents: [
+      rawChartItem('ranked-up', '1', 'ARROW_DROP_UP'),
+      rawChartItem('ranked-down', '2', 'TRENDING_DOWN'),
+      rawChartItem('ranked-neutral', '3', 'ARROW_CHART_NEUTRAL'),
+    ],
+  };
+
+  const [section] = mapBrowseFeedSections(page, rawPage);
+
+  assert.equal(section.title, 'Popular songs');
+  assert.deepEqual(
+    section.items.map(({ id, rank, trend }) => ({ id, rank, trend })),
+    [
+      { id: 'ranked-up', rank: 1, trend: 'up' },
+      { id: 'ranked-down', rank: 2, trend: 'down' },
+      { id: 'ranked-neutral', rank: 3, trend: 'neutral' },
+    ],
+  );
+});
+
+test('attaches raw chart rank through every renderer-local video identity', () => {
+  const page = {
+    contents: {
+      tabs: {
+        selected: true,
+        content: {
+          contents: {
+            header: { title: 'Popular songs' },
+            contents: [
+              {
+                item_type: 'song',
+                id: 'treat-u-right-official',
+                title: 'treat u right',
+                index: { toString: () => '3' },
+              },
+              {
+                item_type: 'artist',
+                id: 'UCchart-artist',
+                title: 'Chart artist',
+                index: { toString: () => '9' },
+              },
+            ],
+          },
+        },
+      },
+    },
+  };
+  const rawItem = rawChartItem(
+    'renderer-surface-alias',
+    '6',
+    'ARROW_DROP_UP',
+  );
+  rawItem.musicResponsiveListItemRenderer.flexColumns = [
+    {
+      musicResponsiveListItemFlexColumnRenderer: {
+        text: {
+          runs: [
+            {
+              text: 'treat u right',
+              navigationEndpoint: {
+                watchEndpoint: { videoId: 'treat-u-right-official' },
+              },
+            },
+          ],
+        },
+      },
+    },
+    {
+      musicResponsiveListItemFlexColumnRenderer: {
+        text: {
+          runs: [
+            {
+              text: 'Chart artist',
+              navigationEndpoint: {
+                browseEndpoint: { browseId: 'UCchart-artist' },
+              },
+            },
+          ],
+        },
+      },
+    },
+  ];
+
+  const [section] = mapBrowseFeedSections(page, { contents: [rawItem] });
+
+  assert.deepEqual(
+    section.items.map(({ id, rank, trend }) => ({ id, rank, trend })),
+    [
+      { id: 'treat-u-right-official', rank: 6, trend: 'up' },
+      { id: 'UCchart-artist', rank: 9, trend: undefined },
+    ],
+  );
+});
+
+test('attaches chart ranks and trends to primary artist browse identities', () => {
+  const artists = [
+    { id: 'UCfavorite-up', title: 'Favorite artist up' },
+    { id: 'UCfavorite-down', title: 'Favorite artist down' },
+    { id: 'UCfavorite-neutral', title: 'Favorite artist neutral' },
+  ];
+  const page = {
+    contents: {
+      tabs: {
+        selected: true,
+        content: {
+          contents: [
+            {
+              header: { title: 'Popular songs' },
+              contents: [
+                {
+                  item_type: 'song',
+                  id: 'popular-song',
+                  title: 'Popular song',
+                },
+              ],
+            },
+            {
+              header: { title: 'Favorite artists' },
+              contents: artists.map(({ id, title }) =>
+                parsedChartArtistItem(id, title)),
+            },
+          ],
+        },
+      },
+    },
+  };
+  const rawPage = rawExploreResponse({
+    includeCharts: false,
+    sections: [
+      {
+        title: 'Popular songs',
+        items: [
+          rawExploreChartItem(
+            'popular-song',
+            'Popular song',
+            '8',
+            'ARROW_DROP_UP',
+          ),
+        ],
+      },
+      {
+        title: 'Favorite artists',
+        items: [
+          rawChartArtistItem(
+            'UCfavorite-up',
+            'Favorite artist up',
+            '1',
+            'ARROW_DROP_UP',
+          ),
+          rawChartArtistItem(
+            'UCfavorite-down',
+            'Favorite artist down',
+            '2',
+            'TRENDING_DOWN',
+          ),
+          rawChartArtistItem(
+            'UCfavorite-neutral',
+            'Favorite artist neutral',
+            '3',
+            'ARROW_CHART_NEUTRAL',
+          ),
+        ],
+      },
+    ],
+  }).data;
+
+  const [songsSection, artistsSection] = mapBrowseFeedSections(page, rawPage);
+
+  assert.deepEqual(
+    songsSection.items.map(({ id, rank, trend }) => ({ id, rank, trend })),
+    [{ id: 'popular-song', rank: 8, trend: 'up' }],
+  );
+  assert.equal(artistsSection.title, 'Favorite artists');
+  assert.deepEqual(
+    artistsSection.items.map(({ id, rank, trend }) => ({ id, rank, trend })),
+    [
+      { id: 'UCfavorite-up', rank: 1, trend: 'up' },
+      { id: 'UCfavorite-down', rank: 2, trend: 'down' },
+      { id: 'UCfavorite-neutral', rank: 3, trend: 'neutral' },
+    ],
+  );
+});
+
+test('preserves raw artist ranks through the Charts browse service', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    actions: {
+      execute: async (endpoint, args) => {
+        calls.push({ endpoint, args });
+        return rawExploreResponse({
+          includeCharts: false,
+          sections: [
+            {
+              title: 'Favorite artists',
+              items: [
+                rawChartArtistItem(
+                  'UCfavorite-up',
+                  'Favorite artist up',
+                  '1',
+                  'ARROW_DROP_UP',
+                ),
+                rawChartArtistItem(
+                  'UCfavorite-neutral',
+                  'Favorite artist neutral',
+                  '2',
+                  'ARROW_CHART_NEUTRAL',
+                ),
+              ],
+            },
+          ],
+        });
+      },
+    },
+  };
+
+  const result = await service.getFeedBrowse('category', 'FEmusic_charts');
+
+  assert.deepEqual(calls, [
+    {
+      endpoint: 'browse',
+      args: {
+        browseId: 'FEmusic_charts',
+        client: 'YTMUSIC',
+      },
+    },
+  ]);
+  assert.deepEqual(
+    result.sections[0].items.map(({ id, rank, trend }) => ({
+      id,
+      rank,
+      trend,
+    })),
+    [
+      { id: 'UCfavorite-up', rank: 1, trend: 'up' },
+      { id: 'UCfavorite-neutral', rank: 2, trend: 'neutral' },
+    ],
+  );
+});
+
+test('keeps duplicate track ranks scoped to each browse section', () => {
+  const sharedItem = {
+    item_type: 'song',
+    id: 'shared-browse-track',
+    title: 'Shared browse track',
+  };
+  const page = {
+    contents: {
+      tabs: {
+        selected: true,
+        content: {
+          contents: [
+            {
+              header: { title: 'Popular songs' },
+              contents: [sharedItem],
+            },
+            {
+              header: { title: 'Trending' },
+              contents: [sharedItem],
+            },
+          ],
+        },
+      },
+    },
+  };
+  const rawPage = rawExploreResponse({
+    sections: [
+      {
+        title: 'Popular songs',
+        items: [
+          rawExploreChartItem(
+            'shared-browse-track',
+            'Shared browse track',
+            '6',
+            'TRENDING_DOWN',
+          ),
+        ],
+      },
+      {
+        title: 'Trending',
+        items: [
+          rawExploreChartItem(
+            'shared-browse-track',
+            'Shared browse track',
+            '3',
+            'ARROW_DROP_UP',
+          ),
+        ],
+      },
+    ],
+  }).data;
+
+  const sections = mapBrowseFeedSections(page, rawPage);
+
+  assert.deepEqual(
+    sections.map((section) => ({
+      title: section.title,
+      rank: section.items[0].rank,
+      trend: section.items[0].trend,
+    })),
+    [
+      { title: 'Popular songs', rank: 6, trend: 'down' },
+      { title: 'Trending', rank: 3, trend: 'up' },
+    ],
+  );
+});
+
+test('maps refreshed artist header metadata from the raw Music response', () => {
+  assert.deepEqual(
+    mapRawArtistDetail({
+      header: {
+        musicImmersiveHeaderRenderer: {
+          title: { runs: [{ text: 'Fresh artist name' }] },
+          subtitle: { simpleText: 'Monthly audience: 5.6M' },
+          thumbnail: {
+            musicThumbnailRenderer: {
+              thumbnail: {
+                thumbnails: [
+                  { url: 'small-cover', width: 64 },
+                  { url: 'artist-cover', width: 544 },
+                ],
+              },
+            },
+          },
+          subscriptionButton: {
+            subscribeButtonRenderer: {
+              channelId: 'UCcanonical-artist',
+              subscribed: true,
+              subscriberCountText: { simpleText: '2.4M subscribers' },
+            },
+          },
+        },
+      },
+    }),
+    {
+      title: 'Fresh artist name',
+      subtitle: 'Monthly audience: 5.6M',
+      audience: 'Monthly audience: 5.6M',
+      thumbnailUrl: 'artist-cover',
+      channelId: 'UCcanonical-artist',
+      subscriberCount: '2.4M subscribers',
+      subscribed: true,
+    },
+  );
+});
+
+test('loads artist header metadata from the same raw browse response', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    actions: {
+      execute: async (endpoint, args) => {
+        calls.push([endpoint, args]);
+        return {
+          success: true,
+          status_code: 200,
+          data: {
+            header: {
+              musicImmersiveHeaderRenderer: {
+                title: { runs: [{ text: 'Fresh artist name' }] },
+                thumbnail: {
+                  musicThumbnailRenderer: {
+                    thumbnail: {
+                      thumbnails: [{ url: 'artist-cover', width: 544 }],
+                    },
+                  },
+                },
+                subscriptionButton: {
+                  subscribeButtonRenderer: {
+                    buttonText: { runs: [{ text: 'Subscribe' }] },
+                    channelId: 'UCcanonical-artist',
+                    subscribed: false,
+                    enabled: true,
+                    type: 'FREE',
+                    showPreferences: false,
+                    subscriberCountText: { simpleText: '2.4M subscribers' },
+                  },
+                },
+              },
+            },
+          },
+        };
+      },
+    },
+  };
+
+  const result = await service.getFeedBrowse('artist', 'UCrequested-artist');
+
+  assert.deepEqual(calls, [
+    [
+      'browse',
+      {
+        browseId: 'UCrequested-artist',
+        client: 'YTMUSIC',
+      },
+    ],
+  ]);
+  assert.deepEqual(result, {
+    artist: {
+      title: 'Fresh artist name',
+      subtitle: null,
+      audience: null,
+      thumbnailUrl: 'artist-cover',
+      channelId: 'UCcanonical-artist',
+      subscriberCount: '2.4M subscribers',
+      subscribed: false,
+    },
+    sections: [],
+  });
+});
+
 test('classifies collection and browse parsing failures by stage', async () => {
   const service = new YouTubeService();
   service.authMode = 'cookie';
@@ -607,7 +1446,7 @@ test('classifies collection and browse parsing failures by stage', async () => {
     { tracks: [] },
   );
   await assert.rejects(
-    () => service.getFeedBrowse('artist', 'UCartist'),
+    () => service.getFeedBrowse('category', 'FEmusic_category'),
     (error) =>
       error.code === 'BROWSE_PARSE_FAILED' &&
       error.details.diagnosticStage === 'browse.parse' &&
@@ -655,7 +1494,625 @@ test('loads library playlist tracks through the Cookie-authenticated music sessi
   const result = await service.getPlaylist('VLplaylist');
 
   assert.equal(result.playlist.id, 'playlist');
-  assert.deepEqual(result.tracks.map((item) => item.videoId), ['first', 'second']);
+  assert.deepEqual(result.tracks.map((item) => item.videoId), ['first']);
+  assert.equal(result.hasMore, true);
+  assert.deepEqual(await service.getMorePlaylist('playlist'), {
+    tracks: [
+      {
+        videoId: 'second',
+        itemType: 'song',
+        title: 'second',
+        artists: [],
+        album: null,
+        durationSeconds: 60,
+        thumbnailUrl: null,
+      },
+    ],
+    hasMore: false,
+  });
+});
+
+test('loads playlists, albums, saved collections, and followed artists for the media library', async () => {
+  const session = new EventTarget();
+  session.logged_in = true;
+  session.on = session.addEventListener.bind(session);
+  const playlists = {
+    contents: [
+      {
+        contents: [
+          {
+            item_type: 'playlist',
+            id: 'VLPL-road-trip',
+            title: { toString: () => 'Road trip' },
+          },
+        ],
+      },
+    ],
+    has_continuation: false,
+  };
+  const artists = {
+    contents: [
+      {
+        contents: [
+          {
+            item_type: 'artist',
+            id: 'UCartist',
+            title: { toString: () => 'Artist one' },
+            subtitle: { toString: () => 'Artist' },
+            artists: [{ name: 'Artist one' }],
+          },
+        ],
+      },
+    ],
+    has_continuation: false,
+  };
+  const podcasts = {
+    contents: [
+      {
+        contents: [
+          {
+            item_type: 'playlist',
+            id: 'VLSE',
+            title: { toString: () => 'Episodes for later' },
+          },
+          {
+            item_type: 'playlist',
+            id: 'VLRDPN',
+            title: { toString: () => 'New episodes' },
+          },
+          {
+            item_type: 'podcast_show',
+            id: 'MPSPshow',
+            title: { toString: () => 'Saved podcast' },
+            subtitle: { toString: () => 'Podcast author' },
+          },
+        ],
+      },
+    ],
+    has_continuation: false,
+  };
+  const albums = {
+    contents: [
+      {
+        contents: [
+          {
+            item_type: 'album',
+            id: 'MPREalbum',
+            title: { toString: () => 'Saved album' },
+            subtitle: { toString: () => 'Album artist' },
+          },
+        ],
+      },
+    ],
+    has_continuation: false,
+  };
+  const library = {
+    filters: ['Playlists', 'Artists', 'Podcasts', 'Albums'],
+    applyFilter: async (filter) => ({
+      Playlists: playlists,
+      Artists: artists,
+      Podcasts: podcasts,
+      Albums: albums,
+    })[filter],
+  };
+  const innertube = {
+    session,
+    music: {
+      getLibrary: async () => library,
+    },
+    getLibrary: async () => ({
+      liked_videos: { title: { toString: () => 'Liked videos' } },
+    }),
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.deepEqual(result.playlists.map((item) => item.id), ['PL-road-trip']);
+  assert.equal(result.episodePlaylists, undefined);
+  assert.deepEqual(
+    result.podcasts.map((item) => [item.id, item.itemType, item.title]),
+    [['MPSPshow', 'podcast', 'Saved podcast']],
+  );
+  assert.deepEqual(result.followedArtists.map((item) => item.id), ['UCartist']);
+  assert.deepEqual(
+    result.albums.map((item) => [item.id, item.itemType, item.title]),
+    [['MPREalbum', 'album', 'Saved album']],
+  );
+  assert.deepEqual(result.savedCollections, [
+    {
+      id: 'liked_videos',
+      specialKind: 'liked_videos',
+      title: 'Liked videos',
+    },
+  ]);
+});
+
+test('loads albums from the canonical authenticated browse endpoint', async () => {
+  const appliedFilters = [];
+  const browseCalls = [];
+  const events = [];
+  let constructorCalls = 0;
+  const playlists = { contents: [], has_continuation: false };
+  const actions = {
+    execute: async (endpoint, args) => {
+      browseCalls.push({ endpoint, args });
+      if (args.browseId === 'FEmusic_liked_albums') {
+        return rawLibraryAlbumsResponse({
+          items: [
+            rawLibraryAlbumItem({
+              id: 'MPREalbum-root',
+              title: 'Root album',
+              artist: 'Root artist',
+              params: 'root-album-params',
+            }),
+          ],
+          continuation: 'albums-next-token',
+        });
+      }
+      assert.equal(args.continuation, 'albums-next-token');
+      return rawLibraryAlbumsResponse({
+        continuationPage: true,
+        items: [
+          rawLibraryAlbumItem({
+            id: 'MPREalbum-next',
+            title: 'Continued album',
+            artist: 'Continued artist',
+            responsive: true,
+          }),
+        ],
+      });
+    },
+  };
+  class FilteredLibrary {
+    constructor() {
+      constructorCalls += 1;
+      throw new Error('The youtubei.js Library parser rejected this page.');
+    }
+  }
+  const library = {
+    filters: ['Playlists', 'Albums'],
+    page: {
+      contents_memo: {
+        getType: () => [
+          {
+            chips: [
+              {
+                text: 'Albums',
+                endpoint: {
+                payload: {
+                  commands: [
+                    { updateToggleButtonStateCommand: { toggled: true } },
+                    {
+                      browseSectionListReloadEndpoint: {
+                        continuation: {
+                          reloadContinuationData: {
+                            continuation: 'albums-reload-token',
+                          },
+                        },
+                      },
+                    },
+                  ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+    applyFilter: async (filter) => {
+      appliedFilters.push(filter);
+      if (filter === 'Albums') {
+        throw new Error('The Albums applyFilter path must not run.');
+      }
+      return playlists;
+    },
+    constructor: FilteredLibrary,
+  };
+  const innertube = {
+    actions,
+    music: { getLibrary: async () => library },
+  };
+  const service = new YouTubeService({
+    createInnertube: async () => innertube,
+    emit: (event, data) => events.push({ event, data }),
+  });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.deepEqual(
+    result.albums.map((item) => ({
+      id: item.id,
+      title: item.title,
+      artists: item.artists,
+      browseParams: item.browseParams ?? null,
+    })),
+    [
+      {
+        id: 'MPREalbum-root',
+        title: 'Root album',
+        artists: ['Root artist'],
+        browseParams: 'root-album-params',
+      },
+      {
+        id: 'MPREalbum-next',
+        title: 'Continued album',
+        artists: ['Continued artist'],
+        browseParams: null,
+      },
+    ],
+  );
+  assert.deepEqual(browseCalls, [
+    {
+      endpoint: 'browse',
+      args: {
+        browseId: 'FEmusic_liked_albums',
+        client: 'YTMUSIC',
+      },
+    },
+    {
+      endpoint: 'browse',
+      args: {
+        continuation: 'albums-next-token',
+        client: 'YTMUSIC',
+      },
+    },
+  ]);
+  assert.equal(constructorCalls, 0);
+  assert.deepEqual(appliedFilters, ['Playlists']);
+  assert.deepEqual(events, []);
+});
+
+test('stops Albums pagination when a continuation token repeats', async () => {
+  const browseCalls = [];
+  const actions = {
+    execute: async (endpoint, args) => {
+      browseCalls.push({ endpoint, args });
+      return rawLibraryAlbumsResponse({
+        continuationPage: args.continuation != null,
+        items: [
+          rawLibraryAlbumItem({
+            id: args.continuation ? 'MPREalbum-next' : 'MPREalbum-root',
+            title: args.continuation ? 'Continued album' : 'Root album',
+            artist: 'Album artist',
+          }),
+        ],
+        continuation: 'repeated-albums-token',
+      });
+    },
+  };
+  const library = {
+    filters: ['Playlists', 'Albums'],
+    applyFilter: async () => ({ contents: [], has_continuation: false }),
+  };
+  const innertube = {
+    actions,
+    music: { getLibrary: async () => library },
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.deepEqual(
+    result.albums.map((item) => item.id),
+    ['MPREalbum-root', 'MPREalbum-next'],
+  );
+  assert.deepEqual(browseCalls, [
+    {
+      endpoint: 'browse',
+      args: {
+        browseId: 'FEmusic_liked_albums',
+        client: 'YTMUSIC',
+      },
+    },
+    {
+      endpoint: 'browse',
+      args: {
+        continuation: 'repeated-albums-token',
+        client: 'YTMUSIC',
+      },
+    },
+  ]);
+});
+
+test('parses the chip reload continuation when Albums browse is unavailable', async () => {
+  const appliedFilters = [];
+  const browseCalls = [];
+  const events = [];
+  const playlists = { contents: [], has_continuation: false };
+  const actions = {
+    execute: async (endpoint, args) => {
+      browseCalls.push({ endpoint, args });
+      if (args.browseId === 'FEmusic_liked_albums') {
+        throw new Error('Dedicated Albums browse is unavailable.');
+      }
+      return rawLibraryAlbumsResponse({
+        continuationPage: true,
+        items: [
+          rawLibraryAlbumItem({
+            id: 'MPREalbum-reload',
+            title: 'Reloaded album',
+            artist: 'Album artist',
+          }),
+        ],
+      });
+    },
+  };
+  const library = {
+    filters: ['Playlists', 'Albums'],
+    page: {
+      contents_memo: {
+        getType: () => [
+          {
+            chips: [
+              {
+                text: 'Albums',
+                endpoint: {
+                  payload: {
+                    commands: [
+                      {
+                        browseSectionListReloadEndpoint: {
+                          continuation: {
+                            reloadContinuationData: {
+                              continuation: 'albums-reload-token',
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+    applyFilter: async (filter) => {
+      appliedFilters.push(filter);
+      if (filter === 'Albums') {
+        throw new Error('The Albums applyFilter path must not run.');
+      }
+      return playlists;
+    },
+  };
+  const innertube = {
+    actions,
+    music: { getLibrary: async () => library },
+  };
+  const service = new YouTubeService({
+    createInnertube: async () => innertube,
+    emit: (event, data) => events.push({ event, data }),
+  });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.deepEqual(result.albums.map((item) => item.id), [
+    'MPREalbum-reload',
+  ]);
+  assert.deepEqual(browseCalls, [
+    {
+      endpoint: 'browse',
+      args: { browseId: 'FEmusic_liked_albums', client: 'YTMUSIC' },
+    },
+    {
+      endpoint: 'browse',
+      args: {
+        continuation: 'albums-reload-token',
+        client: 'YTMUSIC',
+      },
+    },
+  ]);
+  assert.deepEqual(appliedFilters, ['Playlists']);
+  assert.deepEqual(events, []);
+});
+
+test('keeps playlists when an optional library filter fails', async () => {
+  const events = [];
+  const playlists = {
+    contents: [
+      {
+        contents: [
+          {
+            item_type: 'playlist',
+            id: 'VLPL-working',
+            title: { toString: () => 'Working playlist' },
+          },
+        ],
+      },
+    ],
+    has_continuation: false,
+  };
+  const library = {
+    filters: ['Playlists', 'Albums'],
+    applyFilter: async (filter) => {
+      if (filter === 'Albums') {
+        throw new Error('Expected an api_url, but none was found.');
+      }
+      return playlists;
+    },
+  };
+  const innertube = {
+    music: { getLibrary: async () => library },
+  };
+  const service = new YouTubeService({
+    createInnertube: async () => innertube,
+    emit: (event, data) => events.push({ event, data }),
+  });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.deepEqual(result.playlists.map((item) => item.id), ['PL-working']);
+  assert.deepEqual(result.albums, []);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event, 'library.section_unavailable');
+  assert.equal(events[0].data.method, 'library.media');
+  assert.equal(events[0].data.code, 'LIBRARY_SECTION_UNAVAILABLE');
+  assert.equal(events[0].data.errorType, 'Error');
+  assert.equal(events[0].data.diagnosticStage, 'library.filter.albums');
+  assert.match(
+    events[0].data.sourceLocation,
+    /^sidecar\/src\/youtube_service\.mjs:\d+:\d+$/,
+  );
+  assert.equal(JSON.stringify(events).includes('api_url'), false);
+});
+
+test('reports optional library continuation failures as collection failures', async () => {
+  const events = [];
+  const emptyPage = { contents: [], has_continuation: false };
+  const podcasts = {
+    contents: [],
+    has_continuation: true,
+    getContinuation: async () => {
+      throw new Error('Podcast continuation failed.');
+    },
+  };
+  const library = {
+    filters: ['Playlists', 'Podcasts'],
+    applyFilter: async (filter) =>
+      filter === 'Podcasts' ? podcasts : emptyPage,
+  };
+  const innertube = {
+    music: { getLibrary: async () => library },
+  };
+  const service = new YouTubeService({
+    createInnertube: async () => innertube,
+    emit: (event, data) => events.push({ event, data }),
+  });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.deepEqual(result.podcasts, []);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event, 'library.section_unavailable');
+  assert.equal(events[0].data.method, 'library.media');
+  assert.equal(events[0].data.code, 'LIBRARY_SECTION_UNAVAILABLE');
+  assert.equal(events[0].data.errorType, 'Error');
+  assert.equal(events[0].data.diagnosticStage, 'library.collect.podcasts');
+  assert.match(
+    events[0].data.sourceLocation,
+    /^sidecar\/src\/youtube_service\.mjs:\d+:\d+$/,
+  );
+});
+
+test('keeps playlist library failures fatal with a section stage', async () => {
+  const library = {
+    filters: ['Playlists'],
+    applyFilter: async () => {
+      throw new Error('Playlist filter failed.');
+    },
+  };
+  const innertube = {
+    music: { getLibrary: async () => library },
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  await assert.rejects(
+    service.getLibraryMedia(),
+    (error) =>
+      error.code === 'LIBRARY_LOAD_FAILED' &&
+      error.details.diagnosticStage === 'library.filter.playlists' &&
+      error.details.errorType === 'Error',
+  );
+});
+
+test('does not invent podcast library entries when the filter is unavailable', async () => {
+  const library = {
+    filters: ['Playlists'],
+    contents: [
+      {
+        contents: [
+          {
+            item_type: 'playlist',
+            id: 'VLSE',
+            title: { toString: () => 'Root-page lookalike' },
+          },
+        ],
+      },
+    ],
+    has_continuation: false,
+    applyFilter: async () => ({
+      contents: [],
+      has_continuation: false,
+    }),
+  };
+  const innertube = {
+    music: {
+      getLibrary: async () => library,
+    },
+    getLibrary: async () => ({}),
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.deepEqual(result.playlists, []);
+  assert.equal(result.episodePlaylists, undefined);
+  assert.deepEqual(result.podcasts, []);
+  assert.deepEqual(result.albums, []);
+  assert.deepEqual(result.savedCollections, []);
+});
+
+test('ignores automatic lists and deduplicates shows across continuations', async () => {
+  const nextPodcasts = {
+    contents: [
+      {
+        contents: [
+          {
+            item_type: 'playlist',
+            id: 'VLSE',
+            title: { toString: () => 'Episodes for later' },
+          },
+          {
+            item_type: 'podcast_show',
+            id: 'MPSPshow',
+            title: { toString: () => 'Saved podcast' },
+          },
+        ],
+      },
+    ],
+    has_continuation: false,
+  };
+  const podcasts = {
+    contents: nextPodcasts.contents,
+    has_continuation: true,
+    getContinuation: async () => nextPodcasts,
+  };
+  const library = {
+    filters: ['Podcasts'],
+    applyFilter: async () => podcasts,
+  };
+  const innertube = {
+    music: {
+      getLibrary: async () => library,
+    },
+    getLibrary: async () => ({}),
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  const result = await service.getLibraryMedia();
+
+  assert.equal(result.episodePlaylists, undefined);
+  assert.deepEqual(result.podcasts.map((item) => item.id), ['MPSPshow']);
 });
 
 test('loads Home and Explore continuations through the music client', async () => {
@@ -704,23 +2161,6 @@ title: { toString: () => `${filter} mix` },
 has_continuation: false,
 }),
 };
-  const initialExploreFeed = {
-    sections: [section],
-    page: {
-      contents: {
-        item: () => ({
-          as: () => ({
-            tabs: [
-              {
-                selected: true,
-                content: { as: () => ({ continuation: 'explore-token' }) },
-              },
-            ],
-          }),
-        }),
-      },
-    },
-  };
   const exploreContinuation = {
     continuation_contents: {
       as: () => ({
@@ -733,12 +2173,24 @@ has_continuation: false,
     session,
     music: {
       getHomeFeed: async () => initialHomeFeed,
-      getExplore: async () => initialExploreFeed,
     },
     actions: {
       execute: async (endpoint, args) => {
         assert.equal(endpoint, '/browse');
         assert.equal(args.client, 'YTMUSIC');
+        if (args.browseId === 'FEmusic_explore') {
+          return rawExploreResponse({
+            items: [
+              rawExploreChartItem(
+                'explore-track',
+                'Explore track',
+                '1',
+                'ARROW_DROP_UP',
+              ),
+            ],
+            continuation: 'explore-token',
+          });
+        }
         assert.equal(args.continuation, 'explore-token');
         assert.equal(args.parse, true);
         return exploreContinuation;
@@ -762,7 +2214,21 @@ assert.equal(filteredHome.sections[0].title, 'Sleep picks');
 assert.equal(filteredHome.sections[0].items[0].id, 'PL-filtered');
 assert.equal(filteredHome.selectedFilter, 'Sleep');
 const explore = await service.getExploreFeed();
-  assert.equal(explore.sections[0].items[0].id, 'PL1');
+  assert.equal(explore.sections[0].title, 'Explore');
+  assert.deepEqual(explore.sections[0].items[0], {
+    id: 'FEmusic_charts',
+    itemType: 'category',
+    title: 'Charts',
+    subtitle: null,
+    videoId: null,
+    browseParams: 'charts-params',
+    artists: [],
+    album: null,
+    durationSeconds: 0,
+    thumbnailUrl: null,
+  });
+  assert.equal(explore.sections[1].items[0].id, 'explore-track');
+  assert.equal(explore.sections[1].items[0].trend, 'up');
   assert.equal(explore.hasMore, true);
   const moreExplore = await service.getMoreExploreFeed();
   assert.equal(moreExplore.sections[0].title, 'More to explore');
@@ -774,6 +2240,124 @@ const explore = await service.getExploreFeed();
   });
 });
 
+test('falls back to the canonical localized Charts destination', async () => {
+  const innertube = {
+    actions: {
+      execute: async () => rawExploreResponse({ includeCharts: false }),
+    },
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+  service.locale = 'zh-CN';
+
+  const result = await service.getExploreFeed();
+
+  assert.equal(result.sections[0].items[0].id, 'FEmusic_charts');
+  assert.equal(result.sections[0].items[0].title, '排行榜');
+  assert.equal(result.hasMore, false);
+});
+
+test('preserves raw up, down, and neutral trends in Explore', async () => {
+  const calls = [];
+  const innertube = {
+    actions: {
+      execute: async (endpoint, args) => {
+        calls.push({ endpoint, args });
+        return rawExploreResponse({
+          items: [
+            rawExploreChartItem('chart-up', 'Rising track', '1', 'ARROW_DROP_UP'),
+            rawExploreChartItem(
+              'chart-down',
+              'Falling track',
+              '2',
+              'TRENDING_DOWN',
+            ),
+            rawExploreChartItem(
+              'chart-neutral',
+              'Steady track',
+              '3',
+              'ARROW_CHART_NEUTRAL',
+            ),
+          ],
+        });
+      },
+    },
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+
+  const result = await service.getExploreFeed();
+
+  assert.deepEqual(calls, [
+    {
+      endpoint: '/browse',
+      args: { client: 'YTMUSIC', browseId: 'FEmusic_explore' },
+    },
+  ]);
+  assert.deepEqual(
+    result.sections[1].items.map(({ id, rank, trend }) => ({
+      id,
+      rank,
+      trend,
+    })),
+    [
+      { id: 'chart-up', rank: 1, trend: 'up' },
+      { id: 'chart-down', rank: 2, trend: 'down' },
+      { id: 'chart-neutral', rank: 3, trend: 'neutral' },
+    ],
+  );
+});
+
+test('keeps duplicate track ranks scoped to each Explore section', async () => {
+  const innertube = {
+    actions: {
+      execute: async () =>
+        rawExploreResponse({
+          sections: [
+            {
+              title: 'Popular songs',
+              items: [
+                rawExploreChartItem(
+                  'shared-chart-track',
+                  'Shared chart track',
+                  '6',
+                  'TRENDING_DOWN',
+                ),
+              ],
+            },
+            {
+              title: 'Trending',
+              items: [
+                rawExploreChartItem(
+                  'shared-chart-track',
+                  'Shared chart track',
+                  '3',
+                  'ARROW_DROP_UP',
+                ),
+              ],
+            },
+          ],
+        }),
+    },
+  };
+  const service = new YouTubeService({ createInnertube: async () => innertube });
+  service.innertube = innertube;
+
+  const result = await service.getExploreFeed();
+
+  assert.deepEqual(
+    result.sections.slice(1).map((section) => ({
+      title: section.title,
+      rank: section.items[0].rank,
+      trend: section.items[0].trend,
+    })),
+    [
+      { title: 'Popular songs', rank: 6, trend: 'down' },
+      { title: 'Trending', rank: 3, trend: 'up' },
+    ],
+  );
+});
+
 test('loads authenticated YouTube Music history as playable tracks', async () => {
   const historyItem = {
     constructor: { type: 'Video' },
@@ -783,12 +2367,31 @@ test('loads authenticated YouTube Music history as playable tracks', async () =>
     duration: { seconds: 213 },
     thumbnails: [{ url: 'https://example.test/history.jpg' }],
   };
+  const olderHistoryItem = {
+    ...historyItem,
+    id: 'older-history-video',
+    title: { toString: () => 'Older history track' },
+  };
   const service = new YouTubeService();
   service.authMode = 'cookie';
   service.innertube = {
     actions: {
       execute: async (endpoint, params) => {
         assert.equal(endpoint, '/browse');
+        if (params.continuation) {
+          assert.deepEqual(params, {
+            client: 'YTMUSIC',
+            continuation: 'history-token',
+          });
+          return {
+            continuation_contents: {
+              as: () => ({
+                contents: [historyItem, olderHistoryItem],
+                continuation: null,
+              }),
+            },
+          };
+        }
         assert.deepEqual(params, {
           browseId: 'FEmusic_history',
           client: 'YTMUSIC',
@@ -796,7 +2399,12 @@ test('loads authenticated YouTube Music history as playable tracks', async () =>
         });
         return {
           contents_memo: {
-            getType: () => [{ contents: [historyItem, historyItem] }],
+            getType: () => [
+              {
+                contents: [historyItem, historyItem],
+                continuation: 'history-token',
+              },
+            ],
           },
         };
       },
@@ -805,7 +2413,8 @@ test('loads authenticated YouTube Music history as playable tracks', async () =>
 
   const result = await service.getHistory();
 
-  assert.deepEqual(result.tracks, [
+  assert.deepEqual(result, {
+    tracks: [
     {
       videoId: 'history-video',
       itemType: 'song',
@@ -815,7 +2424,14 @@ test('loads authenticated YouTube Music history as playable tracks', async () =>
       durationSeconds: 213,
       thumbnailUrl: 'https://example.test/history.jpg',
     },
-  ]);
+    ],
+    hasMore: true,
+  });
+  assert.deepEqual(
+    (await service.getMoreHistory()).tracks.map((item) => item.videoId),
+    ['older-history-video'],
+  );
+  assert.deepEqual(await service.getMoreHistory(), { tracks: [], hasMore: false });
 });
 
 test('treats an empty Home continuation response as exhausted', async () => {
@@ -854,7 +2470,18 @@ test('loads feed playlist and album tracks through the music session', async () 
   const innertube = {
     session,
     music: {
-      getAlbum: async () => ({ contents: [track('album-track')] }),
+      getAlbum: async () => ({
+        header: {
+          buttons: [
+            {
+              endpoint: {
+                payload: { playlistId: 'OLAK-album-target' },
+              },
+            },
+          ],
+        },
+        contents: [track('album-track')],
+      }),
       getPlaylist: async () => ({
         items: [track('playlist-track')],
         has_continuation: false,
@@ -871,11 +2498,150 @@ test('loads feed playlist and album tracks through the music session', async () 
     ),
     ['album-track'],
   );
+  assert.equal(
+    service.albumLibraryTargets.get('MPRalbum'),
+    'OLAK-album-target',
+  );
   assert.deepEqual(
     (await service.getFeedCollection('playlist', 'PL1')).tracks.map(
       (item) => item.videoId,
     ),
     ['playlist-track'],
+  );
+});
+
+test('updates album library through the cached official audio playlist target', async () => {
+  const calls = [];
+  let now = 0;
+  let albumRequests = 0;
+  const album = {
+    header: {
+      buttons: [
+        {
+          endpoint: {
+            payload: { playlistId: 'OLAK-official-album' },
+          },
+        },
+      ],
+    },
+    contents: [],
+  };
+  const innertube = {
+    music: {
+      getAlbum: async (albumId) => {
+        albumRequests += 1;
+        assert.equal(albumId, 'MPREalbum');
+        return album;
+      },
+    },
+    actions: {
+      execute: async (endpoint, payload) => {
+        calls.push([endpoint, payload]);
+        return { success: true, status_code: 200 };
+      },
+    },
+  };
+  const service = new YouTubeService({
+    createInnertube: async () => innertube,
+    now: () => now,
+  });
+  service.innertube = innertube;
+  service.authMode = 'cookie';
+
+  assert.deepEqual(await service.setAlbumInLibrary('MPREalbum', true), {
+    albumId: 'MPREalbum',
+    saved: true,
+  });
+  await assert.rejects(
+    service.setAlbumInLibrary('MPREalbum', false),
+    (error) => serializeError(error).code === 'ACCOUNT_WRITE_THROTTLED',
+  );
+  now += 2000;
+  assert.deepEqual(await service.setAlbumInLibrary('MPREalbum', false), {
+    albumId: 'MPREalbum',
+    saved: false,
+  });
+  assert.equal(albumRequests, 1);
+  assert.deepEqual(calls, [
+    [
+      'like/like',
+      {
+        target: { playlistId: 'OLAK-official-album' },
+        client: 'YTMUSIC',
+      },
+    ],
+    [
+      'like/removelike',
+      {
+        target: { playlistId: 'OLAK-official-album' },
+        client: 'YTMUSIC',
+      },
+    ],
+  ]);
+  assert.equal(service.albumLibraryTargets.size, 1);
+
+  await service.setLocale('zh-CN');
+  assert.equal(service.albumLibraryTargets.size, 0);
+});
+
+test('reports unavailable and failed album library mutations distinctly', async () => {
+  const unavailable = new YouTubeService();
+  unavailable.authMode = 'cookie';
+  unavailable.innertube = {
+    music: { getAlbum: async () => ({ header: {}, contents: [] }) },
+  };
+  await assert.rejects(
+    unavailable.setAlbumInLibrary('MPREmissing', true),
+    (error) => {
+      assert.equal(
+        serializeError(error).code,
+        'ALBUM_LIBRARY_TARGET_UNAVAILABLE',
+      );
+      return true;
+    },
+  );
+
+  const failed = new YouTubeService();
+  failed.authMode = 'cookie';
+  failed.innertube = {
+    music: {
+      getAlbum: async () => ({
+        header: {
+          buttons: [
+            {
+              endpoint: {
+                payload: { playlistId: 'OLAK-failed-album' },
+              },
+            },
+          ],
+        },
+      }),
+    },
+    actions: {
+      execute: async () => ({ success: false, status_code: 503 }),
+    },
+  };
+  await assert.rejects(failed.setAlbumInLibrary('MPREfailed', true), (error) => {
+    const serialized = serializeError(error);
+    assert.equal(serialized.code, 'ALBUM_LIBRARY_UPDATE_FAILED');
+    assert.equal(serialized.details.diagnosticStage, 'album.library.update');
+    assert.equal(serialized.details.statusCode, 503);
+    return true;
+  });
+
+  await assert.rejects(failed.setAlbumInLibrary('', true), (error) => {
+    assert.equal(serializeError(error).code, 'INVALID_ALBUM_ID');
+    return true;
+  });
+  await assert.rejects(
+    failed.setAlbumInLibrary('MPREfailed', 'saved'),
+    (error) => {
+      assert.equal(
+        serializeError(error).code,
+        'INVALID_ALBUM_LIBRARY_STATE',
+      );
+      return true;
+    },
   );
 });
 
@@ -1791,6 +3557,7 @@ test('loads category and dedicated podcast pages through YTMUSIC browse calls', 
   assert.deepEqual(podcast, {
     podcast: {
       id: 'MPSPpodcast-show',
+      libraryId: 'PLpodcast-show',
       title: 'Podcast show',
       subtitle: 'Podcast publisher',
       description: 'Show description',
@@ -1969,6 +3736,7 @@ test('maps and submits authenticated track interactions without exposing input',
       },
     ],
     hasMore: true,
+    commentsAvailable: true,
   });
   assert.deepEqual(await service.createComment('video-id', ' Nice track '), {
     posted: true,
@@ -1980,6 +3748,500 @@ test('maps and submits authenticated track interactions without exposing input',
     ['comment', 'video-id', 'Nice track'],
   ]);
   assert.equal(mapCommentThread({ comment: {} }), null);
+});
+
+test('falls back to web video controls when generic rating actions are unavailable', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    interact: {
+      like: async () => {
+        throw new Error('TV actions unavailable');
+      },
+    },
+    getInfo: async (videoId, options) => {
+      calls.push(['getInfo', videoId, options.client]);
+      return {
+        like: async () => calls.push(['like', videoId]),
+      };
+    },
+  };
+
+  assert.deepEqual(await service.rateVideo('video-id', 'like'), {
+    rating: 'like',
+  });
+  assert.deepEqual(calls, [
+    ['getInfo', 'video-id', 'WEB'],
+    ['like', 'video-id'],
+  ]);
+});
+
+test('updates artist, episode, and podcast-show account state', async () => {
+  const calls = [];
+  let now = 0;
+  let subscribed = false;
+  const service = new YouTubeService({ now: () => now });
+  service.authMode = 'cookie';
+  service.innertube = {
+    music: {
+      getArtist: async () => ({
+        header: {
+          subscription_button: {
+            channel_id: 'UCcanonical-artist',
+            subscribed,
+            on_subscribe_endpoints: [
+              {
+                call: async (_actions, options) => {
+                  calls.push(['subscribe', 'UCcanonical-artist', options.client]);
+                  subscribed = true;
+                },
+              },
+            ],
+            on_unsubscribe_endpoints: [
+              {
+                call: async (_actions, options) => {
+                  calls.push([
+                    'unsubscribe',
+                    'UCcanonical-artist',
+                    options.client,
+                  ]);
+                  subscribed = false;
+                },
+              },
+            ],
+          },
+        },
+      }),
+    },
+    actions: {
+      execute: async (endpoint, payload) => {
+        calls.push(['execute', endpoint, payload]);
+        return {
+          success: true,
+          status_code: 200,
+          data: { status: 'STATUS_SUCCEEDED' },
+        };
+      },
+    },
+    playlist: {
+      addVideos: async (playlistId, videoIds) => {
+        calls.push(['addVideos', playlistId, videoIds]);
+      },
+      addToLibrary: async (podcastId) => {
+        calls.push(['addToLibrary', podcastId]);
+      },
+      removeFromLibrary: async (podcastId) => {
+        calls.push(['removeFromLibrary', podcastId]);
+      },
+    },
+  };
+
+  assert.deepEqual(await service.setSubscription('channel-id', true), {
+    subscribed: true,
+    channelId: 'UCcanonical-artist',
+  });
+  now += 2000;
+  assert.deepEqual(await service.setSubscription('channel-id', false), {
+    subscribed: false,
+    channelId: 'UCcanonical-artist',
+  });
+  now += 2000;
+  service.playlistPages.set('SE', {});
+  assert.deepEqual(await service.setEpisodeForLater('video-id', true), {
+    saved: true,
+  });
+  assert.equal(service.playlistPages.has('SE'), false);
+  now += 2000;
+  service.playlistPages.set('SE', {});
+  assert.deepEqual(await service.setEpisodeForLater('video-id', false), {
+    saved: false,
+  });
+  assert.equal(service.playlistPages.has('SE'), false);
+  now += 2000;
+  assert.deepEqual(await service.setPodcastInLibrary('MPSPshow', true), {
+    saved: true,
+  });
+  now += 2000;
+  assert.deepEqual(await service.setPodcastInLibrary('MPSPshow', false), {
+    saved: false,
+  });
+  assert.deepEqual(calls, [
+    ['subscribe', 'UCcanonical-artist', 'YTMUSIC'],
+    ['unsubscribe', 'UCcanonical-artist', 'YTMUSIC'],
+    ['addVideos', 'SE', ['video-id']],
+    [
+      'execute',
+      'browse/edit_playlist',
+      {
+        playlistId: 'SE',
+        actions: [
+          {
+            action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID',
+            removedVideoId: 'video-id',
+          },
+        ],
+        client: 'YTMUSIC',
+      },
+    ],
+    ['addToLibrary', 'MPSPshow'],
+    ['removeFromLibrary', 'MPSPshow'],
+  ]);
+});
+
+test('retries podcast library manager HTTP 400 with canonical request bodies', async () => {
+  const calls = [];
+  let now = 0;
+  const service = new YouTubeService({ now: () => now });
+  service.authMode = 'cookie';
+  service.innertube = {
+    playlist: {
+      addToLibrary: async (podcastId) => {
+        calls.push(['addToLibrary', podcastId]);
+        const error = new Error('Request failed with status 400.');
+        error.statusCode = 400;
+        throw error;
+      },
+      removeFromLibrary: async (podcastId) => {
+        calls.push(['removeFromLibrary', podcastId]);
+        return { success: false, status_code: 400 };
+      },
+    },
+    actions: {
+      execute: async (endpoint, payload) => {
+        calls.push(['execute', endpoint, payload]);
+        return { success: true, status_code: 200 };
+      },
+    },
+  };
+
+  assert.deepEqual(
+    await service.setPodcastInLibrary('VLPLpodcast-show', true),
+    { saved: true },
+  );
+  now += 2000;
+  assert.deepEqual(
+    await service.setPodcastInLibrary('PLpodcast-show', false),
+    { saved: false },
+  );
+  assert.deepEqual(calls, [
+    ['addToLibrary', 'PLpodcast-show'],
+    [
+      'execute',
+      'like/like',
+      {
+        target: { playlistId: 'PLpodcast-show' },
+        client: 'YTMUSIC',
+      },
+    ],
+    ['removeFromLibrary', 'PLpodcast-show'],
+    [
+      'execute',
+      'like/removelike',
+      {
+        target: { playlistId: 'PLpodcast-show' },
+        client: 'YTMUSIC',
+      },
+    ],
+  ]);
+});
+
+test('reports a failed saved-episode playlist update', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    playlist: {
+      addVideos: async () => {
+        const error = new Error('Saved episode update failed.');
+        error.code = 'STATUS_FAILED';
+        throw error;
+      },
+    },
+  };
+
+  await assert.rejects(service.setEpisodeForLater('video-id', true), (error) => {
+    const serialized = serializeError(error);
+    assert.equal(serialized.code, 'SAVED_EPISODE_UPDATE_FAILED');
+    assert.equal(serialized.details.diagnosticStage, 'saved_episode.update');
+    assert.equal(serialized.details.upstreamCode, 'STATUS_FAILED');
+    return true;
+  });
+});
+
+test('reports a failed direct saved-episode removal', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    actions: {
+      execute: async () => ({ success: false, status_code: 500 }),
+    },
+  };
+
+  await assert.rejects(service.setEpisodeForLater('video-id', false), (error) => {
+    const serialized = serializeError(error);
+    assert.equal(serialized.code, 'SAVED_EPISODE_UPDATE_FAILED');
+    assert.equal(serialized.details.diagnosticStage, 'saved_episode.update');
+    assert.equal(serialized.details.statusCode, 500);
+    return true;
+  });
+});
+
+test('reports a failed podcast-show library update', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    playlist: {
+      addToLibrary: async () => {
+        const error = new Error('Podcast library update failed.');
+        error.code = 'STATUS_FAILED';
+        throw error;
+      },
+    },
+  };
+
+  await assert.rejects(
+    service.setPodcastInLibrary('MPSPshow', true),
+    (error) => {
+      const serialized = serializeError(error);
+      assert.equal(serialized.code, 'PODCAST_LIBRARY_UPDATE_FAILED');
+      assert.equal(
+        serialized.details.diagnosticStage,
+        'podcast.library.update',
+      );
+      assert.equal(serialized.details.upstreamCode, 'STATUS_FAILED');
+      return true;
+    },
+  );
+});
+
+test('does not fall back to a generic Web subscription request', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    interact: {
+      subscribe: async () => {
+        throw new Error('The generic endpoint must not be used.');
+      },
+    },
+    music: {
+      getArtist: async () => ({
+        header: {
+          subscription_button: {
+            channel_id: 'UCcanonical-artist',
+            subscribed: false,
+            on_subscribe_endpoints: [
+              {
+                call: async () => ({ success: false, status_code: 400 }),
+              },
+            ],
+          },
+        },
+      }),
+    },
+    actions: {
+      execute: async () => {
+        throw new Error('The generic Web fallback must not be used.');
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => service.setSubscription('UCrequested-artist', true),
+    (error) =>
+      error.code === 'SUBSCRIPTION_UPDATE_FAILED' &&
+      error.details.diagnosticStage === 'subscription.update' &&
+      error.details.statusCode === 400,
+  );
+});
+
+test('uses the artist page subscription action and canonical channel ID', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    music: {
+      getArtist: async (requestedChannelId) => ({
+        header: {
+          subscription_button: {
+            channel_id: 'UCcanonical-artist',
+            subscribed: false,
+            on_subscribe_endpoints: [
+              {
+                call: async (_actions, options) =>
+                  calls.push([requestedChannelId, options.client]),
+              },
+            ],
+          },
+        },
+      }),
+    },
+    actions: {},
+  };
+
+  assert.deepEqual(await service.setSubscription('UCchannel-id', true), {
+    subscribed: true,
+    channelId: 'UCcanonical-artist',
+  });
+  assert.deepEqual(calls, [['UCchannel-id', 'YTMUSIC']]);
+});
+
+test('refreshes the raw artist page when the parsed header omits its action', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    music: {
+      getArtist: async () => ({
+        header: {
+          subscription_button: {
+            channel_id: 'UCcanonical-artist',
+            subscribed: false,
+          },
+        },
+      }),
+    },
+    actions: {
+      execute: async (endpoint, args) => {
+        calls.push([endpoint, args]);
+        if (endpoint === 'browse') {
+          return {
+            success: true,
+            status_code: 200,
+            data: {
+              header: {
+                musicImmersiveHeaderRenderer: {
+                  title: { simpleText: 'Fresh artist' },
+                  subscriptionButton: {
+                    subscribeButtonRenderer: {
+                      channelId: 'UCcanonical-artist',
+                      subscribed: false,
+                      onSubscribeEndpoints: [
+                        {
+                          subscribeEndpoint: {
+                            channelIds: ['UCcanonical-artist'],
+                            params: 'artist-subscription-token',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          };
+        }
+        return { success: true, status_code: 200 };
+      },
+    },
+  };
+
+  assert.deepEqual(await service.setSubscription('UCcanonical-artist', true), {
+    subscribed: true,
+    channelId: 'UCcanonical-artist',
+  });
+  assert.deepEqual(calls, [
+    [
+      'browse',
+      {
+        browseId: 'UCcanonical-artist',
+        client: 'YTMUSIC',
+      },
+    ],
+    [
+      'subscription/subscribe',
+      {
+        channelIds: ['UCcanonical-artist'],
+        params: 'artist-subscription-token',
+        client: 'YTMUSIC',
+      },
+    ],
+  ]);
+});
+
+test('uses the canonical YT Music subscription request when artist actions are absent', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    interact: {
+      subscribe: async () => {
+        throw new Error('The generic interaction client must not be used.');
+      },
+    },
+    music: {
+      getArtist: async () => ({
+        header: {
+          subscription_button: {
+            channel_id: 'UCcanonical-artist',
+            subscribed: false,
+          },
+        },
+      }),
+    },
+    actions: {
+      execute: async (endpoint, args) => {
+        calls.push([endpoint, args]);
+        if (endpoint === 'browse') {
+          return {
+            success: true,
+            status_code: 200,
+            data: {
+              header: {
+                musicImmersiveHeaderRenderer: {
+                  title: { simpleText: 'Fresh artist' },
+                  subscriptionButton: {
+                    subscribeButtonRenderer: {
+                      channelId: 'UCcanonical-artist',
+                      subscribed: false,
+                    },
+                  },
+                },
+              },
+            },
+          };
+        }
+        return { success: true, status_code: 200 };
+      },
+    },
+  };
+
+  assert.deepEqual(await service.setSubscription('UCcanonical-artist', true), {
+    subscribed: true,
+    channelId: 'UCcanonical-artist',
+  });
+  assert.deepEqual(calls, [
+    [
+      'browse',
+      {
+        browseId: 'UCcanonical-artist',
+        client: 'YTMUSIC',
+      },
+    ],
+    [
+      'subscription/subscribe',
+      {
+        channelIds: ['UCcanonical-artist'],
+        params: 'EgIIAhgA',
+        client: 'YTMUSIC',
+      },
+    ],
+  ]);
+});
+
+test('treats comments disabled by a track as an empty comments list', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    getComments: async () => {
+      throw new Error('Comments are disabled.');
+    },
+  };
+
+  assert.deepEqual(await service.getComments('video-id'), {
+    comments: [],
+    hasMore: false,
+    commentsAvailable: false,
+  });
 });
 
 test('throttles rapid authenticated account writes', async () => {

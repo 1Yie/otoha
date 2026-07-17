@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show PointerDeviceKind;
+import 'dart:ui' show FontFeature, PointerDeviceKind;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +14,7 @@ import 'package:otoha/src/app/theme.dart';
 import 'package:otoha/src/data/mock_catalog.dart';
 import 'package:otoha/src/models/catalog.dart';
 import 'package:otoha/src/models/offline_library.dart';
+import 'package:otoha/src/models/youtube_library.dart';
 import 'package:otoha/src/services/credential_store.dart';
 import 'package:otoha/src/services/offline_library_store.dart';
 import 'package:otoha/src/services/player_session_store.dart';
@@ -24,7 +26,8 @@ import 'package:otoha/src/state/youtube_library_controller.dart';
 import 'package:otoha/src/widgets/artwork_image.dart';
 import 'package:otoha/src/widgets/player_bar.dart';
 import 'package:otoha/src/widgets/expanded_lyrics.dart';
-import 'package:otoha/src/widgets/search_palette.dart';
+import 'package:otoha/src/workspaces/search_workspace.dart';
+import 'package:otoha/src/workspaces/youtube_feed_workspace.dart';
 
 void main() {
   testWidgets('restored video stays collapsed until explicitly opened', (
@@ -69,6 +72,79 @@ void main() {
     await tester.tap(find.byKey(const Key('player-now-playing')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('video-playback-overlay')), findsOneWidget);
+  });
+
+  testWidgets('switching to video slides expanded playback from the bottom', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester, const Size(1120, 720));
+    await _pumpVideoCapableApp(
+      tester,
+      videoId: 'video-transition',
+      title: 'Video transition',
+    );
+
+    await tester.tap(find.byKey(const Key('player-media-mode')));
+    await tester.pump();
+    await tester.pump();
+
+    final overlay = find.byKey(const Key('video-playback-overlay'));
+    final slide = find.byKey(const Key('expanded-media-slide'));
+    expect(overlay, findsOneWidget);
+    expect(slide, findsOneWidget);
+    expect(tester.widget<SlideTransition>(slide).position.value.dy, 1);
+
+    await tester.pump(const Duration(milliseconds: 140));
+    final halfwayOffset = tester
+        .widget<SlideTransition>(slide)
+        .position
+        .value
+        .dy;
+    expect(halfwayOffset, greaterThan(0));
+    expect(halfwayOffset, lessThan(1));
+
+    await tester.pumpAndSettle();
+    expect(tester.widget<SlideTransition>(slide).position.value.dy, 0);
+
+    await tester.tap(find.byKey(const Key('close-video-playback')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 140));
+    expect(overlay, findsOneWidget);
+    final closingOffset = tester
+        .widget<SlideTransition>(slide)
+        .position
+        .value
+        .dy;
+    expect(closingOffset, greaterThan(0));
+    expect(closingOffset, lessThan(1));
+
+    await tester.pumpAndSettle();
+    expect(overlay, findsNothing);
+  });
+
+  testWidgets('reduced motion opens expanded video without transition frames', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester, const Size(1120, 720));
+    await _pumpVideoCapableApp(
+      tester,
+      videoId: 'reduced-video-transition',
+      title: 'Reduced video transition',
+    );
+    await tester.tap(find.byKey(const Key('open-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('reduce-motion-switch')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('history-back')));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('player-media-mode')));
+    await tester.pump();
+    await tester.pump();
+
+    final slide = find.byKey(const Key('expanded-media-slide'));
+    expect(find.byKey(const Key('video-playback-overlay')), findsOneWidget);
+    expect(tester.widget<SlideTransition>(slide).position.value.dy, 0);
   });
 
   testWidgets('artwork image reads absolute offline cover paths', (
@@ -175,8 +251,11 @@ void main() {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
     expect(find.byKey(const Key('search-field')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('search-field')));
+    await tester.pump();
 
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
@@ -186,6 +265,60 @@ void main() {
     expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
     expect(find.text('Soft Signal'), findsWidgets);
     expect(find.byTooltip('Repeat off (/)'), findsOneWidget);
+  });
+
+  testWidgets('search opens as a workspace and participates in history', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    await _pumpSignedOutApp(tester);
+
+    await tester.tap(find.byKey(const Key('search-trigger')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.byKey(const Key('search-workspace')), findsOneWidget);
+    expect(find.byKey(const Key('search-field')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-home-signed-out')), findsNothing);
+    expect(
+      find.byType(SegmentedButton<YouTubeMusicSearchFilter>),
+      findsNothing,
+    );
+    final selectedSearchFilter = tester.widget<AnimatedContainer>(
+      find.byKey(const Key('search-filter-all')),
+    );
+    final selectedSearchFilterDecoration =
+        selectedSearchFilter.decoration! as BoxDecoration;
+    expect(
+      selectedSearchFilterDecoration.color,
+      OtohaColors.text.withValues(alpha: 0.92),
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(const Key('search-filter-all')),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsOneWidget,
+    );
+    await tester.enterText(find.byKey(const Key('search-field')), 'Home');
+    await tester.pump();
+    final homeCommand = find.byKey(const Key('search-result-page-home'));
+    expect(homeCommand, findsOneWidget);
+    expect(
+      find.descendant(
+        of: homeCommand,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('history-back')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.byKey(const Key('search-workspace')), findsNothing);
+    expect(find.byKey(const Key('youtube-home-signed-out')), findsOneWidget);
+    expect(find.byKey(const Key('history-forward')), findsOneWidget);
   });
 
   testWidgets('Your Space opens distinct offline downloads and playlists', (
@@ -384,6 +517,38 @@ void main() {
     await tester.tap(find.byKey(const Key('offline-select-second-video')));
     await tester.pump();
 
+    final selectedDownloadRow = find.byKey(
+      const Key('offline-track-first-video'),
+    );
+    final selectedDownloadAction = find.byKey(
+      const Key('youtube-track-action-first-video'),
+    );
+    final selectedDownloadOverlay = find.byKey(
+      const Key('youtube-track-selected-first-video'),
+    );
+    final selectedDownloadCheckbox = find.byKey(
+      const Key('offline-select-first-video'),
+    );
+    expect(
+      tester.getRect(selectedDownloadAction),
+      tester.getRect(selectedDownloadRow),
+    );
+    expect(
+      tester
+          .getRect(selectedDownloadAction)
+          .contains(tester.getCenter(selectedDownloadCheckbox)),
+      isTrue,
+    );
+    expect(
+      tester.getRect(selectedDownloadOverlay),
+      tester.getRect(selectedDownloadRow),
+    );
+    expect(
+      tester
+          .getRect(selectedDownloadOverlay)
+          .contains(tester.getCenter(selectedDownloadCheckbox)),
+      isTrue,
+    );
     expect(find.byKey(const Key('offline-selected-count')), findsOneWidget);
     expect(find.text('2 selected'), findsOneWidget);
     await tester.tap(find.byKey(const Key('offline-batch-add')));
@@ -491,6 +656,40 @@ void main() {
           .getRect(find.byKey(const Key('offline-playlist-detail-artwork')))
           .top,
     );
+    final playlistTrackRow = find.byKey(
+      const Key('offline-playlist-track-playlist-id-first-video'),
+    );
+    final playlistTrackAction = find.byKey(
+      const Key('youtube-track-action-first-video'),
+    );
+    final playlistTrackRemove = find.byKey(
+      const Key('remove-offline-playlist-track-playlist-id-first-video'),
+    );
+    expect(
+      tester.getRect(playlistTrackAction),
+      tester.getRect(playlistTrackRow),
+    );
+    expect(
+      tester
+          .getRect(playlistTrackAction)
+          .contains(tester.getCenter(playlistTrackRemove)),
+      isTrue,
+    );
+    await tester.tap(playlistTrackAction);
+    await tester.pump();
+    final playlistTrackOverlay = find.byKey(
+      const Key('youtube-track-selected-first-video'),
+    );
+    expect(
+      tester.getRect(playlistTrackOverlay),
+      tester.getRect(playlistTrackRow),
+    );
+    expect(
+      tester
+          .getRect(playlistTrackOverlay)
+          .contains(tester.getCenter(playlistTrackRemove)),
+      isTrue,
+    );
 
     await tester.tap(
       find.byKey(const Key('rename-offline-playlist-playlist-id')),
@@ -589,7 +788,7 @@ void main() {
   });
 
   testWidgets(
-    'command palette searches the local catalog and selects a track',
+    'search workspace searches the local catalog and selects a track',
     (tester) async {
       await _setDesktopSurface(tester);
       await _pumpSignedOutApp(tester);
@@ -597,21 +796,30 @@ void main() {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 250));
 
       await tester.enterText(find.byKey(const Key('search-field')), 'room');
       await tester.pump();
-      await tester.tap(
-        find.byKey(const Key('search-result-track-room-for-light')),
+      final resultRow = find.byKey(
+        const Key('search-result-track-room-for-light'),
       );
-      await tester.pumpAndSettle();
+      _expectForegroundInkCoversArtwork(
+        tester,
+        surface: resultRow,
+        artwork: find.descendant(
+          of: resultRow,
+          matching: find.byType(ArtworkImage),
+        ),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump(const Duration(milliseconds: 250));
 
-      expect(find.byKey(const Key('search-field')), findsNothing);
+      expect(find.byKey(const Key('search-field')), findsOneWidget);
       expect(find.text('Room for Light'), findsWidgets);
     },
   );
 
-  testWidgets('search palette rows support scaled desktop text', (
+  testWidgets('search workspace rows support scaled desktop text', (
     tester,
   ) async {
     await _setDesktopSurface(tester);
@@ -641,23 +849,79 @@ void main() {
           child: child!,
         ),
         home: Scaffold(
-          body: Stack(
-            children: <Widget>[
-              SearchPalette(
-                workspaceController: workspaceController,
-                playerController: playerController,
-                shellController: shellController,
-                youtubeLibraryController: libraryController,
-                reduceMotion: true,
-              ),
-            ],
+          body: SearchWorkspace(
+            workspaceController: workspaceController,
+            playerController: playerController,
+            shellController: shellController,
+            youtubeLibraryController: libraryController,
           ),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(tester.takeException(), isNull);
+    final firstResult = find.byKey(
+      const Key('search-result-track-soft-signal'),
+    );
+    final secondResult = find.byKey(
+      const Key('search-result-track-after-image'),
+    );
+    expect(
+      tester.getTopLeft(firstResult).dy,
+      tester.getTopLeft(secondResult).dy,
+    );
+    expect(
+      tester.getTopLeft(firstResult).dx,
+      isNot(tester.getTopLeft(secondResult).dx),
+    );
+
+    await tester.binding.setSurfaceSize(const Size(700, 896));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getTopLeft(firstResult).dx,
+      tester.getTopLeft(secondResult).dx,
+    );
+    expect(
+      tester.getTopLeft(secondResult).dy,
+      greaterThan(tester.getTopLeft(firstResult).dy),
+    );
+  });
+
+  testWidgets('search workspace classifies local albums and artists', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    await _pumpSignedOutApp(tester);
+
+    await tester.tap(find.byKey(const Key('search-trigger')));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.byKey(const Key('search-filter-album')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('search-field')), 'static');
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('search-result-local-album-static-bloom')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('search-filter-artist')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('search-field')), 'eloise');
+    await tester.pump();
+    final artist = find.byKey(
+      const Key('search-result-local-artist-eloise-park'),
+    );
+    expect(artist, findsOneWidget);
+
+    await tester.tap(artist);
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('player-track'))).data,
+      'Room for Light',
+    );
   });
 
   testWidgets('queue panel opens without removing the shell', (tester) async {
@@ -890,13 +1154,68 @@ void main() {
       find.descendant(of: aboutCard, matching: find.text('Version 1.0.0')),
       findsOneWidget,
     );
+    expect(
+      Theme.of(tester.element(aboutCard)).textTheme.bodyMedium?.fontFamily,
+      'MiSans',
+    );
+  });
+
+  testWidgets('Settings opens licenses and registers MiSans', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController();
+    addTearDown(libraryController.dispose);
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('open-settings')));
+    await tester.pumpAndSettle();
+
+    final licenses = find.byKey(const Key('settings-open-source-licenses'));
+    expect(licenses, findsOneWidget);
+    expect(find.text('Licenses and notices'), findsOneWidget);
+
+    final miSansLicenses = await LicenseRegistry.licenses
+        .where((entry) => entry.packages.contains('MiSans'))
+        .toList();
+    expect(miSansLicenses, hasLength(1));
+    final miSansLicense = miSansLicenses.single.paragraphs
+        .map((paragraph) => paragraph.text)
+        .join('\n');
+    expect(miSansLicense, contains('Xiaomi Inc.'));
+    expect(miSansLicense, contains('non-transferable, non-exclusive'));
+
+    await tester.tap(licenses);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(LicensePage), findsOneWidget);
+    final dragArea = find.byKey(const Key('license-page-drag-area'));
+    final backButton = find.byType(BackButton);
+    expect(dragArea, findsOneWidget);
+    expect(backButton, findsOneWidget);
+    expect(tester.widget<GestureDetector>(dragArea).onPanStart, isNotNull);
+    expect(
+      tester.getRect(dragArea).left,
+      greaterThanOrEqualTo(tester.getRect(backButton).right),
+    );
+
+    await tester.tap(backButton);
+    await tester.pumpAndSettle();
+    expect(find.byType(LicensePage), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('signed-in Home and Explore use YouTube feed data', (
     tester,
   ) async {
     await _setDesktopSurface(tester, const Size(2200, 720));
-    final libraryController = _signedOutLibraryController(homeItemCount: 20);
+    final sidecarClient = _NoopSidecarClient(homeItemCount: 20);
+    final libraryController = _signedOutLibraryController(
+      client: sidecarClient,
+    );
     addTearDown(libraryController.dispose);
     await libraryController.signInWithCookie('SID=test-cookie');
     await tester.pumpWidget(
@@ -1109,11 +1428,44 @@ void main() {
       tester.widget<AnimatedSwitcher>(backdropSwitcher).duration,
       const Duration(milliseconds: 520),
     );
+    final homeFilterRequests = sidecarClient.methods
+        .where((method) => method == 'feed.home.filter')
+        .length;
+    await tester.tap(find.byKey(const Key('youtube-home-refresh')));
+    await tester.pumpAndSettle();
+    expect(libraryController.selectedHomeFilter, 'Sleep');
+    expect(find.text('Sleep picks'), findsOneWidget);
+    expect(sidecarClient.methods.last, 'feed.home.filter');
+    expect(
+      sidecarClient.methods
+          .where((method) => method == 'feed.home.filter')
+          .length,
+      homeFilterRequests + 1,
+    );
+    expect(
+      (tester
+                  .widget<AnimatedContainer>(
+                    find.byKey(const Key('youtube-home-tab-Sleep')),
+                  )
+                  .decoration!
+              as BoxDecoration)
+          .color,
+      OtohaColors.text.withValues(alpha: 0.92),
+    );
 
     await tester.tap(find.byKey(const Key('sidebar-explore')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('youtube-explore-feed')), findsOneWidget);
     expect(find.byKey(const Key('youtube-explore-backdrop')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-explore-tabs')), findsOneWidget);
+    expect(
+      find.byKey(const Key('youtube-explore-tab-__for_you__')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('youtube-explore-tab-FEmusic_charts:charts-params')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(
         const Key(
@@ -1130,21 +1482,251 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const Key('youtube-explore-tab-FEmusic_moods_and_genres')),
+      findsNothing,
+    );
     expect(find.text('Moods & genres'), findsNothing);
     expect(find.text('New releases'), findsOneWidget);
     expect(find.text('Fresh album'), findsOneWidget);
     expect(find.byKey(const Key('youtube-explore-end')), findsNothing);
-    await tester.tap(
-      find.byKey(
-        const Key(
-          'youtube-explore-tab-FEmusic_moods_and_genres_category:chill-params',
+  });
+
+  testWidgets('ranked feed sections render chart semantics above artwork', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester, const Size(1120, 720));
+    var tappedItemId = '';
+    const rankedSection = YouTubeFeedSection(
+      title: 'Popular songs',
+      items: <YouTubeFeedItem>[
+        YouTubeFeedItem(
+          id: 'chart-up',
+          itemType: 'song',
+          title: 'Rising track',
+          artists: <String>['Artist'],
+          durationSeconds: 180,
+          videoId: 'chart-up',
+          rank: 1,
+          trend: YouTubeChartTrend.up,
+        ),
+        YouTubeFeedItem(
+          id: 'chart-down',
+          itemType: 'song',
+          title: 'Falling track',
+          artists: <String>['Artist'],
+          durationSeconds: 181,
+          videoId: 'chart-down',
+          rank: 2,
+          trend: YouTubeChartTrend.down,
+        ),
+        YouTubeFeedItem(
+          id: 'chart-neutral',
+          itemType: 'song',
+          title: 'Steady track',
+          artists: <String>['Artist'],
+          durationSeconds: 182,
+          videoId: 'chart-neutral',
+          rank: 3,
+          trend: YouTubeChartTrend.neutral,
+        ),
+        YouTubeFeedItem(
+          id: 'favorite-artist-up',
+          itemType: 'artist',
+          title: 'Favorite artist up',
+          artists: <String>[],
+          durationSeconds: 0,
+          rank: 4,
+          trend: YouTubeChartTrend.up,
+        ),
+        YouTubeFeedItem(
+          id: 'favorite-artist-down',
+          itemType: 'artist',
+          title: 'Favorite artist down',
+          artists: <String>[],
+          durationSeconds: 0,
+          rank: 5,
+          trend: YouTubeChartTrend.down,
+        ),
+        YouTubeFeedItem(
+          id: 'favorite-artist-neutral',
+          itemType: 'artist',
+          title: 'Favorite artist neutral',
+          artists: <String>[],
+          durationSeconds: 0,
+          rank: 6,
+          trend: YouTubeChartTrend.neutral,
+        ),
+        YouTubeFeedItem(
+          id: 'chart-rank-only',
+          itemType: 'artist',
+          title: 'Ranked artist',
+          artists: <String>[],
+          durationSeconds: 0,
+          rank: 7,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildOtohaTheme(),
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: YouTubeFeedSectionView(
+            section: rankedSection,
+            sectionIndex: 7,
+            loadingItemId: null,
+            reduceMotion: true,
+            onTap: (item) =>
+                () => tappedItemId = item.id,
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('youtube-explore-feed')), findsOneWidget);
-    expect(find.text('Chill picks'), findsOneWidget);
-    expect(find.byKey(const Key('youtube-explore-feed-back')), findsNothing);
+
+    expect(
+      find.byKey(const Key('youtube-feed-compact-column-7-0')),
+      findsOneWidget,
+    );
+    String chartLabel(String id) => tester
+        .widget<Semantics>(find.byKey(Key('youtube-feed-chart-rank-$id')))
+        .properties
+        .label!;
+    expect(chartLabel('chart-up'), 'Rank 1, Trending up');
+    expect(chartLabel('chart-down'), 'Rank 2, Trending down');
+    expect(chartLabel('chart-neutral'), 'Rank 3, No rank change');
+    expect(chartLabel('favorite-artist-up'), 'Rank 4, Trending up');
+    expect(chartLabel('favorite-artist-down'), 'Rank 5, Trending down');
+    expect(chartLabel('favorite-artist-neutral'), 'Rank 6, No rank change');
+    expect(chartLabel('chart-rank-only'), 'Rank 7');
+    final upTrend = tester.widget<Icon>(
+      find.byKey(const Key('youtube-feed-chart-trend-chart-up')),
+    );
+    final downTrend = tester.widget<Icon>(
+      find.byKey(const Key('youtube-feed-chart-trend-chart-down')),
+    );
+    final neutralTrend = tester.widget<Icon>(
+      find.byKey(const Key('youtube-feed-chart-trend-chart-neutral')),
+    );
+    expect(upTrend.icon, Icons.arrow_drop_up_rounded);
+    expect(upTrend.color, OtohaColors.accent);
+    expect(upTrend.size, 22);
+    expect(downTrend.icon, Icons.arrow_drop_down_rounded);
+    expect(downTrend.color, const Color(0xFFFF315A));
+    expect(downTrend.size, 22);
+    expect(neutralTrend.icon, Icons.circle);
+    expect(neutralTrend.color, OtohaColors.mutedText);
+    expect(neutralTrend.size, 7);
+    expect(
+      find.byKey(const Key('youtube-feed-chart-trend-chart-rank-only')),
+      findsNothing,
+    );
+    double trendGap(String id, String rank) {
+      final slot = tester.getRect(
+        find.byKey(Key('youtube-feed-chart-trend-slot-$id')),
+      );
+      final rankText = tester.getRect(
+        find.descendant(
+          of: find.byKey(Key('youtube-feed-chart-rank-$id')),
+          matching: find.text(rank),
+        ),
+      );
+      expect(slot.width, 22);
+      return rankText.left - slot.right;
+    }
+
+    expect(trendGap('chart-up', '1'), closeTo(2, 0.1));
+    expect(trendGap('chart-down', '2'), closeTo(2, 0.1));
+    expect(trendGap('chart-neutral', '3'), closeTo(2, 0.1));
+    final upRank = find.byKey(const Key('youtube-feed-chart-rank-chart-up'));
+    final rank = tester.getRect(upRank);
+    final trendRect = tester.getRect(
+      find.byKey(const Key('youtube-feed-chart-trend-chart-up')),
+    );
+    final rankTextRect = tester.getRect(
+      find.descendant(of: upRank, matching: find.text('1')),
+    );
+    final artwork = tester.getRect(
+      find.byKey(const Key('youtube-feed-compact-artwork-chart-up')),
+    );
+    expect(rank.width, 44);
+    expect(trendRect.right, lessThan(rankTextRect.left));
+    expect(artwork.left, closeTo(rank.right + 8, 0.1));
+
+    final row = find.byKey(const Key('youtube-feed-song-chart-up'));
+    final surface = find.ancestor(of: row, matching: find.byType(Stack)).first;
+    _expectForegroundInkCoversArtwork(
+      tester,
+      surface: surface,
+      artwork: find.byKey(const Key('youtube-feed-compact-artwork-chart-up')),
+      foregroundInk: row,
+      coversSurface: true,
+    );
+    await tester.tap(row);
+    await tester.pump();
+    expect(tappedItemId, 'chart-up');
+  });
+
+  testWidgets('short Home feed proactively loads continuation pages', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester, const Size(1440, 896));
+    final sidecarClient = _NoopSidecarClient(homeContinuationPages: 2);
+    final libraryController = _signedOutLibraryController(
+      client: sidecarClient,
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      sidecarClient.methods.where((method) => method == 'feed.home.more'),
+      hasLength(2),
+    );
+    expect(
+      libraryController.homeSections.map((section) => section.title),
+      containsAll(<String>['More for you 1', 'More for you 2']),
+    );
+    expect(libraryController.hasMoreHome, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed proactive Home continuation does not retry in a loop', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester, const Size(1440, 896));
+    final sidecarClient = _NoopSidecarClient(
+      homeContinuationPages: 1,
+      homeContinuationFails: true,
+    );
+    final libraryController = _signedOutLibraryController(
+      client: sidecarClient,
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      sidecarClient.methods.where((method) => method == 'feed.home.more'),
+      hasLength(1),
+    );
+    expect(libraryController.homeErrorMessage, YouTubeLibraryError.loadFailed);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('switching to a YouTube track preloads lyrics before full view', (
@@ -1177,7 +1759,11 @@ void main() {
     tester,
   ) async {
     await _setDesktopSurface(tester);
-    final libraryController = _signedOutLibraryController(podcastShow: true);
+    final sidecarClient = _NoopSidecarClient(podcastShow: true);
+    final libraryController = _signedOutLibraryController(
+      client: sidecarClient,
+      accountWriteCooldown: Duration.zero,
+    );
     addTearDown(libraryController.dispose);
     await libraryController.signInWithCookie('SID=test-cookie');
     await tester.pumpWidget(
@@ -1196,9 +1782,215 @@ void main() {
     );
     expect(find.text('Podcast show'), findsOneWidget);
     expect(find.text('Podcast episode'), findsOneWidget);
+    expect(find.text('Save to library'), findsOneWidget);
     expect(find.text('Wrong recommendation'), findsNothing);
     expect(
       find.byKey(const Key('youtube-podcast-episode-podcast-episode')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('youtube-podcast-episode-podcast-episode')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('player-save-episode')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('player-save-episode')));
+    await tester.pumpAndSettle();
+
+    expect(sidecarClient.savedEpisodeRequests, <Map<String, Object?>>[
+      <String, Object?>{'videoId': 'podcast-episode', 'saved': true},
+    ]);
+    expect(libraryController.isSavedEpisode('podcast-episode'), isTrue);
+  });
+
+  testWidgets(
+    'library podcast card shows loading then opens shared show detail',
+    (tester) async {
+      await _setDesktopSurface(tester);
+      final browseResponse = Completer<Map<String, Object?>>();
+      final sidecarClient = _NoopSidecarClient(
+        browseResponse: browseResponse.future,
+      );
+      final libraryController = _signedOutLibraryController(
+        client: sidecarClient,
+        accountWriteCooldown: Duration.zero,
+      );
+      addTearDown(libraryController.dispose);
+      await libraryController.signInWithCookie('SID=test-cookie');
+      await tester.pumpWidget(
+        OtohaApp(youtubeLibraryController: libraryController),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('sidebar-library')));
+      await tester.pumpAndSettle();
+      final savedPodcastCard = find.byKey(
+        const Key('youtube-feed-podcast-saved-podcast-show'),
+      );
+      final savedPodcastTile = find.ancestor(
+        of: savedPodcastCard,
+        matching: find.byType(YouTubeFeedItemCard),
+      );
+
+      await tester.tap(savedPodcastCard);
+      await tester.pump();
+
+      expect(
+        find.descendant(
+          of: savedPodcastTile,
+          matching: find.byKey(const Key('youtube-feed-loading-overlay')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('youtube-podcast-show-detail')),
+        findsNothing,
+      );
+
+      browseResponse.complete(<String, Object?>{
+        'podcast': <String, Object?>{
+          'id': 'saved-podcast-show',
+          'libraryId': 'PLsaved-podcast-show',
+          'title': 'Saved podcast detail',
+          'subtitle': 'Podcast publisher',
+          'description': 'Show description',
+          'thumbnailUrl': null,
+          'episodes': <Object?>[],
+          'hasMore': false,
+        },
+      });
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('youtube-podcast-show-detail')),
+        findsOneWidget,
+      );
+      expect(find.text('Saved podcast detail'), findsOneWidget);
+      expect(find.text('Remove from library'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('youtube-podcast-library-toggle')));
+      await tester.pumpAndSettle();
+
+      expect(sidecarClient.podcastLibraryRequests, <Map<String, Object?>>[
+        <String, Object?>{'podcastId': 'PLsaved-podcast-show', 'saved': false},
+      ]);
+      expect(find.text('Save to library'), findsOneWidget);
+    },
+  );
+
+  testWidgets('library artist and playlist cards show item-scoped loading', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final browseResponse = Completer<Map<String, Object?>>();
+    final playlistResponse = Completer<Map<String, Object?>>();
+    final libraryController = _signedOutLibraryController(
+      browseResponse: browseResponse.future,
+      playlistResponse: playlistResponse.future,
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('sidebar-library')));
+    await tester.pumpAndSettle();
+    final libraryScrollable = find
+        .descendant(
+          of: find.byKey(const Key('youtube-library-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final artistCard = find.byKey(
+      const Key('youtube-feed-artist-followed-artist'),
+    );
+    await tester.scrollUntilVisible(
+      artistCard,
+      160,
+      scrollable: libraryScrollable,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(artistCard);
+    await tester.pump();
+
+    final artistTile = find.ancestor(
+      of: artistCard,
+      matching: find.byType(YouTubeFeedItemCard),
+    );
+    expect(
+      find.descendant(
+        of: artistTile,
+        matching: find.byKey(const Key('youtube-feed-loading-overlay')),
+      ),
+      findsOneWidget,
+    );
+
+    browseResponse.complete(<String, Object?>{
+      'artist': <String, Object?>{
+        'title': 'Followed artist',
+        'channelId': 'followed-artist',
+        'subscribed': true,
+      },
+      'sections': <Object?>[],
+    });
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('youtube-feed-browse-back')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('youtube-feed-browse-back')));
+    await tester.pumpAndSettle();
+    final restoredLibraryScrollable = find.descendant(
+      of: find.byKey(const Key('youtube-library-scroll')),
+      matching: find.byType(Scrollable),
+    );
+    final restoredScrollState = tester.state<ScrollableState>(
+      restoredLibraryScrollable,
+    );
+    restoredScrollState.position.jumpTo(
+      restoredScrollState.position.maxScrollExtent * 0.5,
+    );
+    await tester.pumpAndSettle();
+    final playlistCard = find.byKey(const Key('youtube-playlist-PL1'));
+    expect(playlistCard, findsOneWidget);
+    await tester.ensureVisible(playlistCard);
+    await tester.pumpAndSettle();
+    _expectForegroundInkCoversArtwork(
+      tester,
+      surface: playlistCard,
+      artwork: find.descendant(
+        of: playlistCard,
+        matching: find.byType(ArtworkImage),
+      ),
+      coversSurface: true,
+    );
+
+    await tester.tap(playlistCard);
+    await tester.pump();
+
+    final playlistLoadingOverlay = find.descendant(
+      of: playlistCard,
+      matching: find.byKey(const Key('playlist-card-loading-overlay')),
+    );
+    expect(playlistLoadingOverlay, findsOneWidget);
+    expect(
+      tester.getRect(playlistLoadingOverlay),
+      tester.getRect(playlistCard),
+    );
+    expect(libraryController.loadingPlaylistId, 'PL1');
+
+    playlistResponse.complete(<String, Object?>{
+      'playlist': <String, Object?>{'id': 'PL1', 'title': 'Road trip'},
+      'tracks': <Object?>[],
+      'hasMore': false,
+    });
+    await tester.pumpAndSettle();
+
+    expect(libraryController.loadingPlaylistId, isNull);
+    expect(
+      find.byKey(const Key('youtube-playlist-detail-scroll')),
       findsOneWidget,
     );
   });
@@ -1239,13 +2031,13 @@ void main() {
     },
   );
 
-  testWidgets('Explore category tabs show progress while loading', (
+  testWidgets('Explore hides the mood and genre root but keeps its tabs', (
     tester,
   ) async {
     await _setDesktopSurface(tester);
-    final browseResponse = Completer<Map<String, Object?>>();
+    final sidecarClient = _NoopSidecarClient();
     final libraryController = _signedOutLibraryController(
-      browseResponse: browseResponse.future,
+      client: sidecarClient,
     );
     addTearDown(libraryController.dispose);
     await libraryController.signInWithCookie('SID=test-cookie');
@@ -1256,6 +2048,29 @@ void main() {
 
     await tester.tap(find.byKey(const Key('sidebar-explore')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('youtube-explore-tabs')), findsOneWidget);
+    expect(
+      find.byKey(
+        const Key(
+          'youtube-explore-tab-FEmusic_moods_and_genres_category:chill-params',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const Key(
+          'youtube-explore-tab-FEmusic_moods_and_genres_category:pop-params',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('youtube-explore-tab-FEmusic_moods_and_genres')),
+      findsNothing,
+    );
+    expect(find.text('Moods & genres'), findsNothing);
+    expect(find.text('New releases'), findsOneWidget);
     await tester.tap(
       find.byKey(
         const Key(
@@ -1263,22 +2078,44 @@ void main() {
         ),
       ),
     );
-    await tester.pump();
-
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
-
-    browseResponse.complete(
-      _feedResult(
-        section: 'Chill picks',
-        id: 'chill-playlist',
-        title: 'Chill playlist',
-        itemType: 'playlist',
-      ),
-    );
     await tester.pumpAndSettle();
 
-    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(sidecarClient.methods, contains('feed.browse'));
+    expect(
+      libraryController.selectedExploreCategoryId,
+      'FEmusic_moods_and_genres_category:chill-params',
+    );
     expect(find.text('Chill picks'), findsOneWidget);
+    final browseRequests = sidecarClient.methods
+        .where((method) => method == 'feed.browse')
+        .length;
+    await tester.tap(find.byKey(const Key('youtube-explore-refresh')));
+    await tester.pumpAndSettle();
+
+    expect(sidecarClient.methods.last, 'feed.browse');
+    expect(
+      sidecarClient.methods.where((method) => method == 'feed.browse').length,
+      browseRequests + 1,
+    );
+    expect(
+      libraryController.selectedExploreCategoryId,
+      'FEmusic_moods_and_genres_category:chill-params',
+    );
+    expect(find.text('Chill picks'), findsOneWidget);
+    expect(
+      (tester
+                  .widget<AnimatedContainer>(
+                    find.byKey(
+                      const Key(
+                        'youtube-explore-tab-FEmusic_moods_and_genres_category:chill-params',
+                      ),
+                    ),
+                  )
+                  .decoration!
+              as BoxDecoration)
+          .color,
+      OtohaColors.text.withValues(alpha: 0.92),
+    );
   });
 
   testWidgets('History loads authenticated playback records and plays them', (
@@ -1305,7 +2142,7 @@ void main() {
       40,
     );
     await tester.tap(
-      find.byKey(const Key('youtube-history-track-history-video')),
+      find.byKey(const Key('youtube-track-action-history-video')),
     );
     await tester.pump();
     expect(
@@ -1343,19 +2180,78 @@ void main() {
     await tester.tap(find.byKey(const Key('youtube-history-refresh')));
     await tester.pump();
 
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    final loadingRail = find.byKey(const Key('youtube-history-loading-rail'));
+    expect(loadingRail, findsOneWidget);
+    expect(
+      tester.getTopLeft(loadingRail).dy -
+          tester
+              .getBottomLeft(find.byKey(const Key('youtube-history-header')))
+              .dy,
+      closeTo(16, 0.01),
+    );
 
     refreshedHistory.complete(_historyResult());
     await tester.pumpAndSettle();
 
-    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.byKey(const Key('youtube-history-loading-rail')), findsNothing);
   });
 
-  testWidgets('YouTube player omits rating and comment controls', (
+  testWidgets('Library refresh separates the loading rail from the title', (
     tester,
   ) async {
     await _setDesktopSurface(tester);
-    final libraryController = _signedOutLibraryController();
+    final refreshedLibrary = Completer<Map<String, Object?>>();
+    final libraryController = _signedOutLibraryController(
+      refreshedLibraryResponse: refreshedLibrary.future,
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('sidebar-library')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('youtube-library-refresh')));
+    await tester.pump();
+
+    final loadingRail = find.byKey(const Key('youtube-library-loading-rail'));
+    expect(loadingRail, findsOneWidget);
+    expect(
+      tester.getTopLeft(loadingRail).dy -
+          tester
+              .getBottomLeft(find.byKey(const Key('youtube-library-header')))
+              .dy,
+      closeTo(16, 0.01),
+    );
+
+    refreshedLibrary.complete(const <String, Object?>{
+      'playlists': <Object?>[],
+      'savedCollections': <Object?>[],
+      'followedArtists': <Object?>[],
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('youtube-library-loading-rail')), findsNothing);
+    expect(libraryController.isLoadingLibrary, isFalse);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('youtube-library-refresh')))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('YouTube player exposes rating and comment controls', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final sidecarClient = _NoopSidecarClient();
+    final libraryController = _signedOutLibraryController(
+      client: sidecarClient,
+      accountWriteCooldown: Duration.zero,
+    );
     addTearDown(libraryController.dispose);
     await libraryController.signInWithCookie('SID=test-cookie');
     await tester.pumpWidget(
@@ -1365,17 +2261,25 @@ void main() {
 
     await tester.tap(find.byKey(const Key('youtube-feed-song-feed-home-item')));
     await tester.pump();
-    expect(find.byKey(const Key('player-like')), findsNothing);
-    expect(find.byKey(const Key('player-dislike')), findsNothing);
-    expect(find.byKey(const Key('player-comments')), findsNothing);
+    expect(find.byKey(const Key('player-like')), findsOneWidget);
+    expect(find.byKey(const Key('player-dislike')), findsOneWidget);
+    expect(find.byKey(const Key('player-comments')), findsOneWidget);
     expect(find.byKey(const Key('player-queue')), findsOneWidget);
+    expect(find.byKey(const Key('player-save-episode')), findsNothing);
+    expect(sidecarClient.savedEpisodeRequests, isEmpty);
+
+    await tester.tap(find.byKey(const Key('player-comments')));
+    await tester.pump();
+    expect(find.byKey(const Key('panel-comment-input')), findsOneWidget);
   });
 
   testWidgets('Library playlist details use the shared music track rows', (
     tester,
   ) async {
     await _setDesktopSurface(tester);
-    final libraryController = _signedOutLibraryController();
+    final libraryController = _signedOutLibraryController(
+      client: _NoopSidecarClient(followedArtistCount: 7),
+    );
     addTearDown(libraryController.dispose);
     await libraryController.signInWithCookie('SID=test-cookie');
     await tester.pumpWidget(
@@ -1393,9 +2297,131 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('YOUR LIBRARY'), findsOneWidget);
-    expect(find.text('Your playlists'), findsOneWidget);
+    expect(find.text('YOUR MEDIA LIBRARY'), findsOneWidget);
+    expect(find.text('Podcasts'), findsOneWidget);
+    expect(find.text('Saved music'), findsOneWidget);
+    final libraryScrollable = find
+        .descendant(
+          of: find.byKey(const Key('youtube-library-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    void expectSquareArtwork(Finder artwork, Finder card) {
+      final artworkSize = tester.getSize(artwork);
+      final cardSize = tester.getSize(card);
+      expect(artworkSize.width, closeTo(artworkSize.height, 0.01));
+      expect(artworkSize.width, closeTo(cardSize.width, 0.01));
+    }
+
+    expect(find.byKey(const Key('youtube-saved-watch_later')), findsNothing);
+    expect(find.byKey(const Key('youtube-playlist-WL')), findsNothing);
+    expect(find.byKey(const Key('youtube-playlist-RDPN')), findsNothing);
+    expect(
+      find.byKey(const Key('youtube-podcast-playlist-grid')),
+      findsNothing,
+    );
+
+    final savedPodcastCard = find.byKey(
+      const Key('youtube-feed-podcast-saved-podcast-show'),
+    );
+    await tester.scrollUntilVisible(
+      savedPodcastCard,
+      120,
+      scrollable: libraryScrollable,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.ancestor(
+        of: savedPodcastCard,
+        matching: find.byKey(const Key('youtube-podcast-show-grid')),
+      ),
+      findsOneWidget,
+    );
+    final savedPodcastTile = find.ancestor(
+      of: savedPodcastCard,
+      matching: find.byType(YouTubeFeedItemCard),
+    );
+    expectSquareArtwork(
+      find
+          .descendant(of: savedPodcastTile, matching: find.byType(AspectRatio))
+          .first,
+      savedPodcastTile,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('youtube-feed-artist-followed-artist')),
+      240,
+      scrollable: libraryScrollable,
+    );
+    await tester.pumpAndSettle();
+    final followedArtistCard = find.byKey(
+      const Key('youtube-feed-artist-followed-artist'),
+    );
+    final followedArtistGrid = find.byKey(
+      const Key('youtube-followed-artist-grid'),
+    );
+    final lastFollowedArtistCard = find.byKey(
+      const Key('youtube-feed-artist-followed-artist-6'),
+    );
+    void expectWrappedArtistGeometry() {
+      final gridRect = tester.getRect(followedArtistGrid);
+      final firstCardRect = tester.getRect(followedArtistCard);
+      final lastCardRect = tester.getRect(lastFollowedArtistCard);
+      expect(firstCardRect.size, const Size(168, 224));
+      expect(lastCardRect.size, const Size(168, 224));
+      expect(lastCardRect.top, greaterThan(firstCardRect.top));
+      expect(gridRect.top, closeTo(firstCardRect.top, 0.01));
+      expect(gridRect.bottom, closeTo(lastCardRect.bottom, 0.01));
+    }
+
+    expect(followedArtistCard, findsOneWidget);
+    expect(lastFollowedArtistCard, findsOneWidget);
+    expectWrappedArtistGeometry();
+    final followedArtistArtwork = find.byKey(
+      const Key('youtube-feed-profile-artwork-followed-artist'),
+    );
+    expectSquareArtwork(followedArtistArtwork, followedArtistCard);
+    expect(
+      tester
+          .widget<Material>(
+            find
+                .ancestor(
+                  of: followedArtistCard,
+                  matching: find.byType(Material),
+                )
+                .first,
+          )
+          .clipBehavior,
+      Clip.antiAlias,
+    );
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    await tester.pumpAndSettle();
+    tester.state<ScrollableState>(libraryScrollable).position.jumpTo(0);
+    await tester.pumpAndSettle();
+    expectSquareArtwork(
+      find
+          .descendant(of: savedPodcastTile, matching: find.byType(AspectRatio))
+          .first,
+      savedPodcastTile,
+    );
+    await tester.scrollUntilVisible(
+      followedArtistCard,
+      120,
+      scrollable: libraryScrollable,
+    );
+    await tester.pumpAndSettle();
+    expectWrappedArtistGeometry();
+    expectSquareArtwork(followedArtistArtwork, followedArtistCard);
+    expect(tester.takeException(), isNull);
+
+    await tester.binding.setSurfaceSize(const Size(1440, 896));
+    await tester.pumpAndSettle();
     final playlistCard = find.byKey(const Key('youtube-playlist-PL1'));
+    await tester.scrollUntilVisible(
+      playlistCard,
+      -240,
+      scrollable: libraryScrollable,
+    );
+    await tester.pumpAndSettle();
     expect(tester.widget<Material>(playlistCard).clipBehavior, Clip.antiAlias);
     expect(
       tester.getSize(
@@ -1403,6 +2429,22 @@ void main() {
       ),
       tester.getSize(playlistCard),
     );
+    final playlistArtwork = find
+        .descendant(of: playlistCard, matching: find.byType(ClipRRect))
+        .first;
+    expectSquareArtwork(playlistArtwork, playlistCard);
+
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      playlistCard,
+      -120,
+      scrollable: libraryScrollable,
+    );
+    await tester.pumpAndSettle();
+    expectSquareArtwork(playlistArtwork, playlistCard);
+    expect(tester.takeException(), isNull);
+
     await tester.tap(find.byKey(const Key('youtube-playlist-PL1')));
     await tester.pumpAndSettle();
 
@@ -1412,7 +2454,7 @@ void main() {
     );
     expect(find.byKey(const Key('youtube-track-video-1')), findsOneWidget);
     expect(find.byKey(const Key('youtube-track-video-2')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('youtube-track-video-2')));
+    await tester.tap(find.byKey(const Key('youtube-track-action-video-2')));
     await tester.pump();
     expect(
       tester.widget<Text>(find.byKey(const Key('player-track'))).data,
@@ -1422,7 +2464,233 @@ void main() {
       find.byKey(const Key('youtube-track-selected-video-2')),
       findsOneWidget,
     );
+    final selectedTrackRow = find.byKey(const Key('youtube-track-video-2'));
+    final selectedTrackArtwork = find.descendant(
+      of: selectedTrackRow,
+      matching: find.byType(ArtworkImage),
+    );
+    final selectedTrackAction = find.byKey(
+      const Key('youtube-track-action-video-2'),
+    );
+    expect(
+      tester.getRect(selectedTrackAction),
+      tester.getRect(selectedTrackRow),
+    );
+    expect(
+      tester
+          .getRect(selectedTrackAction)
+          .contains(tester.getCenter(selectedTrackArtwork)),
+      isTrue,
+    );
+    final selectedTrackOverlay = find.byKey(
+      const Key('youtube-track-selected-video-2'),
+    );
+    expect(
+      tester.getRect(selectedTrackOverlay),
+      tester.getRect(selectedTrackRow),
+    );
+    expect(
+      tester
+          .getRect(selectedTrackOverlay)
+          .contains(tester.getCenter(selectedTrackArtwork)),
+      isTrue,
+    );
   });
+
+  testWidgets(
+    'Library albums open shared details and show pending save state',
+    (tester) async {
+      await _setDesktopSurface(tester, const Size(1120, 720));
+      final albumResponse = Completer<Map<String, Object?>>();
+      final refreshedLibrary = Completer<Map<String, Object?>>();
+      final sidecarClient = _NoopSidecarClient(
+        includeSavedAlbum: true,
+        albumLibraryResponse: albumResponse.future,
+        refreshedLibraryResponse: refreshedLibrary.future,
+      );
+      final libraryController = _signedOutLibraryController(
+        client: sidecarClient,
+        accountWriteCooldown: Duration.zero,
+      );
+      addTearDown(libraryController.dispose);
+      await libraryController.signInWithCookie('SID=test-cookie');
+      await tester.pumpWidget(
+        OtohaApp(youtubeLibraryController: libraryController),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('sidebar-library')));
+      await tester.pumpAndSettle();
+      final libraryScrollable = find
+          .descendant(
+            of: find.byKey(const Key('youtube-library-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final albumCard = find.byKey(
+        const Key('youtube-feed-album-MPRE-saved-album'),
+      );
+      await tester.scrollUntilVisible(
+        albumCard,
+        120,
+        scrollable: libraryScrollable,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('youtube-album-grid')), findsOneWidget);
+      final albumTile = find.ancestor(
+        of: albumCard,
+        matching: find.byType(YouTubeFeedItemCard),
+      );
+      final artwork = find
+          .descendant(of: albumTile, matching: find.byType(AspectRatio))
+          .first;
+      final artworkSize = tester.getSize(artwork);
+      expect(artworkSize.width, closeTo(artworkSize.height, 0.01));
+      expect(artworkSize.width, closeTo(tester.getSize(albumTile).width, 0.01));
+      _expectForegroundInkCoversArtwork(
+        tester,
+        surface: albumTile,
+        artwork: artwork,
+        foregroundInk: albumCard,
+        coversSurface: true,
+      );
+
+      await tester.tap(albumCard);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('youtube-feed-collection-detail')),
+        findsOneWidget,
+      );
+      expect(find.text('Saved album'), findsOneWidget);
+      expect(find.text('Remove from library'), findsOneWidget);
+
+      final toggle = find.byKey(const Key('youtube-album-library-toggle'));
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(libraryController.isAlbumSaved('MPRE-saved-album'), isFalse);
+      expect(libraryController.albumLibraryWriteId, 'MPRE-saved-album');
+      expect(
+        find.descendant(
+          of: toggle,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+
+      albumResponse.complete(<String, Object?>{
+        'albumId': 'MPRE-saved-album',
+        'saved': false,
+      });
+      await tester.pump();
+      expect(sidecarClient.albumLibraryRequests, <Map<String, Object?>>[
+        <String, Object?>{'albumId': 'MPRE-saved-album', 'saved': false},
+      ]);
+      expect(libraryController.albumLibraryWriteId, isNull);
+      expect(libraryController.isLoadingLibrary, isTrue);
+      expect(
+        find.descendant(
+          of: toggle,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsNothing,
+      );
+      expect(find.text('Save to library'), findsOneWidget);
+
+      refreshedLibrary.complete(const <String, Object?>{
+        'playlists': <Object?>[],
+        'savedCollections': <Object?>[],
+        'followedArtists': <Object?>[],
+        'albums': <Object?>[],
+        'podcasts': <Object?>[],
+      });
+      await tester.pumpAndSettle();
+      expect(libraryController.isLoadingLibrary, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'saved episode playlist uses feed card geometry and real durations',
+    (tester) async {
+      await _setDesktopSurface(tester);
+      final libraryController = _signedOutLibraryController();
+      addTearDown(libraryController.dispose);
+      await libraryController.signInWithCookie('SID=test-cookie');
+      await tester.pumpWidget(
+        OtohaApp(youtubeLibraryController: libraryController),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('sidebar-library')));
+      await tester.pumpAndSettle();
+      final libraryScrollable = find
+          .descendant(
+            of: find.byKey(const Key('youtube-library-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final scrollState = tester.state<ScrollableState>(libraryScrollable);
+      scrollState.position.jumpTo(scrollState.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+
+      final savedEpisodesCard = find.byKey(const Key('youtube-playlist-SE'));
+      expect(savedEpisodesCard, findsOneWidget);
+      expect(
+        find.ancestor(
+          of: savedEpisodesCard,
+          matching: find.byKey(const Key('youtube-podcast-show-grid')),
+        ),
+        findsNothing,
+      );
+      final desktopSize = tester.getSize(savedEpisodesCard);
+      expect(desktopSize.width, lessThanOrEqualTo(170));
+      expect(desktopSize.height, lessThan(224));
+      final savedEpisodesTitle = find.descendant(
+        of: savedEpisodesCard,
+        matching: find.text('Episodes for later'),
+      );
+      expect(savedEpisodesTitle, findsOneWidget);
+      expect(
+        tester.getBottomRight(savedEpisodesCard).dy,
+        closeTo(tester.getBottomRight(savedEpisodesTitle).dy, 0.01),
+      );
+
+      await tester.binding.setSurfaceSize(const Size(1120, 720));
+      await tester.pumpAndSettle();
+      scrollState.position.jumpTo(scrollState.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final minimumSize = tester.getSize(savedEpisodesCard);
+      expect(minimumSize.width, lessThanOrEqualTo(170));
+      expect(minimumSize.height, lessThan(224));
+      expect(
+        tester.getBottomRight(savedEpisodesCard).dy,
+        closeTo(tester.getBottomRight(savedEpisodesTitle).dy, 0.01),
+      );
+
+      await tester.tap(savedEpisodesCard);
+      await tester.pumpAndSettle();
+
+      final savedEpisodeRow = find.byKey(
+        const Key('youtube-track-saved-video'),
+      );
+      expect(savedEpisodeRow, findsOneWidget);
+      expect(
+        find.descendant(of: savedEpisodeRow, matching: find.text('3:00')),
+        findsOneWidget,
+      );
+      final durationText = tester.widget<Text>(
+        find.descendant(of: savedEpisodeRow, matching: find.text('3:00')),
+      );
+      expect(durationText.style?.fontFeatures, const <FontFeature>[
+        FontFeature.tabularFigures(),
+      ]);
+      expect(
+        find.descendant(of: savedEpisodeRow, matching: find.text('--:--')),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('subscriber cards open a browsable selection list', (
     tester,
@@ -1473,10 +2741,84 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('youtube-feed-browse-detail')), findsOneWidget);
+    expect(
+      find.byKey(const Key('youtube-feed-browse-artwork')),
+      findsOneWidget,
+    );
     expect(find.text('Subscriber picks'), findsOneWidget);
   });
 
-  testWidgets('search palette returns YouTube Music results when signed in', (
+  testWidgets(
+    'artist details refresh metadata, follow state, shuffle, and albums',
+    (tester) async {
+      await _setDesktopSurface(tester);
+      final libraryController = _signedOutLibraryController(
+        artistDetail: true,
+        accountWriteCooldown: Duration.zero,
+        trackResponse: Future<Map<String, Object?>>.value(<String, Object?>{
+          'track': <String, Object?>{
+            'videoId': 'artist-song-one',
+            'title': 'Artist song one',
+            'artists': <String>['Fresh artist'],
+            'durationSeconds': 247,
+            'thumbnailUrl': 'https://example.test/artist-song-one.jpg',
+          },
+        }),
+      );
+      addTearDown(libraryController.dispose);
+      await libraryController.signInWithCookie('SID=test-cookie');
+      await tester.pumpWidget(
+        OtohaApp(youtubeLibraryController: libraryController),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('youtube-feed-artist-subscriber-id')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('youtube-feed-browse-detail')),
+        findsOneWidget,
+      );
+      expect(find.text('Fresh artist'), findsOneWidget);
+      expect(
+        find.byKey(const Key('youtube-artist-subscriber-count')),
+        findsOneWidget,
+      );
+      expect(find.text('Monthly audience: 5.6M'), findsOneWidget);
+      expect(find.text('Subscribers: 1.4M'), findsOneWidget);
+      expect(find.text('Fresh artist metadata'), findsNothing);
+      expect(find.text('Albums'), findsOneWidget);
+      expect(find.text('Fresh album'), findsOneWidget);
+      expect(find.byKey(const Key('youtube-artist-follow')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('youtube-artist-follow')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('youtube-artist-following')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('youtube-artist-shuffle')));
+      await tester.pumpAndSettle();
+      final queue = find.byKey(const Key('panel-queue'));
+      await tester.tap(find.byKey(const Key('player-queue')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Text>(find.byKey(const Key('player-time'))).data,
+        isNot(contains('--:--')),
+      );
+      expect(queue, findsOneWidget);
+      expect(
+        find.descendant(of: queue, matching: find.text('Artist song one')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: queue, matching: find.text('Artist song two')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('search workspace returns YouTube Music results when signed in', (
     tester,
   ) async {
     await _setDesktopSurface(tester);
@@ -1489,7 +2831,7 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('search-trigger')));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
     await tester.enterText(find.byKey(const Key('search-field')), 'remote');
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
@@ -1497,11 +2839,213 @@ void main() {
     await tester.tap(
       find.byKey(const Key('search-result-youtube-song-remote-track')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
     expect(
       tester.widget<Text>(find.byKey(const Key('player-track'))).data,
       'Remote result',
     );
+  });
+
+  testWidgets('search uses an unclipped full-width loading rail', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final searchCompleter = Completer<Map<String, Object?>>();
+    final libraryController = _signedOutLibraryController(
+      client: _NoopSidecarClient(searchResponse: searchCompleter.future),
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('search-trigger')));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('YOUTUBE MUSIC'), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('search-field')), 'pending');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    final workspace = find.byKey(const Key('search-workspace'));
+    final loadingRail = find.byKey(const Key('search-loading-rail'));
+    expect(loadingRail, findsOneWidget);
+    expect(tester.getSize(loadingRail).height, closeTo(4, 0.01));
+    expect(tester.getTopLeft(loadingRail).dx, tester.getTopLeft(workspace).dx);
+    expect(tester.getSize(loadingRail).width, tester.getSize(workspace).width);
+
+    searchCompleter.complete(const <String, Object?>{'items': <Object?>[]});
+    await tester.pumpAndSettle();
+    expect(loadingRail, findsNothing);
+  });
+
+  testWidgets('search centers delayed result loading over the compact row', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final collectionCompleter = Completer<Map<String, Object?>>();
+    final client = _NoopSidecarClient(
+      searchResponse: Future<Map<String, Object?>>.value(<String, Object?>{
+        'items': <Object?>[
+          _feedItem(
+            id: 'delayed-album',
+            title: 'Delayed album',
+            itemType: 'album',
+          ),
+        ],
+      }),
+      collectionResponse: collectionCompleter.future,
+    );
+    final libraryController = YouTubeLibraryController(
+      client: client,
+      credentialStore: _EmptyCredentialStore(),
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('search-trigger')));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.enterText(find.byKey(const Key('search-field')), 'delayed');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    final result = find.byKey(
+      const Key('search-result-youtube-album-delayed-album'),
+    );
+    await tester.tap(result);
+    await tester.pump();
+
+    final overlay = find.byKey(
+      const Key('search-result-loading-overlay-youtube-album-delayed-album'),
+    );
+    expect(overlay, findsOneWidget);
+    expect(tester.getCenter(overlay), tester.getCenter(result));
+    expect(
+      find.descendant(
+        of: overlay,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    collectionCompleter.complete(<String, Object?>{
+      'tracks': <Object?>[
+        <String, Object?>{
+          'videoId': 'delayed-track',
+          'title': 'Delayed track',
+          'artists': <String>['Artist'],
+          'durationSeconds': 180,
+        },
+      ],
+    });
+    await tester.pumpAndSettle();
+    expect(overlay, findsNothing);
+  });
+
+  testWidgets('search details return to the same query and filter', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final client = _NoopSidecarClient(
+      artistDetail: true,
+      podcastShow: true,
+      searchResponse: Future<Map<String, Object?>>.value(<String, Object?>{
+        'items': <Object?>[
+          _feedItem(
+            id: 'search-album',
+            title: 'Fresh album',
+            itemType: 'album',
+          ),
+          _feedItem(
+            id: 'search-playlist',
+            title: 'Fresh playlist',
+            itemType: 'playlist',
+          ),
+          _feedItem(
+            id: 'search-artist',
+            title: 'Fresh artist',
+            itemType: 'artist',
+          ),
+          _feedItem(
+            id: 'search-podcast',
+            title: 'Fresh podcast',
+            itemType: 'podcast',
+          ),
+        ],
+      }),
+    );
+    final libraryController = YouTubeLibraryController(
+      client: client,
+      credentialStore: _EmptyCredentialStore(),
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('search-trigger')));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.enterText(find.byKey(const Key('search-field')), 'fresh');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const Key('search-result-youtube-album-search-album')),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      find.byKey(const Key('youtube-feed-collection-detail')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('youtube-feed-collection-back')));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    await tester.tap(
+      find.byKey(const Key('search-result-youtube-playlist-search-playlist')),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      find.byKey(const Key('youtube-feed-collection-detail')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('youtube-feed-collection-back')));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    await tester.tap(
+      find.byKey(const Key('search-result-youtube-artist-search-artist')),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.byKey(const Key('youtube-feed-browse-detail')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('youtube-feed-browse-back')));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    await tester.tap(
+      find.byKey(const Key('search-result-youtube-podcast-search-podcast')),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      find.byKey(const Key('youtube-podcast-show-detail')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('youtube-podcast-show-back')));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('search-field')))
+          .controller!
+          .text,
+      'fresh',
+    );
+    expect(libraryController.searchFilter, YouTubeMusicSearchFilter.all);
   });
 
   testWidgets('album detail selection preserves card artist metadata', (
@@ -1523,7 +3067,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const Key('youtube-feed-detail-track-album-track-1')),
+      find.byKey(const Key('youtube-track-action-album-track-1')),
     );
     await tester.pump();
 
@@ -1939,14 +3483,26 @@ void main() {
     final overlay = find.byKey(
       const Key('youtube-feed-compact-loading-overlay'),
     );
+    final rowSurface = find
+        .ancestor(of: row, matching: find.byType(Stack))
+        .first;
     expect(overlay, findsOneWidget);
-    expect(tester.getCenter(overlay), tester.getCenter(row));
+    expect(tester.getRect(overlay), tester.getRect(rowSurface));
     expect(
       find.descendant(
         of: overlay,
         matching: find.byType(CircularProgressIndicator),
       ),
       findsOneWidget,
+    );
+    _expectForegroundInkCoversArtwork(
+      tester,
+      surface: rowSurface,
+      artwork: find.byKey(
+        const Key('youtube-feed-compact-artwork-filtered-home-0'),
+      ),
+      foregroundInk: row,
+      coversSurface: true,
     );
 
     trackResponse.complete(<String, Object?>{
@@ -1977,6 +3533,44 @@ void main() {
   });
 }
 
+void _expectForegroundInkCoversArtwork(
+  WidgetTester tester, {
+  required Finder surface,
+  required Finder artwork,
+  Finder? foregroundInk,
+  bool coversSurface = false,
+}) {
+  expect(surface, findsOneWidget);
+  expect(artwork, findsOneWidget);
+  final ink =
+      foregroundInk ??
+      find.descendant(of: surface, matching: find.byType(InkWell));
+  expect(ink, findsOneWidget);
+
+  final inkRect = tester.getRect(ink);
+  final artworkRect = tester.getRect(artwork);
+  expect(inkRect.left, lessThanOrEqualTo(artworkRect.left));
+  expect(inkRect.top, lessThanOrEqualTo(artworkRect.top));
+  expect(inkRect.right, greaterThanOrEqualTo(artworkRect.right));
+  expect(inkRect.bottom, greaterThanOrEqualTo(artworkRect.bottom));
+  if (coversSurface) {
+    expect(inkRect, tester.getRect(surface));
+  }
+
+  final positionedFinder = find
+      .ancestor(of: ink, matching: find.byType(Positioned))
+      .first;
+  final positioned = tester.widget<Positioned>(positionedFinder);
+  expect(positioned.left, 0);
+  expect(positioned.top, 0);
+  expect(positioned.right, 0);
+  expect(positioned.bottom, 0);
+  final interactionStack = tester.widget<Stack>(
+    find.ancestor(of: positionedFinder, matching: find.byType(Stack)).first,
+  );
+  expect(identical(interactionStack.children.last, positioned), isTrue);
+}
+
 TextStyle _lyricStyle(WidgetTester tester, String text) {
   return tester
       .widget<AnimatedDefaultTextStyle>(
@@ -1991,27 +3585,38 @@ TextStyle _lyricStyle(WidgetTester tester, String text) {
 }
 
 YouTubeLibraryController _signedOutLibraryController({
+  _NoopSidecarClient? client,
   Future<Map<String, Object?>>? browseResponse,
+  Future<Map<String, Object?>>? refreshedLibraryResponse,
   List<Future<Map<String, Object?>>>? historyResponses,
   Future<Map<String, Object?>>? lyricsResponse,
   Future<Map<String, Object?>>? trackResponse,
+  Future<Map<String, Object?>>? playlistResponse,
   SidecarException? signInError,
   int homeItemCount = 1,
   int filteredItemDurationSeconds = 3600,
   bool podcastShow = false,
+  bool artistDetail = false,
+  Duration accountWriteCooldown = const Duration(seconds: 2),
 }) {
   return YouTubeLibraryController(
-    client: _NoopSidecarClient(
-      browseResponse: browseResponse,
-      historyResponses: historyResponses,
-      lyricsResponse: lyricsResponse,
-      trackResponse: trackResponse,
-      signInError: signInError,
-      homeItemCount: homeItemCount,
-      filteredItemDurationSeconds: filteredItemDurationSeconds,
-      podcastShow: podcastShow,
-    ),
+    client:
+        client ??
+        _NoopSidecarClient(
+          browseResponse: browseResponse,
+          refreshedLibraryResponse: refreshedLibraryResponse,
+          historyResponses: historyResponses,
+          lyricsResponse: lyricsResponse,
+          trackResponse: trackResponse,
+          playlistResponse: playlistResponse,
+          signInError: signInError,
+          homeItemCount: homeItemCount,
+          filteredItemDurationSeconds: filteredItemDurationSeconds,
+          podcastShow: podcastShow,
+          artistDetail: artistDetail,
+        ),
     credentialStore: _EmptyCredentialStore(),
+    accountWriteCooldown: accountWriteCooldown,
   );
 }
 
@@ -2029,25 +3634,54 @@ Future<void> _pumpSignedOutApp(WidgetTester tester) async {
 class _NoopSidecarClient extends YouTubeSidecarClient {
   _NoopSidecarClient({
     this.browseResponse,
+    this.refreshedLibraryResponse,
     List<Future<Map<String, Object?>>>? historyResponses,
     this.lyricsResponse,
     this.trackResponse,
+    this.searchResponse,
+    this.collectionResponse,
+    this.playlistResponse,
     this.signInError,
     this.homeItemCount = 1,
     this.filteredItemDurationSeconds = 3600,
     this.podcastShow = false,
+    this.artistDetail = false,
+    this.includeSavedAlbum = false,
+    this.albumLibraryResponse,
+    this.homeContinuationPages = 0,
+    this.homeContinuationFails = false,
+    this.followedArtistCount = 1,
   }) : historyResponses = List<Future<Map<String, Object?>>>.of(
          historyResponses ?? const <Future<Map<String, Object?>>>[],
        );
 
   final Future<Map<String, Object?>>? browseResponse;
+  final Future<Map<String, Object?>>? refreshedLibraryResponse;
   final List<Future<Map<String, Object?>>> historyResponses;
   final Future<Map<String, Object?>>? lyricsResponse;
   final Future<Map<String, Object?>>? trackResponse;
+  final Future<Map<String, Object?>>? searchResponse;
+  final Future<Map<String, Object?>>? collectionResponse;
+  final Future<Map<String, Object?>>? playlistResponse;
   final SidecarException? signInError;
   final int homeItemCount;
   final int filteredItemDurationSeconds;
   final bool podcastShow;
+  final bool artistDetail;
+  final bool includeSavedAlbum;
+  final Future<Map<String, Object?>>? albumLibraryResponse;
+  final int homeContinuationPages;
+  final bool homeContinuationFails;
+  final int followedArtistCount;
+  final List<Map<String, Object?>> savedEpisodeRequests =
+      <Map<String, Object?>>[];
+  final List<Map<String, Object?>> podcastLibraryRequests =
+      <Map<String, Object?>>[];
+  final List<Map<String, Object?>> albumLibraryRequests =
+      <Map<String, Object?>>[];
+  final List<String> methods = <String>[];
+  int _libraryMediaRequestCount = 0;
+  int _homeContinuationRequests = 0;
 
   @override
   Stream<SidecarEvent> get events => const Stream<SidecarEvent>.empty();
@@ -2057,11 +3691,40 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     String method, [
     Map<String, Object?> params = const <String, Object?>{},
   ]) async {
+    methods.add(method);
+    if (method == 'podcast.episode_later.set') {
+      savedEpisodeRequests.add(Map<String, Object?>.of(params));
+    }
+    if (method == 'podcast.library.set') {
+      podcastLibraryRequests.add(Map<String, Object?>.of(params));
+    }
+    if (method == 'album.library.set') {
+      albumLibraryRequests.add(Map<String, Object?>.of(params));
+      if (albumLibraryResponse != null) {
+        return await albumLibraryResponse!;
+      }
+      return <String, Object?>{
+        'albumId': params['albumId']!,
+        'saved': params['saved']!,
+      };
+    }
+    if (method == 'feed.home.more' && homeContinuationFails) {
+      throw const SidecarException(
+        'HOME_CONTINUATION_FAILED',
+        'Home continuation failed.',
+      );
+    }
     if (method == 'auth.cookie.signIn' && signInError != null) {
       throw signInError!;
     }
     if (method == 'feed.browse' && browseResponse != null) {
       return await browseResponse!;
+    }
+    if (method == 'library.media') {
+      final isRefresh = _libraryMediaRequestCount++ > 0;
+      if (isRefresh && refreshedLibraryResponse != null) {
+        return await refreshedLibraryResponse!;
+      }
     }
     if (method == 'history.get' && historyResponses.isNotEmpty) {
       return await historyResponses.removeAt(0);
@@ -2072,9 +3735,35 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     if (method == 'feed.track' && trackResponse != null) {
       return await trackResponse!;
     }
+    if (method == 'feed.collection' && collectionResponse != null) {
+      return await collectionResponse!;
+    }
+    if (method == 'library.playlist' &&
+        params['playlistId'] != 'SE' &&
+        playlistResponse != null) {
+      return await playlistResponse!;
+    }
+    if (method == 'library.playlist' && params['playlistId'] == 'SE') {
+      return <String, Object?>{
+        'playlist': <String, Object?>{
+          'id': 'SE',
+          'title': 'Episodes for later',
+        },
+        'tracks': <Object?>[
+          <String, Object?>{
+            'videoId': 'saved-video',
+            'title': 'Saved episode',
+            'artists': <String>['Podcast author'],
+            'durationSeconds': 180,
+            'itemType': 'non_music_track',
+          },
+        ],
+        'hasMore': false,
+      };
+    }
     return switch (method) {
       'auth.cookie.signIn' => <String, Object?>{'authenticated': true},
-      'library.playlists' => <String, Object?>{
+      'library.media' => <String, Object?>{
         'playlists': <Object?>[
           <String, Object?>{
             'id': 'PL1',
@@ -2083,7 +3772,45 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
             'itemCount': '2 songs',
             'thumbnailUrl': 'https://example.test/playlist.jpg',
           },
+          <String, Object?>{
+            'id': 'SE',
+            'title': 'Episodes for later',
+            'thumbnailUrl': 'https://example.test/saved-episodes.jpg',
+          },
         ],
+        'podcasts': <Object?>[
+          _feedItem(
+            id: 'saved-podcast-show',
+            title: 'Saved podcast',
+            itemType: 'podcast',
+          ),
+        ],
+        'albums': <Object?>[
+          if (includeSavedAlbum)
+            _feedItem(
+              id: 'MPRE-saved-album',
+              title: 'Saved album',
+              itemType: 'album',
+              thumbnailUrl: 'https://example.test/saved-album.jpg',
+            ),
+        ],
+        'savedCollections': <Object?>[
+          <String, Object?>{
+            'id': 'liked_videos',
+            'specialKind': 'liked_videos',
+            'title': 'Liked videos',
+          },
+        ],
+        'followedArtists': List<Object?>.generate(
+          followedArtistCount,
+          (index) => _feedItem(
+            id: index == 0 ? 'followed-artist' : 'followed-artist-$index',
+            title: index == 0
+                ? 'Followed artist'
+                : 'Followed artist ${index + 1}',
+            itemType: 'artist',
+          ),
+        ),
       },
       'library.playlist' => <String, Object?>{
         'playlist': <String, Object?>{
@@ -2110,6 +3837,30 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
           },
         ],
       },
+      'library.special' => <String, Object?>{
+        'playlist': <String, Object?>{
+          'id': params['kind']!,
+          'specialKind': params['kind']!,
+          'title': 'Liked videos',
+        },
+        'tracks': <Object?>[
+          <String, Object?>{
+            'videoId': 'saved-video',
+            'title': 'Saved track',
+            'artists': <String>['Artist'],
+            'durationSeconds': 180,
+          },
+        ],
+        'hasMore': false,
+      },
+      'library.playlist.more' => const <String, Object?>{
+        'tracks': <Object?>[],
+        'hasMore': false,
+      },
+      'library.special.more' => const <String, Object?>{
+        'tracks': <Object?>[],
+        'hasMore': false,
+      },
       'history.get' => _historyResult(),
       'feed.home' => <String, Object?>{
         'filters': <Object?>[
@@ -2126,6 +3877,7 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
           'Focus',
         ],
         'selectedFilter': null,
+        'hasMore': homeContinuationPages > 0,
         'sections': <Object?>[
           if (podcastShow)
             <String, Object?>{
@@ -2161,10 +3913,27 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
                 id: 'subscriber-id',
                 title: 'Subscribed creator',
                 itemType: 'artist',
+                thumbnailUrl: 'https://example.test/subscriber.jpg',
               ),
             ],
           },
         ],
+      },
+      'feed.home.more' => <String, Object?>{
+        'sections': <Object?>[
+          <String, Object?>{
+            'title': 'More for you ${_homeContinuationRequests + 1}',
+            'items': <Object?>[
+              _feedItem(
+                id: 'continued-home-${_homeContinuationRequests + 1}',
+                title: 'Continued recommendation',
+                itemType: 'song',
+                videoId: 'continued-home-${_homeContinuationRequests + 1}',
+              ),
+            ],
+          },
+        ],
+        'hasMore': ++_homeContinuationRequests < homeContinuationPages,
       },
       'feed.home.filter' => <String, Object?>{
         'sections': <Object?>[
@@ -2206,6 +3975,23 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
             'title': 'Moods & genres',
             'items': <Object?>[
               <String, Object?>{
+                'id': 'FEmusic_moods_and_genres',
+                'itemType': 'category',
+                'title': 'Moods & genres',
+                'subtitle': 'Mood & genre',
+                'artists': <String>[],
+                'durationSeconds': 0,
+              },
+              <String, Object?>{
+                'id': 'FEmusic_charts',
+                'itemType': 'category',
+                'title': 'Charts',
+                'subtitle': 'Charts',
+                'browseParams': 'charts-params',
+                'artists': <String>[],
+                'durationSeconds': 0,
+              },
+              <String, Object?>{
                 'id': 'FEmusic_moods_and_genres_category',
                 'itemType': 'category',
                 'title': 'Chill',
@@ -2245,6 +4031,9 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
             ? <String, Object?>{
                 'podcast': <String, Object?>{
                   'id': params['id']!,
+                  'libraryId': params['id'] == 'saved-podcast-show'
+                      ? 'PLsaved-podcast-show'
+                      : 'PLpodcast-show',
                   'title': 'Podcast show',
                   'subtitle': 'Podcast publisher',
                   'description': 'Show description',
@@ -2263,6 +4052,48 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
                   ],
                   'hasMore': false,
                 },
+              }
+            : artistDetail && params['itemType'] == 'artist'
+            ? <String, Object?>{
+                'artist': <String, Object?>{
+                  'title': 'Fresh artist',
+                  'subtitle': 'Fresh artist metadata',
+                  'audience': 'Monthly audience: 5.6M',
+                  'thumbnailUrl': 'https://example.test/fresh-artist.jpg',
+                  'channelId': 'UCfresh-artist',
+                  'subscriberCount': '1.4M',
+                  'subscribed': false,
+                },
+                'sections': <Object?>[
+                  <String, Object?>{
+                    'title': 'Top songs',
+                    'items': <Object?>[
+                      _feedItem(
+                        id: 'artist-song-one',
+                        title: 'Artist song one',
+                        itemType: 'song',
+                        videoId: 'artist-song-one',
+                        durationSeconds: 0,
+                      ),
+                      _feedItem(
+                        id: 'artist-song-two',
+                        title: 'Artist song two',
+                        itemType: 'song',
+                        videoId: 'artist-song-two',
+                      ),
+                    ],
+                  },
+                  <String, Object?>{
+                    'title': 'Albums',
+                    'items': <Object?>[
+                      _feedItem(
+                        id: 'artist-album',
+                        title: 'Fresh album',
+                        itemType: 'album',
+                      ),
+                    ],
+                  },
+                ],
               }
             : _feedResult(
                 section: params['id'] == 'subscriber-id'
@@ -2292,16 +4123,19 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
           },
         ],
       },
-      'search.music' => <String, Object?>{
-        'items': <Object?>[
-          _feedItem(
-            id: 'remote-track',
-            title: 'Remote result',
-            itemType: 'song',
-            videoId: 'remote-video',
-          ),
-        ],
-      },
+      'search.music' =>
+        searchResponse == null
+            ? <String, Object?>{
+                'items': <Object?>[
+                  _feedItem(
+                    id: 'remote-track',
+                    title: 'Remote result',
+                    itemType: 'song',
+                    videoId: 'remote-video',
+                  ),
+                ],
+              }
+            : await searchResponse!,
       'lyrics.get' => <String, Object?>{
         'lines': <Object?>[
           <String, Object?>{'text': 'First line', 'startSeconds': 1.0},
@@ -2380,6 +4214,7 @@ Map<String, Object?> _feedItem({
   required String title,
   required String itemType,
   String? videoId,
+  String? thumbnailUrl,
   int durationSeconds = 180,
 }) {
   return <String, Object?>{
@@ -2391,7 +4226,7 @@ Map<String, Object?> _feedItem({
     'artists': <String>['Artist'],
     'album': itemType == 'album' ? title : null,
     'durationSeconds': durationSeconds,
-    'thumbnailUrl': null,
+    'thumbnailUrl': thumbnailUrl,
   };
 }
 
@@ -2462,4 +4297,31 @@ Future<void> _setDesktopSurface(
 ]) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
+Future<void> _pumpVideoCapableApp(
+  WidgetTester tester, {
+  required String videoId,
+  required String title,
+}) async {
+  final libraryController = _signedOutLibraryController();
+  addTearDown(libraryController.dispose);
+  final track = Track(
+    id: 'youtube:$videoId',
+    title: title,
+    artist: 'Channel',
+    album: 'YouTube Music',
+    artworkAsset: '',
+    durationSeconds: 180,
+    lyrics: const <String>[],
+    youtubeVideoId: videoId,
+    videoAvailable: true,
+  );
+  await tester.pumpWidget(
+    OtohaApp(
+      youtubeLibraryController: libraryController,
+      initialTracks: <Track>[track],
+    ),
+  );
+  await tester.pump();
 }

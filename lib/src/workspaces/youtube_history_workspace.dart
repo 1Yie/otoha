@@ -133,87 +133,119 @@ class _HistoryBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return CustomScrollView(
-      key: const Key('youtube-history-scroll'),
-      slivers: <Widget>[
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            AppMetrics.workspacePadding,
-            AppMetrics.workspacePadding,
-            AppMetrics.workspacePadding,
-            0,
-          ),
-          sliver: SliverToBoxAdapter(
-            child: _HistoryHeader(
-              isLoading: controller.isLoadingHistory,
-              onRefresh: () =>
-                  unawaited(controller.loadHistory(forceRefresh: true)),
-            ),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 24)),
-        if (controller.isLoadingHistory && tracks.isEmpty)
-          const SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else if (controller.historyErrorMessage != null && tracks.isEmpty)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(
-              child: TextButton.icon(
-                onPressed: () =>
-                    unawaited(controller.loadHistory(forceRefresh: true)),
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(l10n.loadHistoryAgain),
-              ),
-            ),
-          )
-        else if (tracks.isEmpty)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(
-              child: Text(
-                l10n.noPlaybackHistoryFound,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          )
-        else
+    final isLoading =
+        controller.isLoadingHistory || controller.isLoadingMoreHistory;
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification.metrics.extentAfter < 480 &&
+            controller.hasMoreHistory &&
+            !controller.isLoadingMoreHistory) {
+          unawaited(controller.loadMoreHistory());
+        }
+        return false;
+      },
+      child: CustomScrollView(
+        key: const Key('youtube-history-scroll'),
+        slivers: <Widget>[
           SliverPadding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppMetrics.workspacePadding,
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              AppMetrics.workspacePadding,
+              0,
             ),
-            sliver: SliverList.builder(
-              itemCount: tracks.length * 2 - 1,
-              itemBuilder: (context, index) {
-                if (index.isOdd) {
-                  return const SizedBox(height: 2);
-                }
-                final trackIndex = index ~/ 2;
-                final track = tracks[trackIndex];
-                return YouTubeTrackListRow(
-                  rowKey: Key('youtube-history-track-${track.videoId}'),
-                  index: trackIndex + 1,
-                  track: track,
-                  isSelected:
-                      playerController.currentTrack?.id == track.videoId,
-                  onTap: () {
-                    playerController.playTracks(playbackTracks);
-                    playerController.selectTrack(playbackTracks[trackIndex]);
-                  },
-                );
-              },
+            sliver: SliverToBoxAdapter(
+              child: _HistoryHeader(
+                isLoading: isLoading,
+                onRefresh: () =>
+                    unawaited(controller.loadHistory(forceRefresh: true)),
+              ),
             ),
           ),
-        if (tracks.isNotEmpty)
-          const SliverToBoxAdapter(
-            child: SizedBox(
-              key: Key('youtube-history-bottom-padding'),
-              height: 40,
+          if (isLoading) ...<Widget>[
+            const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            const SliverToBoxAdapter(
+              child: LinearProgressIndicator(
+                key: Key('youtube-history-loading-rail'),
+              ),
             ),
-          ),
-      ],
+          ],
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          if (controller.isLoadingHistory && tracks.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (controller.historyErrorMessage != null && tracks.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: () =>
+                      unawaited(controller.loadHistory(forceRefresh: true)),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(l10n.loadHistoryAgain),
+                ),
+              ),
+            )
+          else if (tracks.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Text(
+                  l10n.noPlaybackHistoryFound,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppMetrics.workspacePadding,
+              ),
+              sliver: SliverList.builder(
+                itemCount: tracks.length * 2 - 1,
+                itemBuilder: (context, index) {
+                  if (index.isOdd) {
+                    return const SizedBox(height: 2);
+                  }
+                  final trackIndex = index ~/ 2;
+                  final track = tracks[trackIndex];
+                  return YouTubeTrackListRow(
+                    rowKey: Key('youtube-history-track-${track.videoId}'),
+                    index: trackIndex + 1,
+                    track: track,
+                    isSelected:
+                        playerController.currentTrack?.id == track.videoId,
+                    onTap: () => playerController.playTracks(
+                      playbackTracks,
+                      initialIndex: trackIndex,
+                    ),
+                  );
+                },
+              ),
+            ),
+          if (controller.isLoadingMoreHistory)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            ),
+          if (tracks.isNotEmpty)
+            const SliverToBoxAdapter(
+              child: SizedBox(
+                key: Key('youtube-history-bottom-padding'),
+                height: 40,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -228,6 +260,7 @@ class _HistoryHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Column(
+      key: const Key('youtube-history-header'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Row(
@@ -262,11 +295,6 @@ class _HistoryHeader extends StatelessWidget {
             ),
           ],
         ),
-        if (isLoading)
-          const Padding(
-            padding: EdgeInsets.only(top: 16),
-            child: LinearProgressIndicator(),
-          ),
       ],
     );
   }

@@ -134,7 +134,7 @@ class _OfflinePlaylistsWorkspaceState extends State<OfflinePlaylistsWorkspace> {
               key: const Key('offline-playlist-grid'),
               gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                 maxCrossAxisExtent: 220,
-                mainAxisExtent: 244,
+                mainAxisExtent: 280,
                 crossAxisSpacing: 24,
                 mainAxisSpacing: 24,
               ),
@@ -516,13 +516,16 @@ class _OfflinePlaylistsWorkspaceState extends State<OfflinePlaylistsWorkspace> {
     final downloadsById = <String, DownloadedTrack>{
       for (final track in widget.controller.downloads) track.videoId: track,
     };
-    final tracks = playlist.trackVideoIds
+    final downloads = playlist.trackVideoIds
         .map((videoId) => downloadsById[videoId])
         .whereType<DownloadedTrack>()
-        .map((track) => track.toTrack())
         .toList(growable: false);
-    widget.playerController.playTracks(tracks);
-    widget.playerController.selectTrack(selectedTrack.toTrack());
+    widget.playerController.playTracks(
+      downloads.map((track) => track.toTrack()).toList(growable: false),
+      initialIndex: downloads.indexWhere(
+        (track) => track.videoId == selectedTrack.videoId,
+      ),
+    );
   }
 
   String _playlistArtwork(OfflinePlaylist playlist) {

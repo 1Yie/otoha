@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:otoha/l10n/app_localizations.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../app/theme.dart';
 import '../models/catalog.dart';
@@ -11,6 +13,7 @@ import '../state/offline_library_controller.dart';
 import '../widgets/artwork_image.dart';
 import 'offline_library_workspace.dart';
 import 'offline_playlists_workspace.dart';
+import 'search_workspace.dart';
 import 'youtube_feed_workspace.dart';
 import 'youtube_history_workspace.dart';
 import 'youtube_library_workspace.dart';
@@ -18,6 +21,7 @@ import 'youtube_library_workspace.dart';
 class WorkspaceView extends StatelessWidget {
   const WorkspaceView({
     required this.page,
+    required this.workspaceController,
     required this.playerController,
     required this.shellController,
     required this.youtubeLibraryController,
@@ -27,6 +31,7 @@ class WorkspaceView extends StatelessWidget {
   });
 
   final WorkspacePage page;
+  final WorkspaceController workspaceController;
   final PlayerController playerController;
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
@@ -38,6 +43,12 @@ class WorkspaceView extends StatelessWidget {
     return switch (page) {
       WorkspacePage.home => YouTubeFeedWorkspace(
         kind: YouTubeFeedKind.home,
+        playerController: playerController,
+        shellController: shellController,
+        youtubeLibraryController: youtubeLibraryController,
+      ),
+      WorkspacePage.search => SearchWorkspace(
+        workspaceController: workspaceController,
         playerController: playerController,
         shellController: shellController,
         youtubeLibraryController: youtubeLibraryController,
@@ -182,6 +193,75 @@ class SettingsWorkspace extends StatelessWidget {
         _SectionHeading(l10n.about),
         const SizedBox(height: 16),
         const _AboutOtoha(),
+        const SizedBox(height: 8),
+        Material(
+          color: OtohaColors.surface,
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppMetrics.radius),
+          ),
+          child: ListTile(
+            key: const Key('settings-open-source-licenses'),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: const Icon(Icons.policy_outlined),
+            title: Text(l10n.licensesAndNotices),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (context) => _DesktopLicensePage(
+                  applicationName: l10n.appTitle,
+                  applicationIcon: Image.asset(
+                    'assets/icon/icon.png',
+                    width: 56,
+                    height: 56,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DesktopLicensePage extends StatelessWidget {
+  const _DesktopLicensePage({
+    required this.applicationName,
+    required this.applicationIcon,
+  });
+
+  final String applicationName;
+  final Widget applicationIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final page = LicensePage(
+      applicationName: applicationName,
+      applicationIcon: applicationIcon,
+    );
+    const desktopPlatforms = <TargetPlatform>{
+      TargetPlatform.linux,
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    };
+    if (kIsWeb || !desktopPlatforms.contains(defaultTargetPlatform)) {
+      return page;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        page,
+        Positioned(
+          top: 0,
+          left: kToolbarHeight,
+          right: 0,
+          height: kToolbarHeight,
+          child: GestureDetector(
+            key: const Key('license-page-drag-area'),
+            behavior: HitTestBehavior.translucent,
+            onPanStart: (_) => windowManager.startDragging(),
+          ),
+        ),
       ],
     );
   }
@@ -439,43 +519,55 @@ class _AlbumCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        onTap: onSelect,
-        borderRadius: const BorderRadius.all(
-          Radius.circular(AppMetrics.radius),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: ClipRRect(
-                borderRadius: const BorderRadius.all(
-                  Radius.circular(AppMetrics.radius),
-                ),
-                child: SizedBox.expand(
-                  child: ArtworkImage(
-                    assetPath: track.artworkAsset,
-                    semanticLabel: l10n.artwork(track.album),
+      borderRadius: const BorderRadius.all(Radius.circular(AppMetrics.radius)),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppMetrics.radius),
+                  ),
+                  child: SizedBox.expand(
+                    child: ArtworkImage(
+                      assetPath: track.artworkAsset,
+                      semanticLabel: l10n.artwork(track.album),
+                    ),
                   ),
                 ),
               ),
+              const SizedBox(height: 8),
+              Text(
+                track.album,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                track.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          Positioned.fill(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onSelect,
+                borderRadius: const BorderRadius.all(
+                  Radius.circular(AppMetrics.radius),
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              track.album,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              track.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -502,71 +594,86 @@ class _TrackRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: Colors.transparent,
-        child: InkWell(
-          onTap: onSelect,
-          borderRadius: const BorderRadius.all(
-            Radius.circular(AppMetrics.radius),
-          ),
-          child: Container(
-            height: compact ? 56 : 64,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: selected ? OtohaColors.surfaceRaised : Colors.transparent,
-              borderRadius: const BorderRadius.all(
-                Radius.circular(AppMetrics.radius),
+        borderRadius: const BorderRadius.all(
+          Radius.circular(AppMetrics.radius),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: <Widget>[
+            Container(
+              height: compact ? 56 : 64,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: const BorderRadius.all(
+                      Radius.circular(AppMetrics.radius),
+                    ),
+                    child: SizedBox(
+                      width: artworkSize,
+                      height: artworkSize,
+                      child: ArtworkImage(
+                        assetPath: track.artworkAsset,
+                        semanticLabel: l10n.artwork(track.album),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: selected
+                                ? OtohaColors.accent
+                                : OtohaColors.text,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${track.artist} - ${track.album}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    _formatDuration(track.durationSeconds),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(width: 8),
+                ],
               ),
             ),
-            child: Row(
-              children: <Widget>[
-                ClipRRect(
+            if (selected)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ColoredBox(
+                    color: OtohaColors.accent.withValues(alpha: 0.10),
+                  ),
+                ),
+              ),
+            Positioned.fill(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onSelect,
                   borderRadius: const BorderRadius.all(
                     Radius.circular(AppMetrics.radius),
                   ),
-                  child: SizedBox(
-                    width: artworkSize,
-                    height: artworkSize,
-                    child: ArtworkImage(
-                      assetPath: track.artworkAsset,
-                      semanticLabel: l10n.artwork(track.album),
-                    ),
-                  ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: selected
-                              ? OtohaColors.accent
-                              : OtohaColors.text,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${track.artist} - ${track.album}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  _formatDuration(track.durationSeconds),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(width: 8),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

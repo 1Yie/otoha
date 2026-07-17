@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
+import '../models/youtube_library.dart';
 import '../services/audio_playback_engine.dart';
 import '../state/desktop_shell_controllers.dart';
 import '../state/offline_library_controller.dart';
+import '../state/youtube_library_controller.dart';
 import '../workspaces/workspace_views.dart';
 import 'artwork_image.dart';
 
@@ -13,12 +17,14 @@ class MusicPlayerBar extends StatelessWidget {
     required this.playerController,
     required this.shellController,
     this.offlineLibraryController,
+    this.youtubeLibraryController,
     super.key,
   });
 
   final PlayerController playerController;
   final ShellController shellController;
   final OfflineLibraryController? offlineLibraryController;
+  final YouTubeLibraryController? youtubeLibraryController;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +72,8 @@ class MusicPlayerBar extends StatelessWidget {
                               shellController: shellController,
                               offlineLibraryController:
                                   offlineLibraryController,
+                              youtubeLibraryController:
+                                  youtubeLibraryController,
                             ),
                             const SizedBox(width: 8),
                             _PlaybackActions(
@@ -347,7 +355,9 @@ class _TransportControls extends StatelessWidget {
                 softWrap: false,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: OtohaColors.mutedText,
-                  fontFamily: 'monospace',
+                  fontFeatures: const <FontFeature>[
+                    FontFeature.tabularFigures(),
+                  ],
                 ),
               ),
             ),
@@ -473,31 +483,60 @@ class _TrackActions extends StatelessWidget {
     required this.playerController,
     required this.shellController,
     required this.offlineLibraryController,
+    required this.youtubeLibraryController,
   });
 
   final PlayerController playerController;
   final ShellController shellController;
   final OfflineLibraryController? offlineLibraryController;
+  final YouTubeLibraryController? youtubeLibraryController;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final controller = offlineLibraryController;
-    if (controller != null) {
+    final listenables = <Listenable?>[
+      offlineLibraryController,
+      youtubeLibraryController,
+    ].whereType<Listenable>().toList(growable: false);
+    if (listenables.isNotEmpty) {
       return AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) => _buildActions(context, l10n, controller),
+        animation: Listenable.merge(listenables),
+        builder: (context, _) => _buildActions(
+          context,
+          l10n,
+          offlineLibraryController,
+          youtubeLibraryController,
+        ),
       );
     }
-    return _buildActions(context, l10n, null);
+    return _buildActions(context, l10n, null, null);
   }
 
   Widget _buildActions(
     BuildContext context,
     AppLocalizations l10n,
     OfflineLibraryController? offlineLibraryController,
+    YouTubeLibraryController? youtubeLibraryController,
   ) {
     final track = playerController.currentTrack;
+    final videoId = track?.youtubeVideoId;
+    final youtubeController = youtubeLibraryController;
+    final interaction = switch ((videoId, youtubeController)) {
+      (final String currentVideoId, final YouTubeLibraryController controller)
+          when controller.isSignedIn =>
+        (videoId: currentVideoId, controller: controller),
+      _ => null,
+    };
+    final rating = switch (interaction) {
+      (videoId: final currentVideoId, controller: final controller) =>
+        controller.ratingFor(currentVideoId),
+      _ => YouTubeRating.none,
+    };
+    final canRate = switch (interaction) {
+      (videoId: _, controller: final controller) =>
+        !controller.isRating && !controller.isAccountWriteCoolingDown,
+      _ => false,
+    };
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -515,6 +554,72 @@ class _TrackActions extends StatelessWidget {
               ),
             ),
           ),
+        if (interaction case (
+          videoId: final currentVideoId,
+          controller: final controller,
+        )) ...<Widget>[
+          Tooltip(
+            message: rating == YouTubeRating.liked
+                ? l10n.removeLike
+                : l10n.like,
+            child: IconButton(
+              key: const Key('player-like'),
+              color: rating == YouTubeRating.liked ? OtohaColors.accent : null,
+              onPressed: canRate
+                  ? () => unawaited(
+                      controller.rateVideo(
+                        currentVideoId,
+                        rating == YouTubeRating.liked
+                            ? YouTubeRating.none
+                            : YouTubeRating.liked,
+                      ),
+                    )
+                  : null,
+              icon: Icon(
+                rating == YouTubeRating.liked
+                    ? Icons.thumb_up_rounded
+                    : Icons.thumb_up_outlined,
+              ),
+            ),
+          ),
+          Tooltip(
+            message: rating == YouTubeRating.disliked
+                ? l10n.removeDislike
+                : l10n.dislike,
+            child: IconButton(
+              key: const Key('player-dislike'),
+              color: rating == YouTubeRating.disliked
+                  ? OtohaColors.accent
+                  : null,
+              onPressed: canRate
+                  ? () => unawaited(
+                      controller.rateVideo(
+                        currentVideoId,
+                        rating == YouTubeRating.disliked
+                            ? YouTubeRating.none
+                            : YouTubeRating.disliked,
+                      ),
+                    )
+                  : null,
+              icon: Icon(
+                rating == YouTubeRating.disliked
+                    ? Icons.thumb_down_rounded
+                    : Icons.thumb_down_outlined,
+              ),
+            ),
+          ),
+          Tooltip(
+            message: l10n.comments,
+            child: IconButton(
+              key: const Key('player-comments'),
+              color: shellController.activePanel == SidePanel.comments
+                  ? OtohaColors.accent
+                  : null,
+              onPressed: () => shellController.togglePanel(SidePanel.comments),
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+            ),
+          ),
+        ],
         Tooltip(
           message: l10n.queue,
           child: IconButton(
@@ -550,6 +655,45 @@ class _TrackActions extends StatelessWidget {
                       controller.isDownloaded(track.youtubeVideoId!)
                           ? Icons.download_done_rounded
                           : Icons.download_rounded,
+                    ),
+            ),
+          ),
+        if (interaction case (
+          videoId: final currentVideoId,
+          controller: final controller,
+        ) when controller.isPodcastEpisode(currentVideoId))
+          Tooltip(
+            message: controller.isSavedEpisode(currentVideoId)
+                ? l10n.episodeSavedForLater
+                : l10n.saveEpisodeForLater,
+            child: IconButton(
+              key: const Key('player-save-episode'),
+              color: controller.isSavedEpisode(currentVideoId)
+                  ? OtohaColors.accent
+                  : null,
+              onPressed:
+                  controller.savedEpisodeVideoId == null &&
+                      !controller.isAccountWriteCoolingDown
+                  ? () => unawaited(
+                      controller.toggleSavedEpisode(
+                        currentVideoId,
+                        title: track!.title,
+                        artist: track.artist,
+                        album: track.album,
+                        artworkUrl: track.artworkAsset,
+                        durationSeconds: track.durationSeconds,
+                      ),
+                    )
+                  : null,
+              icon: controller.savedEpisodeVideoId == currentVideoId
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      controller.isSavedEpisode(currentVideoId)
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_add_outlined,
                     ),
             ),
           ),

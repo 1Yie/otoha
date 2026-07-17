@@ -17,13 +17,15 @@ class VideoPlaybackOverlay extends StatelessWidget {
     required this.playerController,
     required this.shellController,
     this.videoController,
+    @visibleForTesting this.videoStateOverride,
     super.key,
-  });
+  }) : assert(videoController == null || videoStateOverride == null);
 
   final Track track;
   final PlayerController playerController;
   final ShellController shellController;
   final VideoController? videoController;
+  final VideoState? videoStateOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +49,7 @@ class VideoPlaybackOverlay extends StatelessWidget {
                   track: track,
                   playerController: playerController,
                   shellController: shellController,
+                  videoState: videoStateOverride,
                 ),
               ],
             )
@@ -83,9 +86,12 @@ class _OtohaVideoControls extends StatefulWidget {
   State<_OtohaVideoControls> createState() => _OtohaVideoControlsState();
 }
 
-class _OtohaVideoControlsState extends State<_OtohaVideoControls> {
+class _OtohaVideoControlsState extends State<_OtohaVideoControls>
+    with WindowListener {
   Timer? _hideTimer;
   bool _isVisible = true;
+  bool _isFullscreen = false;
+  Future<void>? _fullscreenTransition;
   double _lastAudibleVolume = 0.72;
 
   @override
@@ -94,13 +100,52 @@ class _OtohaVideoControlsState extends State<_OtohaVideoControls> {
     if (widget.playerController.volume > 0) {
       _lastAudibleVolume = widget.playerController.volume;
     }
+    if (_usesNativeDesktopFullscreen && widget.videoState != null) {
+      windowManager.addListener(this);
+      unawaited(_syncNativeFullscreen());
+    } else {
+      _isFullscreen = widget.videoState?.isFullscreen() ?? false;
+    }
     _scheduleHide();
   }
 
   @override
+  void didUpdateWidget(covariant _OtohaVideoControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_usesNativeDesktopFullscreen) {
+      _isFullscreen = widget.videoState?.isFullscreen() ?? false;
+      return;
+    }
+    if (oldWidget.videoState == null && widget.videoState != null) {
+      windowManager.addListener(this);
+      unawaited(_syncNativeFullscreen());
+    } else if (oldWidget.videoState != null && widget.videoState == null) {
+      windowManager.removeListener(this);
+      _isFullscreen = false;
+    }
+  }
+
+  @override
   void dispose() {
+    if (_usesNativeDesktopFullscreen && widget.videoState != null) {
+      windowManager.removeListener(this);
+    }
     _hideTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void onWindowEnterFullScreen() {
+    if (mounted) {
+      setState(() => _isFullscreen = true);
+    }
+  }
+
+  @override
+  void onWindowLeaveFullScreen() {
+    if (mounted) {
+      setState(() => _isFullscreen = false);
+    }
   }
 
   @override
@@ -254,7 +299,9 @@ class _OtohaVideoControlsState extends State<_OtohaVideoControls> {
     final sliderValue = controller.positionSeconds
         .clamp(0, sliderMaximum.round())
         .toDouble();
-    final isFullscreen = widget.videoState?.isFullscreen() ?? false;
+    final isFullscreen = _usesNativeDesktopFullscreen
+        ? _isFullscreen
+        : widget.videoState?.isFullscreen() ?? false;
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 44, 20, 18),
       decoration: const BoxDecoration(
@@ -383,22 +430,39 @@ class _OtohaVideoControlsState extends State<_OtohaVideoControls> {
 
   Future<void> _toggleFullscreen() async {
     final videoState = widget.videoState;
-    if (videoState == null) {
+    if (videoState == null || _fullscreenTransition != null) {
       return;
     }
-    await videoState.toggleFullscreen();
-    if (mounted) {
-      setState(() {});
-      _showControls();
+    final transition = _performFullscreenToggle(videoState);
+    _fullscreenTransition = transition;
+    try {
+      await transition;
+    } finally {
+      if (identical(_fullscreenTransition, transition)) {
+        _fullscreenTransition = null;
+      }
     }
   }
 
   Future<void> _close() async {
     final videoState = widget.videoState;
-    if (videoState?.isFullscreen() ?? false) {
-      await videoState!.exitFullscreen();
+    try {
+      await _fullscreenTransition;
+      if (_usesNativeDesktopFullscreen && videoState != null) {
+        if (await windowManager.isFullScreen()) {
+          await windowManager.setFullScreen(false);
+        }
+      } else if (videoState?.isFullscreen() ?? false) {
+        await videoState!.exitFullscreen();
+      }
+    } on Object catch (error) {
+      debugPrint('Unable to exit video fullscreen: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isFullscreen = false);
+      }
+      widget.shellController.closeExpandedLyrics();
     }
-    widget.shellController.closeExpandedLyrics();
   }
 
   Future<void> _switchToAudio() async {
@@ -407,8 +471,42 @@ class _OtohaVideoControlsState extends State<_OtohaVideoControls> {
   }
 
   void _startDragging() {
-    if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
-      windowManager.startDragging();
+    if (_usesNativeDesktopFullscreen && !_isFullscreen) {
+      unawaited(windowManager.startDragging());
+    }
+  }
+
+  Future<void> _performFullscreenToggle(VideoState videoState) async {
+    try {
+      if (_usesNativeDesktopFullscreen) {
+        final nextFullscreen = !await windowManager.isFullScreen();
+        await windowManager.setFullScreen(nextFullscreen);
+        if (mounted) {
+          setState(() => _isFullscreen = nextFullscreen);
+        }
+      } else {
+        await videoState.toggleFullscreen();
+        if (mounted) {
+          setState(() => _isFullscreen = videoState.isFullscreen());
+        }
+      }
+    } on Object catch (error) {
+      debugPrint('Unable to toggle video fullscreen: $error');
+    } finally {
+      if (mounted) {
+        _showControls();
+      }
+    }
+  }
+
+  Future<void> _syncNativeFullscreen() async {
+    try {
+      final isFullscreen = await windowManager.isFullScreen();
+      if (mounted) {
+        setState(() => _isFullscreen = isFullscreen);
+      }
+    } on Object {
+      // The desktop channel is unavailable in widget tests and early startup.
     }
   }
 
@@ -443,6 +541,9 @@ class _OtohaVideoControlsState extends State<_OtohaVideoControls> {
     });
   }
 }
+
+bool get _usesNativeDesktopFullscreen =>
+    Platform.isLinux || Platform.isMacOS || Platform.isWindows;
 
 class _ControlButton extends StatelessWidget {
   const _ControlButton({

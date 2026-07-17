@@ -310,11 +310,16 @@ class _OfflineLibraryWorkspaceState extends State<OfflineLibraryWorkspace> {
   );
 
   void _play(DownloadedTrack track) {
-    final tracks = widget.controller.downloads
+    final downloads = widget.controller.downloads;
+    final tracks = downloads
         .map((download) => download.toTrack())
         .toList(growable: false);
-    widget.playerController.playTracks(tracks);
-    widget.playerController.selectTrack(track.toTrack());
+    widget.playerController.playTracks(
+      tracks,
+      initialIndex: downloads.indexWhere(
+        (download) => download.videoId == track.videoId,
+      ),
+    );
   }
 
   Future<void> _confirmRemove(DownloadedTrack track) async {

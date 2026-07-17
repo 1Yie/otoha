@@ -63,6 +63,12 @@
 - `playback.resolve`
 - `download.track`
 
+`search.music` accepts `query` plus a required filter value: `all`, `song`,
+`album`, `artist`, `playlist`, or `video`. `all` uses the unfiltered
+YouTube Music search surface; the other values are forwarded to
+`Music.search(query, filter)`. Unsupported values fail with
+`INVALID_SEARCH_FILTER`.
+
 ## File Paths
 
 - `lib/src/models/youtube_library.dart`
@@ -108,6 +114,9 @@
 - Artist and mood/genre cards retain their browse ID and parameters for `feed.browse`.
 - Artist/channel cards render as circular profiles and open browse results.
 - Search retains playable podcast episodes and video-capable music entries.
+  Query, active filter, results, and stale-request protection remain in the
+  long-lived Flutter controller, while credentials and search results remain
+  memory-only.
 - Explore category selections are top tabs that replace the current Explore
   sections. Podcast-show cards retain their `MPSP` browse ID and open a
   dedicated show header plus vertical episode list through the authenticated

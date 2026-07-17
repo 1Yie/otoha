@@ -9,8 +9,8 @@ lib/
     ├── models/                       catalog and YouTube metadata contracts
     ├── services/                     secure credential/session storage, native audio engine, and sidecar client
     ├── state/                        workspace, player, shell, and YouTube controllers
-    ├── widgets/                      permanent shell, player, panels, and search palette
-    └── workspaces/                   Home, Explore, Library, and Settings content
+    ├── widgets/                      permanent shell, player, title bar, and panels
+    └── workspaces/                   Home, Search, Explore, Library, and Settings content
 
 sidecar/
 ├── src/index.mjs                     newline-delimited JSON process protocol
@@ -18,8 +18,9 @@ sidecar/
 ```
 
 `OtohaApp` owns long-lived controllers. `DesktopShell` keeps the title bar,
-sidebar, player, right panel host, and search palette mounted while only the
-workspace region changes. The player persists its queue, selected
+sidebar, player, and right panel host mounted while only the workspace region
+changes. Search is an independent history destination opened from the title
+bar or keyboard shortcut. The player persists its queue, selected
 track, and position locally; it never persists a transient media URL.
 
 The Node sidecar is a child process, not a network server. Flutter persists
