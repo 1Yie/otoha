@@ -1375,6 +1375,28 @@ void main() {
       tester.widget<Text>(find.byKey(const Key('player-track'))).data,
       'Live recommendation',
     );
+    final homePlayer = tester
+        .widget<MusicPlayerBar>(find.byType(MusicPlayerBar))
+        .playerController;
+    expect(homePlayer.queue, hasLength(20));
+    expect(
+      homePlayer.queue.map((track) => track.title),
+      orderedEquals(<String>[
+        'Live recommendation',
+        for (var index = 1; index < 20; index += 1) 'Recommendation $index',
+      ]),
+    );
+    homePlayer.next();
+    await tester.pump();
+    expect(homePlayer.currentTrack?.title, 'Recommendation 1');
+    await tester.tap(
+      find.byKey(const Key('youtube-feed-song-feed-home-item-2')),
+    );
+    await tester.pump();
+    expect(homePlayer.currentTrack?.title, 'Recommendation 2');
+    homePlayer.next();
+    await tester.pump();
+    expect(homePlayer.currentTrack?.title, 'Recommendation 3');
     await tester.tap(find.byKey(const Key('youtube-home-tab-Sleep')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 120));
@@ -2792,6 +2814,22 @@ void main() {
       expect(find.text('Albums'), findsOneWidget);
       expect(find.text('Fresh album'), findsOneWidget);
       expect(find.byKey(const Key('youtube-artist-follow')), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('youtube-feed-song-artist-song-one')),
+      );
+      await tester.pump();
+      final artistPlayer = tester
+          .widget<MusicPlayerBar>(find.byType(MusicPlayerBar))
+          .playerController;
+      expect(
+        artistPlayer.queue.map((track) => track.title),
+        orderedEquals(<String>['Artist song one', 'Artist song two']),
+      );
+      expect(artistPlayer.currentTrack?.title, 'Artist song one');
+      artistPlayer.next();
+      await tester.pump();
+      expect(artistPlayer.currentTrack?.title, 'Artist song two');
 
       await tester.tap(find.byKey(const Key('youtube-artist-follow')));
       await tester.pumpAndSettle();

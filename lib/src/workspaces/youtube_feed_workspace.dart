@@ -314,7 +314,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
                   sectionIndex: index,
                   loadingItemId: controller.loadingFeedItemId,
                   reduceMotion: shellController.reduceMotion,
-                  onTap: _actionFor,
+                  onTap: (item) => _actionFor(item, section.items),
                 );
               },
             ),
@@ -337,7 +337,10 @@ class YouTubeFeedWorkspace extends StatelessWidget {
     );
   }
 
-  VoidCallback? _actionFor(YouTubeFeedItem item) {
+  VoidCallback? _actionFor(
+    YouTubeFeedItem item, [
+    List<YouTubeFeedItem> queueItems = const <YouTubeFeedItem>[],
+  ]) {
     if (item.isCollection) {
       return () => unawaited(_openCollection(item));
     }
@@ -347,7 +350,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
       );
     }
     if (item.isPlayable) {
-      return () => unawaited(_playFeedItem(item));
+      return () => unawaited(_playFeedItem(item, queueItems));
     }
     return null;
   }
@@ -369,17 +372,71 @@ class YouTubeFeedWorkspace extends StatelessWidget {
     }
   }
 
-  Future<void> _playFeedItem(YouTubeFeedItem item) async {
-    final track = await youtubeLibraryController.resolveFeedTrack(item);
-    playerController.playTracks(<Track>[
-      _asSimulatedYouTubeTrack(
-        track,
-        artistFallback: item.artists,
-        subtitleFallback: item.subtitle,
-        itemTypeFallback: item.itemType,
-      ),
-    ]);
+  Future<void> _playFeedItem(
+    YouTubeFeedItem item,
+    List<YouTubeFeedItem> queueItems,
+  ) {
+    return _playFeedQueue(
+      selectedItem: item,
+      queueItems: queueItems,
+      youtubeLibraryController: youtubeLibraryController,
+      playerController: playerController,
+    );
   }
+}
+
+Future<void> _playFeedQueue({
+  required YouTubeFeedItem selectedItem,
+  required List<YouTubeFeedItem> queueItems,
+  required YouTubeLibraryController youtubeLibraryController,
+  required PlayerController playerController,
+  String? artworkFallback,
+  String? albumFallback,
+}) async {
+  final playableItems = queueItems
+      .where((item) => item.isPlayable)
+      .toList(growable: true);
+  var selectedIndex = playableItems.indexWhere(
+    (item) =>
+        identical(item, selectedItem) ||
+        (item.id == selectedItem.id && item.videoId == selectedItem.videoId),
+  );
+  if (selectedIndex < 0) {
+    playableItems
+      ..clear()
+      ..add(selectedItem);
+    selectedIndex = 0;
+  }
+
+  final selectedTrack = await youtubeLibraryController.resolveFeedTrack(
+    selectedItem,
+  );
+  final tracks = <Track>[
+    for (var index = 0; index < playableItems.length; index += 1)
+      _asSimulatedYouTubeTrack(
+        index == selectedIndex
+            ? selectedTrack
+            : _youtubeTrackFromFeedItem(playableItems[index]),
+        artworkFallback: playableItems[index].thumbnailUrl ?? artworkFallback,
+        albumFallback: playableItems[index].album ?? albumFallback,
+        artistFallback: playableItems[index].artists,
+        subtitleFallback: playableItems[index].subtitle,
+        itemTypeFallback: playableItems[index].itemType,
+      ),
+  ];
+  playerController.playTracks(tracks, initialIndex: selectedIndex);
+}
+
+YouTubeTrack _youtubeTrackFromFeedItem(YouTubeFeedItem item) {
+  return YouTubeTrack(
+    videoId: item.videoId!,
+    title: item.title,
+    artists: item.artists,
+    durationSeconds: item.durationSeconds,
+    itemType: item.itemType,
+    album: item.album,
+    thumbnailUrl: item.thumbnailUrl,
+  );
 }
 
 class _FeedPaginationScroll extends StatefulWidget {
@@ -1434,13 +1491,30 @@ class YouTubeFeedBrowseDetailView extends StatelessWidget {
           ),
           SliverList.builder(
             itemCount: detail.sections.length,
-            itemBuilder: (context, index) => YouTubeFeedSectionView(
-              section: detail.sections[index],
-              sectionIndex: index,
-              loadingItemId: loadingItemId,
-              reduceMotion: reduceMotion,
-              onTap: onTap,
-            ),
+            itemBuilder: (context, index) {
+              final section = detail.sections[index];
+              return YouTubeFeedSectionView(
+                section: section,
+                sectionIndex: index,
+                loadingItemId: loadingItemId,
+                reduceMotion: reduceMotion,
+                onTap: (item) {
+                  if (!item.isPlayable) {
+                    return onTap(item);
+                  }
+                  return () => unawaited(
+                    _playFeedQueue(
+                      selectedItem: item,
+                      queueItems: section.items,
+                      youtubeLibraryController: youtubeLibraryController,
+                      playerController: playerController,
+                      artworkFallback: detail.thumbnailUrl,
+                      albumFallback: detail.title,
+                    ),
+                  );
+                },
+              );
+            },
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 40)),
         ],
