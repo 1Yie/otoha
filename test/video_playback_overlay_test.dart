@@ -112,7 +112,12 @@ void main() {
       youtubeVideoId: 'video-id',
       isVideo: true,
     );
-    final engine = _FailingPlaybackEngine();
+    final engine = _ControlledPlaybackEngine(
+      openState: const AudioPlaybackSnapshot(
+        isBuffering: true,
+        error: AudioPlaybackFailure.streamUnavailable,
+      ),
+    );
     addTearDown(engine.dispose);
     final playerController = PlayerController(const <Track>[
       track,
@@ -146,7 +151,70 @@ void main() {
       find.text('YouTube did not provide a playable video stream.'),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('video-buffering-indicator')), findsNothing);
     expect(find.textContaining('audio engine'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('video spinner stays visible until playback progress begins', (
+    tester,
+  ) async {
+    const track = Track(
+      id: 'youtube:video-buffering',
+      title: 'Buffering session',
+      artist: 'Channel',
+      album: 'YouTube Music',
+      artworkAsset: '',
+      durationSeconds: 240,
+      lyrics: <String>[],
+      youtubeVideoId: 'video-buffering',
+      isVideo: true,
+    );
+    final engine = _ControlledPlaybackEngine();
+    addTearDown(engine.dispose);
+    final playerController = PlayerController(const <Track>[
+      track,
+    ], audioPlaybackEngine: engine);
+    addTearDown(playerController.dispose);
+    final shellController = ShellController()..openExpandedMedia();
+    addTearDown(shellController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocaleController.supportedLocales,
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: VideoPlaybackOverlay(
+          track: track,
+          playerController: playerController,
+          shellController: shellController,
+        ),
+      ),
+    );
+
+    playerController.togglePlaying();
+    await tester.pump();
+    expect(find.byKey(const Key('video-buffering-indicator')), findsOneWidget);
+
+    engine.emit(
+      const AudioPlaybackSnapshot(isPlaying: true, isBuffering: true),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('video-buffering-indicator')), findsOneWidget);
+
+    engine.emit(
+      const AudioPlaybackSnapshot(
+        position: Duration(milliseconds: 200),
+        isPlaying: true,
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('video-buffering-indicator')), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -285,7 +353,10 @@ class _FakeVideoState extends VideoState {
   }
 }
 
-class _FailingPlaybackEngine implements AudioPlaybackEngine {
+class _ControlledPlaybackEngine implements AudioPlaybackEngine {
+  _ControlledPlaybackEngine({this.openState});
+
+  final AudioPlaybackSnapshot? openState;
   final StreamController<AudioPlaybackSnapshot> _states =
       StreamController<AudioPlaybackSnapshot>.broadcast();
 
@@ -301,6 +372,8 @@ class _FailingPlaybackEngine implements AudioPlaybackEngine {
   @override
   VideoController? get videoController => null;
 
+  void emit(AudioPlaybackSnapshot state) => _states.add(state);
+
   @override
   Future<void> open(
     String videoId, {
@@ -308,11 +381,10 @@ class _FailingPlaybackEngine implements AudioPlaybackEngine {
     bool isVideo = false,
     bool autoplay = true,
   }) async {
-    _states.add(
-      const AudioPlaybackSnapshot(
-        error: AudioPlaybackFailure.streamUnavailable,
-      ),
-    );
+    final state = openState;
+    if (state != null) {
+      _states.add(state);
+    }
   }
 
   @override

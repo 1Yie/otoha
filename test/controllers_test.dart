@@ -141,21 +141,25 @@ void main() {
       engine.emit(
         const AudioPlaybackSnapshot(
           position: Duration(seconds: 24),
+          isBuffering: true,
           error: AudioPlaybackFailure.startFailed,
         ),
       );
       await Future<void>.delayed(Duration.zero);
 
       expect(engine.openedVideoIds, <String>['first', 'first', 'first']);
+      expect(controller.isBuffering, isTrue);
       engine.emit(
         const AudioPlaybackSnapshot(
           position: Duration(seconds: 24),
+          isBuffering: true,
           error: AudioPlaybackFailure.startFailed,
         ),
       );
       await Future<void>.delayed(Duration.zero);
 
       expect(controller.playbackError, AudioPlaybackFailure.startFailed);
+      expect(controller.isBuffering, isFalse);
     });
 
     test('starts a queue at an index and advances after completion', () async {
@@ -203,7 +207,7 @@ void main() {
     });
 
     test(
-      'video-capable tracks start as audio and switch at the same position',
+      'video-capable tracks restart independent timelines when switching modes',
       () async {
         final engine = _FakeAudioPlaybackEngine();
         final track = _youtubeTrack('video', videoAvailable: true);
@@ -230,16 +234,40 @@ void main() {
         expect(controller.currentTrack?.isVideo, isTrue);
         expect(controller.queue.single.isVideo, isTrue);
         expect(engine.openedVideoModes, <bool>[false, true]);
-        expect(engine.openInitialPositions.last, const Duration(seconds: 37));
+        expect(engine.openInitialPositions.last, Duration.zero);
         expect(engine.openedAutoplayModes.last, isTrue);
+        expect(controller.positionSeconds, 0);
+        expect(controller.isBuffering, isTrue);
+
+        engine.emit(
+          const AudioPlaybackSnapshot(
+            position: Duration.zero,
+            isPlaying: true,
+            isBuffering: true,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(controller.positionSeconds, 0);
+        expect(controller.isBuffering, isTrue);
+
+        engine.emit(
+          const AudioPlaybackSnapshot(
+            position: Duration(seconds: 12),
+            isPlaying: true,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(controller.positionSeconds, 12);
+        expect(controller.isBuffering, isFalse);
 
         controller.togglePlaying();
         controller.setVideoMode(false);
         expect(controller.currentTrack?.isVideo, isFalse);
         expect(controller.currentTrack?.videoAvailable, isTrue);
         expect(engine.openedVideoModes, <bool>[false, true, false]);
-        expect(engine.openInitialPositions.last, const Duration(seconds: 37));
+        expect(engine.openInitialPositions.last, Duration.zero);
         expect(engine.openedAutoplayModes.last, isFalse);
+        expect(controller.positionSeconds, 0);
         expect(
           Track.fromJson(controller.currentTrack!.toJson()).videoAvailable,
           isTrue,

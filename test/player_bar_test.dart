@@ -12,7 +12,7 @@ import 'package:otoha/src/state/desktop_shell_controllers.dart';
 import 'package:otoha/src/widgets/player_bar.dart';
 
 void main() {
-  testWidgets('buffering pulses the progress rail without replacing metadata', (
+  testWidgets('buffering rail stays visible until playback progress begins', (
     tester,
   ) async {
     final engine = _BufferingAudioPlaybackEngine();
@@ -69,7 +69,20 @@ void main() {
     await tester.tap(find.byKey(const Key('player-play')));
     await tester.pump();
 
-    engine.emit(const AudioPlaybackSnapshot(isPlaying: true));
+    engine.emit(
+      const AudioPlaybackSnapshot(isPlaying: true, isBuffering: true),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('player-progress-buffering')), findsOneWidget);
+    expect(find.byKey(const Key('player-progress-elapsed')), findsNothing);
+
+    engine.emit(
+      const AudioPlaybackSnapshot(
+        position: Duration(milliseconds: 200),
+        isPlaying: true,
+      ),
+    );
     await tester.pump();
 
     expect(find.byKey(const Key('player-progress-buffering')), findsNothing);

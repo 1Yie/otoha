@@ -114,6 +114,7 @@ class PlayerController extends ChangeNotifier {
   int _audioResolveAttempts = 0;
   bool _hasActiveAudio = false;
   int? _pendingAudioPositionSeconds;
+  bool _acceptReadyPositionFallback = false;
   bool _isShuffled = false;
   PlaybackRepeatMode _repeatMode = PlaybackRepeatMode.off;
   AudioOutputState _audioOutputState = const AudioOutputState();
@@ -230,6 +231,7 @@ class PlayerController extends ChangeNotifier {
         _isBuffering = false;
         _hasActiveAudio = false;
         _pendingAudioPositionSeconds = null;
+        _acceptReadyPositionFallback = false;
         unawaited(_audioPlaybackEngine!.stop());
       } else if (_isPlaying) {
         _isPlaying = false;
@@ -342,6 +344,7 @@ class PlayerController extends ChangeNotifier {
     _positionSeconds = seconds.clamp(0, currentTrack.durationSeconds);
     if (_usesAudioPlayback) {
       _pendingAudioPositionSeconds = _positionSeconds;
+      _acceptReadyPositionFallback = false;
       unawaited(
         _audioPlaybackEngine!.seek(Duration(seconds: _positionSeconds)),
       );
@@ -377,6 +380,7 @@ class PlayerController extends ChangeNotifier {
         .map((track) => track.id == currentTrack.id ? replacement : track)
         .toList(growable: false);
     _currentTrack = replacement;
+    _positionSeconds = 0;
     _activateCurrentTrack(playWhenReady: wasPlaying);
     _persistSession();
     notifyListeners();
@@ -470,6 +474,7 @@ class PlayerController extends ChangeNotifier {
       _isBuffering = true;
       final initialPosition = Duration(seconds: _positionSeconds);
       _pendingAudioPositionSeconds = initialPosition.inSeconds;
+      _acceptReadyPositionFallback = true;
       final localFilePath = currentTrack.localFilePath;
       if (localFilePath != null) {
         unawaited(
@@ -493,6 +498,7 @@ class PlayerController extends ChangeNotifier {
     _isBuffering = false;
     _hasActiveAudio = false;
     _pendingAudioPositionSeconds = null;
+    _acceptReadyPositionFallback = false;
     if (_audioPlaybackEngine != null) {
       unawaited(_audioPlaybackEngine.stop());
     }
@@ -508,7 +514,7 @@ class PlayerController extends ChangeNotifier {
       next();
       return;
     }
-    _isBuffering = state.isBuffering;
+    _isBuffering = state.error == null && state.isBuffering;
     _playbackError = state.error;
     if (state.error != null && _audioResolveAttempts < 1) {
       _audioResolveAttempts += 1;
@@ -517,16 +523,22 @@ class PlayerController extends ChangeNotifier {
     }
     if (state.error != null) {
       _isPlaying = false;
+      _acceptReadyPositionFallback = false;
     } else if (state.isPlaying) {
       _audioResolveAttempts = 0;
       _hasActiveAudio = true;
     }
     final position = state.position.inSeconds;
     final pendingPosition = _pendingAudioPositionSeconds;
+    final isPlaybackReady =
+        state.error == null && state.isPlaying && !state.isBuffering;
     final acceptsPosition =
-        pendingPosition == null || (position - pendingPosition).abs() <= 2;
+        pendingPosition == null ||
+        (position - pendingPosition).abs() <= 2 ||
+        (_acceptReadyPositionFallback && isPlaybackReady);
     if (acceptsPosition) {
       _pendingAudioPositionSeconds = null;
+      _acceptReadyPositionFallback = false;
       if (currentTrack.durationSeconds > 0) {
         _positionSeconds = position.clamp(0, currentTrack.durationSeconds);
       } else {

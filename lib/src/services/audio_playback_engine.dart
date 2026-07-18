@@ -89,6 +89,8 @@ abstract interface class AudioPlaybackEngine {
 }
 
 class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
+  static const _minimumPlaybackProgress = Duration(milliseconds: 50);
+
   factory MediaKitAudioPlaybackEngine(
     YouTubeSidecarClient client, {
     Map<String, String> proxyEnvironment = const <String, String>{},
@@ -118,22 +120,24 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       _player.state.audioDevice,
     );
     _subscriptions = <StreamSubscription<Object?>>[
-      _player.stream.position.listen((position) => _update(position: position)),
+      _player.stream.position.listen(_handlePosition),
       _player.stream.duration.listen((duration) => _update(duration: duration)),
-      _player.stream.playing.listen(
-        (isPlaying) => _update(isPlaying: isPlaying),
-      ),
-      _player.stream.buffering.listen(
-        (isBuffering) => _update(isBuffering: isBuffering),
-      ),
+      _player.stream.playing.listen(_handlePlaying),
+      _player.stream.buffering.listen(_handleBuffering),
       _player.stream.completed.listen((isCompleted) {
         if (isCompleted) {
-          _update(isCompleted: true, isPlaying: false);
+          _resetPlaybackReadiness();
+          _update(isCompleted: true, isPlaying: false, isBuffering: false);
         }
       }),
       _player.stream.error.listen((error) {
         if (error.isNotEmpty) {
-          _update(error: AudioPlaybackFailure.engineCouldNotPlay);
+          _resetPlaybackReadiness();
+          _update(
+            isPlaying: false,
+            isBuffering: false,
+            error: AudioPlaybackFailure.engineCouldNotPlay,
+          );
         }
       }),
       _player.stream.audioDevice.listen(_updateOutputDevice),
@@ -154,6 +158,13 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   late AudioOutputState _outputState;
   int _request = 0;
   bool _isDisposed = false;
+  bool _isOpening = false;
+  bool _isAwaitingPlaybackProgress = false;
+  bool _hasPlaybackProgress = false;
+  bool _sawNativeBuffering = false;
+  bool _nativeIsBuffering = false;
+  bool _nativeIsPlaying = false;
+  Duration _playbackStartPosition = Duration.zero;
 
   @override
   Stream<AudioPlaybackSnapshot> get states => _states.stream;
@@ -179,6 +190,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       videoController;
     }
     final request = ++_request;
+    _beginOpening();
     _update(
       isPlaying: false,
       isBuffering: true,
@@ -205,10 +217,15 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
         throw const SidecarException('PLAYBACK_UNAVAILABLE', '');
       }
       await _configureProxyFor(url);
-      await _configureExternalAudio(isVideo ? audioUrl : null);
       await _player.open(Media(url), play: false);
       if (request != _request || _isDisposed) {
         return;
+      }
+      if (isVideo && audioUrl != null && audioUrl.isNotEmpty) {
+        await _player.setAudioTrack(AudioTrack.uri(audioUrl));
+        if (request != _request || _isDisposed) {
+          return;
+        }
       }
       if (initialPosition > Duration.zero) {
         await _waitUntilMediaIsSeekable();
@@ -218,10 +235,14 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
         await _player.seek(initialPosition);
       }
       if (autoplay) {
+        _finishOpening(waitForPlaybackProgress: true);
         await _player.play();
+      } else {
+        _finishOpening(waitForPlaybackProgress: false);
       }
     } on SidecarException {
       if (request == _request && !_isDisposed) {
+        _resetPlaybackReadiness();
         _update(
           isPlaying: false,
           isBuffering: false,
@@ -230,6 +251,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       }
     } on Object {
       if (request == _request && !_isDisposed) {
+        _resetPlaybackReadiness();
         _update(
           isPlaying: false,
           isBuffering: false,
@@ -245,6 +267,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     Duration initialPosition = Duration.zero,
   }) async {
     final request = ++_request;
+    _beginOpening();
     _update(
       isPlaying: false,
       isBuffering: true,
@@ -256,7 +279,6 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       if (request != _request || _isDisposed) {
         return;
       }
-      await _configureExternalAudio(null);
       await _player.open(Media(path), play: false);
       if (request != _request || _isDisposed) {
         return;
@@ -268,9 +290,11 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
         }
         await _player.seek(initialPosition);
       }
+      _finishOpening(waitForPlaybackProgress: true);
       await _player.play();
     } on Object {
       if (request == _request && !_isDisposed) {
+        _resetPlaybackReadiness();
         _update(
           isPlaying: false,
           isBuffering: false,
@@ -303,8 +327,8 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   @override
   Future<void> stop() async {
     _request += 1;
+    _resetPlaybackReadiness();
     await _player.stop();
-    await _configureExternalAudio(null);
     _update(
       position: Duration.zero,
       isPlaying: false,
@@ -321,6 +345,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     }
     _isDisposed = true;
     _request += 1;
+    _resetPlaybackReadiness();
     await Future.wait<void>(
       _subscriptions.map((subscription) => subscription.cancel()),
     );
@@ -344,13 +369,6 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     );
   }
 
-  Future<void> _configureExternalAudio(String? url) async {
-    final platform = _player.platform;
-    if (platform is NativePlayer) {
-      await platform.setProperty('audio-file', url ?? '');
-    }
-  }
-
   Future<void> _waitUntilMediaIsSeekable() async {
     if (_player.state.duration > Duration.zero) {
       return;
@@ -358,6 +376,86 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     await _player.stream.duration
         .firstWhere((duration) => duration > Duration.zero)
         .timeout(const Duration(seconds: 15));
+  }
+
+  void _beginOpening() {
+    _isOpening = true;
+    _isAwaitingPlaybackProgress = false;
+    _hasPlaybackProgress = false;
+    _sawNativeBuffering = false;
+    _nativeIsBuffering = false;
+    _nativeIsPlaying = false;
+    _playbackStartPosition = Duration.zero;
+  }
+
+  void _finishOpening({required bool waitForPlaybackProgress}) {
+    _isOpening = false;
+    _isAwaitingPlaybackProgress = waitForPlaybackProgress;
+    _hasPlaybackProgress = false;
+    _nativeIsPlaying = false;
+    _playbackStartPosition = _player.state.position;
+    if (!waitForPlaybackProgress &&
+        _sawNativeBuffering &&
+        !_nativeIsBuffering) {
+      _update(isBuffering: false);
+    }
+  }
+
+  void _handlePosition(Duration position) {
+    var playbackStarted = false;
+    final progressDelta = (position - _playbackStartPosition).inMicroseconds
+        .abs();
+    if (_isAwaitingPlaybackProgress &&
+        _nativeIsPlaying &&
+        progressDelta >= _minimumPlaybackProgress.inMicroseconds) {
+      _hasPlaybackProgress = true;
+      if (!_nativeIsBuffering) {
+        _isAwaitingPlaybackProgress = false;
+        _hasPlaybackProgress = false;
+        playbackStarted = true;
+      }
+    }
+    _update(position: position, isBuffering: playbackStarted ? false : null);
+  }
+
+  void _handlePlaying(bool isPlaying) {
+    if (_isAwaitingPlaybackProgress && isPlaying && !_nativeIsPlaying) {
+      _hasPlaybackProgress = false;
+      _playbackStartPosition = _player.state.position;
+    }
+    _nativeIsPlaying = isPlaying;
+    _update(isPlaying: isPlaying);
+  }
+
+  void _handleBuffering(bool isBuffering) {
+    _nativeIsBuffering = isBuffering;
+    if (isBuffering) {
+      _sawNativeBuffering = true;
+      _update(isBuffering: true);
+      return;
+    }
+    if (_isOpening) {
+      return;
+    }
+    if (_isAwaitingPlaybackProgress) {
+      if (_nativeIsPlaying && _hasPlaybackProgress) {
+        _isAwaitingPlaybackProgress = false;
+        _hasPlaybackProgress = false;
+        _update(isBuffering: false);
+      }
+      return;
+    }
+    _update(isBuffering: false);
+  }
+
+  void _resetPlaybackReadiness() {
+    _isOpening = false;
+    _isAwaitingPlaybackProgress = false;
+    _hasPlaybackProgress = false;
+    _sawNativeBuffering = false;
+    _nativeIsBuffering = false;
+    _nativeIsPlaying = false;
+    _playbackStartPosition = Duration.zero;
   }
 
   void _update({
