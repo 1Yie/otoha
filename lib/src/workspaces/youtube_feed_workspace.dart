@@ -425,6 +425,34 @@ Future<void> _playFeedQueue({
       ),
   ];
   playerController.playTracks(tracks, initialIndex: selectedIndex);
+  unawaited(
+    _hydrateFeedQueueDurations(
+      items: playableItems,
+      tracks: tracks,
+      selectedIndex: selectedIndex,
+      youtubeLibraryController: youtubeLibraryController,
+      playerController: playerController,
+    ),
+  );
+}
+
+Future<void> _hydrateFeedQueueDurations({
+  required List<YouTubeFeedItem> items,
+  required List<Track> tracks,
+  required int selectedIndex,
+  required YouTubeLibraryController youtubeLibraryController,
+  required PlayerController playerController,
+}) async {
+  final resolvedVideoIds = <String>{};
+  for (var index = 0; index < items.length; index += 1) {
+    if (index == selectedIndex ||
+        !resolvedVideoIds.add(items[index].videoId!)) {
+      continue;
+    }
+    final durationSeconds = await youtubeLibraryController
+        .resolveFeedTrackDuration(items[index]);
+    playerController.updateTrackDuration(tracks[index].id, durationSeconds);
+  }
 }
 
 YouTubeTrack _youtubeTrackFromFeedItem(YouTubeFeedItem item) {

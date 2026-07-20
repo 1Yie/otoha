@@ -191,6 +191,53 @@ void main() {
       expect(engine.openedVideoIds, <String>['second', 'third']);
     });
 
+    test('corrects queue durations without losing current identity', () async {
+      final engine = _FakeAudioPlaybackEngine();
+      final first = _youtubeTrack('first').withDurationSeconds(45);
+      final second = _youtubeTrack(
+        'second',
+        isVideo: true,
+        videoAvailable: true,
+      ).withDurationSeconds(0);
+      final controller = PlayerController(
+        const <Track>[],
+        audioPlaybackEngine: engine,
+      );
+      addTearDown(controller.dispose);
+
+      controller.playTracks(<Track>[first, second], initialIndex: 1);
+      controller.updateTrackDuration(first.id, 215);
+
+      expect(controller.queue.first.durationSeconds, 215);
+      expect(controller.currentTrack, same(controller.queue[1]));
+      expect(controller.currentTrack?.durationSeconds, 0);
+
+      engine.emit(
+        const AudioPlaybackSnapshot(
+          duration: Duration(seconds: 247),
+          isPlaying: true,
+          isBuffering: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.currentTrack?.durationSeconds, 0);
+
+      engine.emit(
+        const AudioPlaybackSnapshot(
+          position: Duration(seconds: 12),
+          duration: Duration(seconds: 247),
+          isPlaying: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentTrack, same(controller.queue[1]));
+      expect(controller.currentTrack?.durationSeconds, 247);
+      expect(controller.currentTrack?.isVideo, isTrue);
+      expect(controller.currentTrack?.videoAvailable, isTrue);
+      expect(controller.positionSeconds, 12);
+    });
+
     test('opens a video track with visible-video playback enabled', () {
       final engine = _FakeAudioPlaybackEngine();
       final track = _youtubeTrack('video', isVideo: true);

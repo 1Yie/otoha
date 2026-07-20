@@ -2525,6 +2525,21 @@ export function mapFeedItem(item, sectionIndex = 0, itemIndex = 0) {
     ? artistNames
     : artistsFromSubtitle(subtitle);
   const rank = chartRankValue(item?.index);
+  const durationFromText = durationSecondsFromRawText(
+    textValue(item?.duration) ??
+      textValue(item?.length_text) ??
+      textValue(item?.second_title) ??
+      subtitle,
+  );
+  const numericDuration = Number(item?.duration?.seconds);
+  let durationSeconds = durationFromText;
+  if (
+    durationSeconds <= 0 &&
+    Number.isFinite(numericDuration) &&
+    numericDuration > 0
+  ) {
+    durationSeconds = Math.round(numericDuration);
+  }
 
   return {
     id: id || `${itemType}-${sectionIndex}-${itemIndex}`,
@@ -2537,7 +2552,7 @@ export function mapFeedItem(item, sectionIndex = 0, itemIndex = 0) {
     ...(typeof payload.params === 'string' ? { browseParams: payload.params } : {}),
     artists: resolvedArtists,
     album: textValue(item?.album?.name ?? item?.album) ?? albumFromSubtitle(subtitle),
-    durationSeconds: item?.duration?.seconds ?? 0,
+    durationSeconds,
     thumbnailUrl: largestArtworkThumbnail(thumbnailCandidates(item))?.url ?? null,
     ...(rank !== null ? { rank } : {}),
   };

@@ -824,7 +824,38 @@ class YouTubeLibraryController extends ChangeNotifier {
     if (_isPodcastEpisodeItemType(item.itemType) && item.videoId != null) {
       _podcastEpisodeVideoIds.add(item.videoId!);
     }
-    final fallback = YouTubeTrack(
+    final fallback = _feedTrackFromItem(item);
+    if (!_shouldResolveFeedDuration(item.durationSeconds)) {
+      return fallback;
+    }
+
+    _loadingFeedItemId = item.id;
+    _feedActionErrorMessage = null;
+    notifyListeners();
+    try {
+      return await _requestFeedTrack(item);
+    } on Object {
+      _feedActionErrorMessage = YouTubeLibraryError.actionFailed;
+      return fallback;
+    } finally {
+      _loadingFeedItemId = null;
+      notifyListeners();
+    }
+  }
+
+  Future<int> resolveFeedTrackDuration(YouTubeFeedItem item) async {
+    if (!_shouldResolveFeedDuration(item.durationSeconds)) {
+      return item.durationSeconds;
+    }
+    try {
+      return (await _requestFeedTrack(item)).durationSeconds;
+    } on Object {
+      return item.durationSeconds;
+    }
+  }
+
+  YouTubeTrack _feedTrackFromItem(YouTubeFeedItem item) {
+    return YouTubeTrack(
       videoId: item.videoId!,
       title: item.title,
       artists: item.artists,
@@ -833,36 +864,31 @@ class YouTubeLibraryController extends ChangeNotifier {
       album: item.album,
       thumbnailUrl: item.thumbnailUrl,
     );
-    if (item.durationSeconds > 0) {
-      return fallback;
-    }
+  }
 
-    _loadingFeedItemId = item.id;
-    _feedActionErrorMessage = null;
-    notifyListeners();
-    try {
-      final result = await _client.call('feed.track', <String, Object?>{
-        'videoId': item.videoId,
-      });
-      final track = YouTubeTrack.fromJson(
-        (result['track']! as Map<Object?, Object?>).cast<String, Object?>(),
-      );
-      return YouTubeTrack(
-        videoId: track.videoId,
-        title: track.title,
-        artists: track.artists.isEmpty ? item.artists : track.artists,
-        durationSeconds: track.durationSeconds,
-        itemType: item.itemType,
-        album: item.album,
-        thumbnailUrl: track.thumbnailUrl ?? item.thumbnailUrl,
-      );
-    } on Object {
-      _feedActionErrorMessage = YouTubeLibraryError.actionFailed;
-      return fallback;
-    } finally {
-      _loadingFeedItemId = null;
-      notifyListeners();
-    }
+  Future<YouTubeTrack> _requestFeedTrack(YouTubeFeedItem item) async {
+    final result = await _client.call('feed.track', <String, Object?>{
+      'videoId': item.videoId,
+    });
+    final track = YouTubeTrack.fromJson(
+      (result['track']! as Map<Object?, Object?>).cast<String, Object?>(),
+    );
+    return YouTubeTrack(
+      videoId: track.videoId,
+      title: track.title,
+      artists: track.artists.isEmpty ? item.artists : track.artists,
+      durationSeconds: track.durationSeconds > 0
+          ? track.durationSeconds
+          : item.durationSeconds,
+      itemType: item.itemType,
+      album: item.album,
+      thumbnailUrl: track.thumbnailUrl ?? item.thumbnailUrl,
+    );
+  }
+
+  bool _shouldResolveFeedDuration(int durationSeconds) {
+    // Older cached feed entries may contain only the clock's seconds component.
+    return durationSeconds < Duration.secondsPerMinute;
   }
 
   Future<void> loadLyrics({

@@ -2774,18 +2774,28 @@ void main() {
     'artist details refresh metadata, follow state, shuffle, and albums',
     (tester) async {
       await _setDesktopSurface(tester);
-      final libraryController = _signedOutLibraryController(
+      final sidecarClient = _NoopSidecarClient(
         artistDetail: true,
-        accountWriteCooldown: Duration.zero,
-        trackResponse: Future<Map<String, Object?>>.value(<String, Object?>{
-          'track': <String, Object?>{
+        trackResponses: <String, Map<String, Object?>>{
+          'artist-song-one': <String, Object?>{
             'videoId': 'artist-song-one',
             'title': 'Artist song one',
             'artists': <String>['Fresh artist'],
             'durationSeconds': 247,
             'thumbnailUrl': 'https://example.test/artist-song-one.jpg',
           },
-        }),
+          'artist-song-two': <String, Object?>{
+            'videoId': 'artist-song-two',
+            'title': 'Artist song two',
+            'artists': <String>['Fresh artist'],
+            'durationSeconds': 247,
+            'thumbnailUrl': 'https://example.test/artist-song-two.jpg',
+          },
+        },
+      );
+      final libraryController = _signedOutLibraryController(
+        client: sidecarClient,
+        accountWriteCooldown: Duration.zero,
       );
       addTearDown(libraryController.dispose);
       await libraryController.signInWithCookie('SID=test-cookie');
@@ -2818,13 +2828,17 @@ void main() {
       await tester.tap(
         find.byKey(const Key('youtube-feed-song-artist-song-one')),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
       final artistPlayer = tester
           .widget<MusicPlayerBar>(find.byType(MusicPlayerBar))
           .playerController;
       expect(
         artistPlayer.queue.map((track) => track.title),
         orderedEquals(<String>['Artist song one', 'Artist song two']),
+      );
+      expect(
+        artistPlayer.queue.map((track) => track.durationSeconds),
+        orderedEquals(<int>[247, 247]),
       );
       expect(artistPlayer.currentTrack?.title, 'Artist song one');
       artistPlayer.next();
@@ -2852,6 +2866,18 @@ void main() {
       expect(
         find.descendant(of: queue, matching: find.text('Artist song two')),
         findsOneWidget,
+      );
+      expect(
+        find.descendant(of: queue, matching: find.text('4:07')),
+        findsNWidgets(2),
+      );
+      expect(
+        find.descendant(of: queue, matching: find.text('0:45')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: queue, matching: find.text('--:--')),
+        findsNothing,
       );
     },
   );
@@ -3208,6 +3234,44 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const Key('player-progress-thumb')), findsOneWidget);
+  });
+
+  testWidgets('queue renders unknown duration without a false zero total', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController();
+    addTearDown(libraryController.dispose);
+    await tester.pumpWidget(
+      OtohaApp(
+        youtubeLibraryController: libraryController,
+        initialTracks: const <Track>[
+          Track(
+            id: 'unknown-duration',
+            title: 'Unknown duration',
+            artist: 'Artist',
+            album: 'YouTube Music',
+            artworkAsset: '',
+            durationSeconds: 0,
+            lyrics: <String>[],
+          ),
+        ],
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('player-queue')));
+    await tester.pumpAndSettle();
+
+    final queue = find.byKey(const Key('panel-queue'));
+    expect(
+      find.descendant(of: queue, matching: find.text('--:--')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: queue, matching: find.text('0:00')),
+      findsNothing,
+    );
   });
 
   testWidgets('centered now playing opens and closes full lyrics', (
@@ -3676,6 +3740,7 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     List<Future<Map<String, Object?>>>? historyResponses,
     this.lyricsResponse,
     this.trackResponse,
+    this.trackResponses = const <String, Map<String, Object?>>{},
     this.searchResponse,
     this.collectionResponse,
     this.playlistResponse,
@@ -3698,6 +3763,7 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
   final List<Future<Map<String, Object?>>> historyResponses;
   final Future<Map<String, Object?>>? lyricsResponse;
   final Future<Map<String, Object?>>? trackResponse;
+  final Map<String, Map<String, Object?>> trackResponses;
   final Future<Map<String, Object?>>? searchResponse;
   final Future<Map<String, Object?>>? collectionResponse;
   final Future<Map<String, Object?>>? playlistResponse;
@@ -3770,8 +3836,14 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     if (method == 'lyrics.get' && lyricsResponse != null) {
       return await lyricsResponse!;
     }
-    if (method == 'feed.track' && trackResponse != null) {
-      return await trackResponse!;
+    if (method == 'feed.track') {
+      final track = trackResponses[params['videoId']];
+      if (track != null) {
+        return <String, Object?>{'track': track};
+      }
+      if (trackResponse != null) {
+        return await trackResponse!;
+      }
     }
     if (method == 'feed.collection' && collectionResponse != null) {
       return await collectionResponse!;
@@ -4118,6 +4190,7 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
                         title: 'Artist song two',
                         itemType: 'song',
                         videoId: 'artist-song-two',
+                        durationSeconds: 45,
                       ),
                     ],
                   },

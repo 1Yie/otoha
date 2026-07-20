@@ -611,6 +611,25 @@ test('maps mixed music feed sections to stable item data', () => {
   );
 });
 
+test('prefers complete feed clock text over a conflicting seconds field', () => {
+  const sections = mapFeedSections([
+    {
+      title: 'Songs',
+      contents: [
+        {
+          constructor: { type: 'MusicResponsiveListItem' },
+          item_type: 'song',
+          id: 'video-1',
+          title: 'Track title',
+          duration: { text: '3:45', seconds: 45 },
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(sections[0].items[0].durationSeconds, 225);
+});
+
 test('preserves native multi-row carousel layout metadata', () => {
   const text = (value) => ({ toString: () => value });
   const sections = mapFeedSections([

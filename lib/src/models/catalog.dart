@@ -49,6 +49,23 @@ class Track {
     );
   }
 
+  Track withDurationSeconds(int value) {
+    return Track(
+      id: id,
+      title: title,
+      artist: artist,
+      album: album,
+      artworkAsset: artworkAsset,
+      durationSeconds: value,
+      lyrics: lyrics,
+      youtubeVideoId: youtubeVideoId,
+      localFilePath: localFilePath,
+      localLyricsPath: localLyricsPath,
+      isVideo: isVideo,
+      videoAvailable: videoAvailable,
+    );
+  }
+
   factory Track.fromJson(Map<String, Object?> json) {
     return Track(
       id: json['id']! as String,

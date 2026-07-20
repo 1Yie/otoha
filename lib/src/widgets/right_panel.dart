@@ -499,7 +499,9 @@ class _QueueTrackRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  formatDuration(track.durationSeconds),
+                  track.durationSeconds > 0
+                      ? formatDuration(track.durationSeconds)
+                      : l10n.unknownDuration,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],

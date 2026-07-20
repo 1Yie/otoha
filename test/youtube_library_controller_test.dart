@@ -1216,6 +1216,34 @@ void main() {
     expect(client.methods.last, 'feed.track');
   });
 
+  test('silently refreshes suspicious cached feed durations', () async {
+    final client = _FakeSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    var notifications = 0;
+    controller.addListener(() => notifications += 1);
+
+    final durationSeconds = await controller.resolveFeedTrackDuration(
+      const YouTubeFeedItem(
+        id: 'feed-song',
+        itemType: 'song',
+        title: 'Feed song',
+        videoId: 'video-feed-song',
+        artists: <String>['Card artist'],
+        durationSeconds: 45,
+      ),
+    );
+
+    expect(durationSeconds, 247);
+    expect(client.methods.last, 'feed.track');
+    expect(controller.loadingFeedItemId, isNull);
+    expect(controller.feedActionErrorMessage, isNull);
+    expect(notifications, 0);
+  });
+
   test('searches YouTube Music through the sidecar with a filter', () async {
     final client = _FakeSidecarClient();
     final controller = YouTubeLibraryController(

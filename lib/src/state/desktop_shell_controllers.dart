@@ -120,6 +120,7 @@ class PlayerController extends ChangeNotifier {
   AudioOutputState _audioOutputState = const AudioOutputState();
   bool _isSelectingOutputDevice = false;
   bool _hasOutputDeviceError = false;
+  bool _isDisposed = false;
 
   Track? get currentTrack => _currentTrack;
   List<Track> get queue => List<Track>.unmodifiable(_playOrder);
@@ -275,6 +276,17 @@ class PlayerController extends ChangeNotifier {
     _isPlaying = true;
     _isShuffled = false;
     _activateCurrentTrack();
+    _persistSession();
+    notifyListeners();
+  }
+
+  void updateTrackDuration(String trackId, int durationSeconds) {
+    if (_isDisposed || durationSeconds <= 0) {
+      return;
+    }
+    if (!_replaceTrackDuration(trackId, durationSeconds)) {
+      return;
+    }
     _persistSession();
     notifyListeners();
   }
@@ -506,7 +518,7 @@ class PlayerController extends ChangeNotifier {
   }
 
   void _handleAudioState(AudioPlaybackSnapshot state) {
-    final currentTrack = _currentTrack;
+    var currentTrack = _currentTrack;
     if (!_usesAudioPlayback || currentTrack == null) {
       return;
     }
@@ -532,6 +544,14 @@ class PlayerController extends ChangeNotifier {
     final pendingPosition = _pendingAudioPositionSeconds;
     final isPlaybackReady =
         state.error == null && state.isPlaying && !state.isBuffering;
+    final durationSeconds = state.duration.inSeconds;
+    final durationChanged =
+        isPlaybackReady &&
+        durationSeconds > 0 &&
+        _replaceTrackDuration(currentTrack.id, durationSeconds);
+    if (durationChanged) {
+      currentTrack = _currentTrack!;
+    }
     final acceptsPosition =
         pendingPosition == null ||
         (position - pendingPosition).abs() <= 2 ||
@@ -545,10 +565,40 @@ class PlayerController extends ChangeNotifier {
         _positionSeconds = position;
       }
     }
-    if (acceptsPosition && _positionSeconds.remainder(5) == 0) {
+    if (durationChanged) {
+      _persistSession();
+    } else if (acceptsPosition && _positionSeconds.remainder(5) == 0) {
       _persistSession(deduplicateAudioCheckpoint: true);
     }
     notifyListeners();
+  }
+
+  bool _replaceTrackDuration(String trackId, int durationSeconds) {
+    final previousCurrentTrack = _currentTrack;
+    final currentIndex = previousCurrentTrack == null
+        ? -1
+        : _playOrder.indexOf(previousCurrentTrack);
+    var changed = false;
+
+    Track update(Track track) {
+      if (track.id != trackId || track.durationSeconds == durationSeconds) {
+        return track;
+      }
+      changed = true;
+      return track.withDurationSeconds(durationSeconds);
+    }
+
+    _catalog = List<Track>.unmodifiable(_catalog.map(update));
+    _playOrder = _playOrder.map(update).toList(growable: false);
+    if (previousCurrentTrack?.id == trackId &&
+        previousCurrentTrack!.durationSeconds != durationSeconds) {
+      changed = true;
+      _currentTrack = currentIndex >= 0
+          ? _playOrder[currentIndex]
+          : previousCurrentTrack.withDurationSeconds(durationSeconds);
+      _positionSeconds = _positionSeconds.clamp(0, durationSeconds);
+    }
+    return changed;
   }
 
   void _handleAudioOutputState(AudioOutputState state) {
@@ -592,6 +642,7 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
     _clock?.cancel();
     unawaited(_audioStates?.cancel() ?? Future<void>.value());
     unawaited(_audioOutputStates?.cancel() ?? Future<void>.value());
