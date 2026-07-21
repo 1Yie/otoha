@@ -313,6 +313,7 @@ class _BufferingAudioPlaybackEngine implements AudioPlaybackEngine {
     Duration initialPosition = Duration.zero,
     bool isVideo = false,
     bool autoplay = true,
+    AudioQuality audioQuality = AudioQuality.high,
   }) async {}
 
   @override

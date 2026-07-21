@@ -127,21 +127,34 @@ class DesktopTitleBar extends StatelessWidget {
                             icon: const Icon(Icons.settings_outlined),
                           ),
                         ),
-                        Tooltip(
-                          message: l10n.profile,
-                          child: IconButton(
-                            key: const Key('open-account'),
-                            onPressed: () =>
-                                shellController.togglePanel(SidePanel.account),
-                            icon: AnimatedBuilder(
-                              animation: youtubeLibraryController,
-                              builder: (context, _) {
-                                final avatarUrl =
-                                    youtubeLibraryController.profileAvatarUrl;
-                                return CircleAvatar(
+                        AnimatedBuilder(
+                          animation: youtubeLibraryController,
+                          builder: (context, _) {
+                            final isSignedIn =
+                                youtubeLibraryController.isSignedIn;
+                            final avatarUrl =
+                                youtubeLibraryController.profileAvatarUrl;
+                            return Tooltip(
+                              message: isSignedIn
+                                  ? l10n.myChannel
+                                  : l10n.profile,
+                              child: IconButton(
+                                key: const Key('open-account'),
+                                onPressed: () {
+                                  if (isSignedIn) {
+                                    shellController.closePanel();
+                                    workspaceController.navigateTo(
+                                      WorkspacePage.channel,
+                                    );
+                                    return;
+                                  }
+                                  shellController.togglePanel(
+                                    SidePanel.account,
+                                  );
+                                },
+                                icon: CircleAvatar(
                                   radius: 12,
-                                  backgroundColor:
-                                      youtubeLibraryController.isSignedIn
+                                  backgroundColor: isSignedIn
                                       ? OtohaColors.accent
                                       : OtohaColors.surfaceRaised,
                                   foregroundImage:
@@ -149,20 +162,20 @@ class DesktopTitleBar extends StatelessWidget {
                                       ? NetworkImage(avatarUrl)
                                       : null,
                                   child: Icon(
-                                    youtubeLibraryController.isSignedIn
+                                    isSignedIn
                                         ? Icons.person_rounded
                                         : Icons.person_outline_rounded,
                                     size: 15,
-                                    color: youtubeLibraryController.isSignedIn
+                                    color: isSignedIn
                                         ? Theme.of(
                                             context,
                                           ).colorScheme.onPrimary
                                         : OtohaColors.mutedText,
                                   ),
-                                );
-                              },
-                            ),
-                          ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                         if (_isDesktopPlatform()) const _WindowControls(),
                       ],
@@ -186,6 +199,7 @@ class DesktopTitleBar extends StatelessWidget {
         WorkspacePage.history => l10n.history,
         WorkspacePage.downloads => l10n.downloads,
         WorkspacePage.playlists => l10n.playlists,
+        WorkspacePage.channel => l10n.myChannel,
         WorkspacePage.settings => l10n.settings,
       };
 

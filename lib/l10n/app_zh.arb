@@ -4,6 +4,10 @@
   "settings": "设置",
   "desktop": "Desktop",
   "motion": "动画",
+  "audioQuality": "音频质量",
+  "audioQualityLow": "低",
+  "audioQualityNormal": "标准",
+  "audioQualityHigh": "高",
   "reduceMotion": "减少动画",
   "language": "语言",
   "english": "English",
@@ -28,6 +32,16 @@
   ,"back": "返回"
   ,"forward": "前进"
   ,"profile": "个人资料"
+  ,"myChannel": "我的频道"
+  ,"editChannel": "编辑频道"
+  ,"shareChannel": "分享频道"
+  ,"channelLinkCopied": "频道链接已复制。"
+  ,"channelLinkCopyFailed": "无法复制频道链接。"
+  ,"channelOpenFailed": "无法打开 YouTube Studio。"
+  ,"channelContentUnavailable": "你的 YouTube Music 频道目前没有可用的主页内容。"
+  ,"yourRecap": "你的 Recap"
+  ,"recapUnavailable": "Recap 暂不可用"
+  ,"recapUnavailableDescription": "YouTube Music 尚未为此账号提供 Recap 数据。"
   ,"minimize": "最小化"
   ,"maximize": "最大化"
   ,"close": "关闭"

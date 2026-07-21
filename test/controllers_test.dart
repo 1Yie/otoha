@@ -67,6 +67,7 @@ void main() {
       source.setVolume(0.4);
       source.cycleRepeatMode();
       await Future<void>.delayed(Duration.zero);
+      store.value!.remove('audioQuality');
 
       final restored = PlayerController(const <Track>[], sessionStore: store);
       addTearDown(restored.dispose);
@@ -81,7 +82,52 @@ void main() {
       expect(restored.positionSeconds, 73);
       expect(restored.volume, 0.4);
       expect(restored.repeatMode, PlaybackRepeatMode.all);
+      expect(restored.audioQuality, AudioQuality.high);
       expect(restored.isPlaying, isTrue);
+    });
+
+    test(
+      'persists quality without a queue and restores it after restart',
+      () async {
+        final store = _MemoryPlayerSessionStore();
+        final source = PlayerController(const <Track>[], sessionStore: store);
+        addTearDown(source.dispose);
+
+        source.setAudioQuality(AudioQuality.normal);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(store.value, <String, Object?>{'audioQuality': 'normal'});
+
+        final restored = PlayerController(const <Track>[], sessionStore: store);
+        addTearDown(restored.dispose);
+        await restored.restoreSession();
+
+        expect(restored.audioQuality, AudioQuality.normal);
+        expect(restored.currentTrack, isNull);
+      },
+    );
+
+    test('applies changed quality only to the next remote stream', () {
+      final engine = _FakeAudioPlaybackEngine();
+      final first = _youtubeTrack('first');
+      final second = _youtubeTrack('second');
+      final controller = PlayerController(<Track>[
+        first,
+        second,
+      ], audioPlaybackEngine: engine);
+      addTearDown(controller.dispose);
+
+      controller.selectTrack(first);
+      expect(engine.openedAudioQualities, <AudioQuality>[AudioQuality.high]);
+
+      controller.setAudioQuality(AudioQuality.low);
+      expect(engine.openedVideoIds, <String>['first']);
+
+      controller.selectTrack(second);
+      expect(engine.openedAudioQualities, <AudioQuality>[
+        AudioQuality.high,
+        AudioQuality.low,
+      ]);
     });
 
     test('keeps a persisted session when secure storage read fails', () async {
@@ -521,6 +567,7 @@ class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
   final List<Duration> openInitialPositions = <Duration>[];
   final List<bool> openedVideoModes = <bool>[];
   final List<bool> openedAutoplayModes = <bool>[];
+  final List<AudioQuality> openedAudioQualities = <AudioQuality>[];
   final List<String> openedLocalFilePaths = <String>[];
   final List<Duration> seekPositions = <Duration>[];
   final List<double> volumes = <double>[];
@@ -559,11 +606,13 @@ class _FakeAudioPlaybackEngine implements AudioPlaybackEngine {
     Duration initialPosition = Duration.zero,
     bool isVideo = false,
     bool autoplay = true,
+    AudioQuality audioQuality = AudioQuality.high,
   }) async {
     openedVideoIds.add(videoId);
     openInitialPositions.add(initialPosition);
     openedVideoModes.add(isVideo);
     openedAutoplayModes.add(autoplay);
+    openedAudioQualities.add(audioQuality);
   }
 
   @override

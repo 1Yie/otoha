@@ -100,5 +100,57 @@ ThemeData buildOtohaTheme() {
       overlayColor: Color(0x33B6F26D),
       trackHeight: 3,
     ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return OtohaColors.mutedText;
+          }
+          return states.contains(WidgetState.selected)
+              ? colorScheme.onPrimary
+              : OtohaColors.text;
+        }),
+        iconColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return OtohaColors.mutedText;
+          }
+          return states.contains(WidgetState.selected)
+              ? colorScheme.onPrimary
+              : OtohaColors.text;
+        }),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return OtohaColors.accent;
+          }
+          return OtohaColors.surfaceRaised;
+        }),
+        overlayColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.pressed)) {
+            return states.contains(WidgetState.selected)
+                ? const Color(0x291A210F)
+                : const Color(0x29B6F26D);
+          }
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.focused)) {
+            return states.contains(WidgetState.selected)
+                ? const Color(0x1F1A210F)
+                : const Color(0x1FB6F26D);
+          }
+          return null;
+        }),
+        side: WidgetStateProperty.resolveWith(
+          (states) => BorderSide(
+            color: states.contains(WidgetState.selected)
+                ? OtohaColors.accent
+                : OtohaColors.border,
+          ),
+        ),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(AppMetrics.radius)),
+          ),
+        ),
+      ),
+    ),
   );
 }

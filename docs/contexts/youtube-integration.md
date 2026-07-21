@@ -15,6 +15,8 @@
 - `YouTubeTrack`
 - `YouTubeFeedSection`
 - `YouTubeFeedItem`
+- `YouTubeChannelProfile`
+- `YouTubeRecapHighlight`
 - `YouTubeService`
 
 ## Authentication
@@ -44,6 +46,7 @@
 - `session.status`
 - `auth.cookie.signIn`
 - `auth.signOut`
+- `account.channel`
 - `library.playlists`
 - `library.playlist`
 - `history.get`
@@ -69,6 +72,15 @@ YouTube Music search surface; the other values are forwarded to
 `Music.search(query, filter)`. Unsupported values fail with
 `INVALID_SEARCH_FILTER`.
 
+`account.channel` loads the selected regular YouTube channel header, the
+authenticated YTMUSIC channel-home browse surface, and YouTube Music Recap as
+three independent requests. One upstream failure does not hide either
+successful result. Official channel-home shelves are returned under
+`content.sections` and rendered through the existing feed models and actions.
+Recap data is only normalized from `Music.getRecap()`; Otoha does not derive or
+estimate listening history. Flutter caches this combined metadata under
+`account.channel.v2` and clears it on sign-out or locale invalidation.
+
 ## File Paths
 
 - `lib/src/models/youtube_library.dart`
@@ -76,6 +88,7 @@ YouTube Music search surface; the other values are forwarded to
 - `lib/src/services/youtube_sidecar_client.dart`
 - `lib/src/state/youtube_library_controller.dart`
 - `lib/src/widgets/account_panel.dart`
+- `lib/src/workspaces/youtube_channel_workspace.dart`
 - `lib/src/workspaces/youtube_library_workspace.dart`
 - `sidecar/src/index.mjs`
 - `sidecar/src/youtube_service.mjs`
@@ -96,6 +109,7 @@ YouTube Music search surface; the other values are forwarded to
 - Linux builds require the `libsecret` development package.
 - Use a new private browser window when copying the YouTube Cookie header.
 - Cookie values are full account credentials and must never be logged or committed.
+- Channel headers may use regular, interactive, or page-header renderers. Select the best official banner and avatar candidate without synthesizing profile or feed data; empty channel-home and Recap states must remain truthful.
 - Library page tokens must be exhausted.
 - History uses the authenticated YTMUSIC `FEmusic_history` browse surface, not
   the generic YouTube `FEhistory` watch history. Keep results in memory only.
@@ -132,9 +146,14 @@ YouTube Music search surface; the other values are forwarded to
 - Feed-song cards without a duration resolve it through YouTube video metadata before playback.
 - `playback.resolve` is user-initiated. Audio mode returns one in-memory audio
   URL. Explicit video mode returns separately deciphered audio and video URLs;
-  selection prefers the highest AVC representation up to 1080p plus the
-  original non-DRC audio representation, and libmpv synchronizes both without
-  persisting either URL. Live video uses its HLS manifest when available.
+  selection prefers the highest AVC representation up to 1080p, and libmpv
+  synchronizes both without persisting either URL. The `quality` parameter is
+  `low`, `normal`, or `high`: original non-DRC audio is capped near 48 kbps or
+  128 kbps for Low and Normal, while High selects the highest available
+  bitrate. If no candidate is under a cap, the lowest available original
+  representation is used. The preference applies to audio-only playback and
+  adaptive video audio, but not local files, downloads, or an already open
+  stream. Live video uses its HLS manifest when available.
 - `download.track` is user-initiated and uses the existing authenticated
   Innertube session so it can reuse the already loaded player. It tries
   supported music/audio clients in order and stages a per-track bundle
@@ -149,3 +168,5 @@ YouTube Music search surface; the other values are forwarded to
   downloads remain valid.
 - `interaction.rate` and `comments.create` are user-initiated Cookie-authenticated account writes. Flutter and the sidecar enforce one shared two-second cooldown; never submit automatically, log comment bodies, or persist interaction request data.
 - Remote artwork and Home, Explore, Library, and playlist metadata may use their bounded cache; clear the metadata cache on sign-out. Local offline downloads, local offline playlist metadata, and timestamped LRC lyrics use separate non-credential stores and remain available after sign-out. Never cache Cookies, stream URLs, headers, comment bodies, or search results.
+- My Channel profile and Recap metadata use a 15-minute bounded-cache freshness window and are invalidated on sign-in, sign-out, locale changes, and disposal. Stale in-flight responses must not repopulate signed-out state.
+- Channel edit and share URLs are generated only from the selected channel ID or validated handle. Flutter opens only HTTPS YouTube hosts externally and copies only the canonical public channel URL.

@@ -222,6 +222,121 @@ class YouTubeFeedSection {
 }
 
 @immutable
+class YouTubeRecapHighlight {
+  const YouTubeRecapHighlight({
+    required this.title,
+    this.strapline,
+    this.description,
+    this.backgroundUrl,
+    this.thumbnailUrl,
+  });
+
+  factory YouTubeRecapHighlight.fromJson(Map<String, Object?> json) {
+    return YouTubeRecapHighlight(
+      title: json['title']! as String,
+      strapline: _metadataString(json['strapline']),
+      description: _metadataString(json['description']),
+      backgroundUrl: _metadataString(json['backgroundUrl']),
+      thumbnailUrl: _metadataString(json['thumbnailUrl']),
+    );
+  }
+
+  final String title;
+  final String? strapline;
+  final String? description;
+  final String? backgroundUrl;
+  final String? thumbnailUrl;
+}
+
+@immutable
+class YouTubeChannelProfile {
+  const YouTubeChannelProfile({
+    required this.channelSections,
+    required this.recapAvailable,
+    required this.recapHighlights,
+    required this.recapSections,
+    this.displayName,
+    this.avatarUrl,
+    this.handle,
+    this.channelId,
+    this.subscriberText,
+    this.bannerUrl,
+    this.channelUrl,
+    this.studioUrl,
+  });
+
+  factory YouTubeChannelProfile.fromJson(Map<String, Object?> json) {
+    final profileValue = json['profile'];
+    final profile = profileValue is Map<Object?, Object?>
+        ? profileValue.cast<String, Object?>()
+        : const <String, Object?>{};
+    final recapValue = json['recap'];
+    final recap = recapValue is Map<Object?, Object?>
+        ? recapValue.cast<String, Object?>()
+        : const <String, Object?>{};
+    final contentValue = json['content'];
+    final content = contentValue is Map<Object?, Object?>
+        ? contentValue.cast<String, Object?>()
+        : const <String, Object?>{};
+    final channelSections = content['sections'];
+    final highlights = recap['highlights'];
+    final sections = recap['sections'];
+    return YouTubeChannelProfile(
+      displayName: _metadataString(profile['displayName']),
+      avatarUrl: _metadataString(profile['avatarUrl']),
+      handle: _metadataString(profile['handle']),
+      channelId: _metadataString(profile['channelId']),
+      subscriberText: _metadataString(profile['subscriberText']),
+      bannerUrl: _metadataString(profile['bannerUrl']),
+      channelUrl: _metadataString(profile['channelUrl']),
+      studioUrl: _metadataString(profile['studioUrl']),
+      channelSections: channelSections is List<Object?>
+          ? channelSections
+                .whereType<Map<Object?, Object?>>()
+                .map(
+                  (item) =>
+                      YouTubeFeedSection.fromJson(item.cast<String, Object?>()),
+                )
+                .toList(growable: false)
+          : const <YouTubeFeedSection>[],
+      recapAvailable: recap['available'] == true,
+      recapHighlights: highlights is List<Object?>
+          ? highlights
+                .whereType<Map<Object?, Object?>>()
+                .map(
+                  (item) => YouTubeRecapHighlight.fromJson(
+                    item.cast<String, Object?>(),
+                  ),
+                )
+                .toList(growable: false)
+          : const <YouTubeRecapHighlight>[],
+      recapSections: sections is List<Object?>
+          ? sections
+                .whereType<Map<Object?, Object?>>()
+                .map(
+                  (item) =>
+                      YouTubeFeedSection.fromJson(item.cast<String, Object?>()),
+                )
+                .toList(growable: false)
+          : const <YouTubeFeedSection>[],
+    );
+  }
+
+  final String? displayName;
+  final String? avatarUrl;
+  final String? handle;
+  final String? channelId;
+  final String? subscriberText;
+  final String? bannerUrl;
+  final String? channelUrl;
+  final String? studioUrl;
+  final List<YouTubeFeedSection> channelSections;
+  final bool recapAvailable;
+  final List<YouTubeRecapHighlight> recapHighlights;
+  final List<YouTubeFeedSection> recapSections;
+}
+
+@immutable
 class YouTubeFeedBrowseDetail {
   const YouTubeFeedBrowseDetail({
     required this.source,

@@ -93,6 +93,131 @@ void main() {
     },
   );
 
+  test('loads and caches the signed-in channel profile', () async {
+    final client = _FakeSidecarClient();
+    final cache = _MemoryMetadataCache();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+      metadataCache: cache,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+    client.methods.clear();
+
+    await controller.loadChannelProfile();
+
+    expect(controller.channelProfile?.displayName, 'Test listener');
+    expect(controller.channelProfile?.handle, '@test-listener');
+    expect(
+      controller.channelProfile?.channelSections.single.title,
+      'Your mixes',
+    );
+    expect(controller.channelProfile?.recapAvailable, isTrue);
+    expect(controller.channelProfile?.recapHighlights.single.title, 'Recent');
+    expect(controller.channelProfile?.recapSections.single.title, 'Top songs');
+    expect(client.methods, <String>['account.channel']);
+    expect(cache.entries, contains('account.channel.v2'));
+
+    client.methods.clear();
+    await controller.loadChannelProfile();
+    expect(client.methods, isEmpty);
+  });
+
+  test('uses a fresh cached channel without calling the sidecar', () async {
+    final client = _FakeSidecarClient();
+    final cache = _MemoryMetadataCache()
+      ..entries['account.channel.v2'] = RemoteMetadataCacheEntry(
+        cachedAt: DateTime.now(),
+        data: _channelResponse(displayName: 'Cached listener'),
+      );
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+      metadataCache: cache,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+    client.methods.clear();
+
+    await controller.loadChannelProfile();
+
+    expect(controller.channelProfile?.displayName, 'Cached listener');
+    expect(client.methods, isEmpty);
+  });
+
+  test('retries an isolated channel load failure', () async {
+    final client = _FakeSidecarClient(
+      channelResponses: <Future<Map<String, Object?>> Function()>[
+        () => Future<Map<String, Object?>>.error(
+          const SidecarException('CHANNEL_LOAD_FAILED', 'Unavailable.'),
+        ),
+        () => Future<Map<String, Object?>>.value(
+          _channelResponse(displayName: 'Recovered listener'),
+        ),
+      ],
+    );
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await controller.loadChannelProfile(forceRefresh: true);
+    expect(controller.channelErrorMessage, YouTubeLibraryError.loadFailed);
+    expect(controller.errorMessage, isNull);
+
+    await controller.loadChannelProfile(forceRefresh: true);
+    expect(controller.channelProfile?.displayName, 'Recovered listener');
+    expect(controller.channelErrorMessage, isNull);
+  });
+
+  test('discards an in-flight channel response after sign-out', () async {
+    final response = Completer<Map<String, Object?>>();
+    final client = _FakeSidecarClient(
+      channelResponses: <Future<Map<String, Object?>> Function()>[
+        () => response.future,
+      ],
+    );
+    final cache = _MemoryMetadataCache();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+      metadataCache: cache,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    final loading = controller.loadChannelProfile(forceRefresh: true);
+    await Future<void>.delayed(Duration.zero);
+    await controller.signOut();
+    response.complete(_channelResponse(displayName: 'Stale listener'));
+    await loading;
+
+    expect(controller.channelProfile, isNull);
+    expect(controller.isLoadingChannel, isFalse);
+    expect(cache.entries, isNot(contains('account.channel.v2')));
+  });
+
+  test('clears channel metadata when the remote locale changes', () async {
+    final cache = _MemoryMetadataCache();
+    final controller = YouTubeLibraryController(
+      client: _FakeSidecarClient(),
+      credentialStore: _MemoryCredentialStore(),
+      metadataCache: cache,
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+    await controller.loadChannelProfile();
+
+    await controller.setLocale('zh-CN');
+
+    expect(controller.channelProfile, isNull);
+    expect(controller.channelErrorMessage, isNull);
+    expect(cache.entries, isNot(contains('account.channel.v2')));
+  });
+
   test('invalid Cookie sign-in clears saved credentials', () async {
     final client = _FakeSidecarClient(
       errorMethod: 'auth.cookie.signIn',
@@ -1472,6 +1597,7 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
     this.playlistResponse,
     this.homeResponse,
     this.exploreResponse,
+    this.channelResponses,
   }) : super(entryPath: 'unused');
 
   final bool singleCollection;
@@ -1482,6 +1608,7 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
   final Future<Map<String, Object?>>? playlistResponse;
   final Future<Map<String, Object?>>? homeResponse;
   final Future<Map<String, Object?>>? exploreResponse;
+  final List<Future<Map<String, Object?>> Function()>? channelResponses;
   final StreamController<SidecarEvent> _controller =
       StreamController<SidecarEvent>.broadcast(sync: true);
   final List<String> methods = <String>[];
@@ -1533,6 +1660,11 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
             'avatarUrl': 'https://example.test/avatar.jpg',
           },
         };
+      case 'account.channel':
+        if (channelResponses case final responses? when responses.isNotEmpty) {
+          return await responses.removeAt(0)();
+        }
+        return _channelResponse();
       case 'library.media':
         final isRefresh = _libraryMediaRequestCount++ > 0;
         if (isRefresh && refreshedLibraryError != null) {
@@ -1984,6 +2116,62 @@ class _FakeSidecarClient extends YouTubeSidecarClient {
     };
   }
 }
+
+Map<String, Object?> _channelResponse({String displayName = 'Test listener'}) =>
+    <String, Object?>{
+      'profile': <String, Object?>{
+        'displayName': displayName,
+        'avatarUrl': 'https://example.test/channel-avatar.jpg',
+        'handle': '@test-listener',
+        'channelId': 'UCtest-listener',
+        'subscriberText': '12 subscribers',
+        'bannerUrl': 'https://example.test/channel-banner.jpg',
+        'channelUrl': 'https://www.youtube.com/@test-listener',
+        'studioUrl': 'https://studio.youtube.com/channel/UCtest-listener',
+      },
+      'content': <String, Object?>{
+        'sections': <Object?>[
+          <String, Object?>{
+            'title': 'Your mixes',
+            'items': <Object?>[
+              <String, Object?>{
+                'id': 'personal-mix',
+                'itemType': 'playlist',
+                'title': 'Personal mix',
+                'artists': <String>[],
+                'durationSeconds': 0,
+              },
+            ],
+          },
+        ],
+      },
+      'recap': <String, Object?>{
+        'available': true,
+        'highlights': <Object?>[
+          <String, Object?>{
+            'title': 'Recent',
+            'strapline': 'Private',
+            'description': '42 minutes',
+            'backgroundUrl': 'https://example.test/recap.jpg',
+          },
+        ],
+        'sections': <Object?>[
+          <String, Object?>{
+            'title': 'Top songs',
+            'items': <Object?>[
+              <String, Object?>{
+                'id': 'top-song',
+                'itemType': 'song',
+                'title': 'Top song',
+                'videoId': 'top-song',
+                'artists': <String>['Top artist'],
+                'durationSeconds': 180,
+              },
+            ],
+          },
+        ],
+      },
+    };
 
 class _SidecarRequest {
   const _SidecarRequest(this.method, this.params);

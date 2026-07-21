@@ -362,7 +362,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
     );
     if (tracks.length == 1 && item.itemType != 'album') {
       playerController.playTracks(<Track>[
-        _asSimulatedYouTubeTrack(
+        asSimulatedYouTubeTrack(
           tracks[0],
           artworkFallback: item.thumbnailUrl,
           albumFallback: item.title,
@@ -376,7 +376,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
     YouTubeFeedItem item,
     List<YouTubeFeedItem> queueItems,
   ) {
-    return _playFeedQueue(
+    return playYouTubeFeedQueue(
       selectedItem: item,
       queueItems: queueItems,
       youtubeLibraryController: youtubeLibraryController,
@@ -385,7 +385,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
   }
 }
 
-Future<void> _playFeedQueue({
+Future<void> playYouTubeFeedQueue({
   required YouTubeFeedItem selectedItem,
   required List<YouTubeFeedItem> queueItems,
   required YouTubeLibraryController youtubeLibraryController,
@@ -413,7 +413,7 @@ Future<void> _playFeedQueue({
   );
   final tracks = <Track>[
     for (var index = 0; index < playableItems.length; index += 1)
-      _asSimulatedYouTubeTrack(
+      asSimulatedYouTubeTrack(
         index == selectedIndex
             ? selectedTrack
             : _youtubeTrackFromFeedItem(playableItems[index]),
@@ -1352,7 +1352,7 @@ class YouTubeFeedCollectionDetailView extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final tracks = detail.tracks
         .map(
-          (track) => _asSimulatedYouTubeTrack(
+          (track) => asSimulatedYouTubeTrack(
             track,
             artworkFallback: detail.thumbnailUrl,
             albumFallback: detail.title,
@@ -1531,7 +1531,7 @@ class YouTubeFeedBrowseDetailView extends StatelessWidget {
                     return onTap(item);
                   }
                   return () => unawaited(
-                    _playFeedQueue(
+                    playYouTubeFeedQueue(
                       selectedItem: item,
                       queueItems: section.items,
                       youtubeLibraryController: youtubeLibraryController,
@@ -1573,7 +1573,7 @@ class YouTubeFeedBrowseDetailView extends StatelessWidget {
     for (final item in items) {
       final track = await youtubeLibraryController.resolveFeedTrack(item);
       tracks.add(
-        _asSimulatedYouTubeTrack(
+        asSimulatedYouTubeTrack(
           track,
           artworkFallback: detail.thumbnailUrl,
           albumFallback: detail.title,
@@ -2110,7 +2110,7 @@ class _FeedSkeleton extends StatelessWidget {
   }
 }
 
-Track _asSimulatedYouTubeTrack(
+Track asSimulatedYouTubeTrack(
   YouTubeTrack track, {
   String? artworkFallback,
   String? albumFallback,

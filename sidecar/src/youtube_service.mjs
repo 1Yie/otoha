@@ -21,6 +21,11 @@ const MAX_LIBRARY_PAGES = 50;
 const MAX_PLAYLIST_PAGES = 100;
 const ACCOUNT_WRITE_COOLDOWN_MS = 2000;
 const DOWNLOAD_CLIENTS = ['YTMUSIC', 'YTMUSIC_ANDROID', 'ANDROID', 'IOS'];
+const AUDIO_QUALITY_BITRATES = Object.freeze({
+  low: 48_000,
+  normal: 128_000,
+  high: Number.POSITIVE_INFINITY,
+});
 const ARTIST_SUBSCRIBE_PARAMS = 'EgIIAhgA';
 const ARTIST_UNSUBSCRIBE_PARAMS = 'CgIIAhgA';
 const SAVED_EPISODES_PLAYLIST_ID = 'SE';
@@ -139,6 +144,91 @@ export class YouTubeService {
       authenticated: this.authMode === 'cookie',
       mode: this.authMode,
       profile: this.profile,
+    };
+  }
+
+  async getAccountChannel() {
+    this.#requireAuthentication();
+
+    let profile = this.profile;
+    if (!profile) {
+      try {
+        profile = mapAccountProfile(await this.innertube.account.getInfo(true));
+        this.profile = profile;
+      } catch {
+        // Account profile metadata is optional for an authenticated session.
+      }
+    }
+
+    const channelTarget = profile?.channelId ?? profile?.handle;
+    const channelRequest = channelTarget &&
+        typeof this.innertube.getChannel === 'function'
+      ? this.innertube.getChannel(channelTarget)
+      : Promise.resolve(null);
+    const channelContentRequest = profile?.channelId &&
+        typeof this.innertube.actions?.execute === 'function'
+      ? this.innertube.actions.execute('browse', {
+          browseId: profile.channelId,
+          client: 'YTMUSIC',
+          parse: true,
+        })
+      : Promise.resolve(null);
+    const recapRequest = typeof this.innertube.music?.getRecap === 'function'
+      ? this.innertube.music.getRecap()
+      : Promise.resolve(null);
+    const [channelResult, channelContentResult, recapResult] =
+      await Promise.allSettled([
+        channelRequest,
+        channelContentRequest,
+        recapRequest,
+      ]);
+
+    const channel = channelResult.status === 'fulfilled'
+      ? channelResult.value
+      : null;
+    const recap = recapResult.status === 'fulfilled'
+      ? recapResult.value
+      : null;
+    const mappedProfile = mapAccountChannel(channel, profile);
+    const mappedRecap = mapAccountRecap(recap);
+    let channelSections = [];
+    let channelContentParseFailure = null;
+    if (
+      channelContentResult.status === 'fulfilled' &&
+      channelContentResult.value
+    ) {
+      try {
+        const page = channelContentResult.value;
+        channelSections = mapBrowseFeedSections(page, page?.data ?? page);
+      } catch (error) {
+        channelContentParseFailure = error;
+      }
+    }
+
+    if (
+      !mappedProfile &&
+      channelSections.length === 0 &&
+      !mappedRecap.available
+    ) {
+      const failure = [
+        channelResult.status === 'rejected' ? channelResult.reason : null,
+        channelContentResult.status === 'rejected'
+          ? channelContentResult.reason
+          : null,
+        channelContentParseFailure,
+        recapResult.status === 'rejected' ? recapResult.reason : null,
+      ].find(Boolean) ?? null;
+      throw new SidecarError(
+        'CHANNEL_LOAD_FAILED',
+        'Unable to load your YouTube channel.',
+        describeUpstreamError(failure),
+      );
+    }
+
+    return {
+      profile: mappedProfile,
+      content: { sections: channelSections },
+      recap: mappedRecap,
     };
   }
 
@@ -881,7 +971,7 @@ export class YouTubeService {
     );
   }
 
-  async getPlaybackStream(videoId, mediaType = 'audio') {
+  async getPlaybackStream(videoId, mediaType = 'audio', quality = 'high') {
     this.#requireAuthentication();
     if (!videoId) {
       throw new SidecarError(
@@ -893,6 +983,12 @@ export class YouTubeService {
       throw new SidecarError(
         'INVALID_MEDIA_TYPE',
         'Playback media type must be audio or video.',
+      );
+    }
+    if (!Object.hasOwn(AUDIO_QUALITY_BITRATES, quality)) {
+      throw new SidecarError(
+        'INVALID_AUDIO_QUALITY',
+        'Playback quality must be low, normal, or high.',
       );
     }
 
@@ -912,7 +1008,7 @@ export class YouTubeService {
               },
             };
           }
-          const formats = selectAdaptivePlaybackFormats(info);
+          const formats = selectAdaptivePlaybackFormats(info, quality);
           if (!formats) {
             lastFailure = new Error('Adaptive audio or video was unavailable');
             continue;
@@ -946,24 +1042,28 @@ export class YouTubeService {
     } else {
       for (const client of DOWNLOAD_CLIENTS) {
         try {
-          const format = await this.innertube.getStreamingData(videoId, {
-            client,
-            type: 'audio',
-            quality: 'best',
-            format: 'any',
-          });
-          if (!format?.url || !format.mime_type) {
+          const info = await this.innertube.getBasicInfo(videoId, { client });
+          const format = selectAudioPlaybackFormat(info, quality);
+          if (!format?.mime_type) {
             lastFailure = new Error('No matching formats found');
             continue;
           }
+          const url = format.url ||
+            await format.decipher(this.innertube.session?.player);
+          if (!url) {
+            lastFailure = new Error('Audio stream URL was empty');
+            continue;
+          }
+          const formatDuration = Number(format.approx_duration_ms ?? 0);
+          const infoDuration = Number(info?.basic_info?.duration ?? 0);
           return {
             stream: {
-              url: format.url,
+              url,
               mimeType: format.mime_type,
               bitrate: format.bitrate,
-              durationSeconds: Math.round(
-                (format.approx_duration_ms ?? 0) / 1000,
-              ),
+              durationSeconds: formatDuration > 0
+                ? Math.round(formatDuration / 1000)
+                : Number.isFinite(infoDuration) ? Math.round(infoDuration) : 0,
               mediaType,
             },
           };
@@ -3172,18 +3272,137 @@ export function mapAccountProfile(accountInfo) {
   if (!account) return null;
   const displayName = textValue(account.account_name);
   const avatarUrl = largestThumbnail(arrayOf(account.account_photo))?.url ?? null;
-  return displayName || avatarUrl ? { displayName: displayName ?? null, avatarUrl } : null;
+  const handle = textValue(account.channel_handle) ?? null;
+  const accountChannelId = account?.endpoint?.payload?.browseId;
+  const channelId = typeof accountChannelId === 'string'
+    ? accountChannelId
+    : null;
+  return displayName || avatarUrl || handle || channelId
+    ? {
+        displayName: displayName ?? null,
+        avatarUrl,
+        handle,
+        channelId,
+      }
+    : null;
 }
 
-function selectAdaptivePlaybackFormats(info) {
+export function mapAccountChannel(channel, fallbackProfile = null) {
+  const header = channel?.header;
+  const metadata = channel?.metadata;
+  const pageHeader = header?.content;
+  const pageMetadata = listOf(pageHeader?.metadata?.metadata_rows)
+    .flatMap((row) => listOf(row?.metadata_parts))
+    .map((part) => nullableMetadataText(part?.text))
+    .filter(Boolean);
+  const displayName = textValue(header?.author?.name) ??
+    textValue(header?.title) ??
+    textValue(pageHeader?.title?.text) ??
+    textValue(header?.page_title) ??
+    textValue(metadata?.title) ??
+    fallbackProfile?.displayName ??
+    null;
+  const avatarUrl = largestThumbnail(
+    [
+      ...arrayOf(header?.author?.thumbnails),
+      ...arrayOf(header?.box_art),
+      ...arrayOf(pageHeader?.image?.image),
+      ...arrayOf(pageHeader?.image?.avatar?.image),
+      ...arrayOf(metadata?.avatar),
+      ...arrayOf(metadata?.thumbnail),
+    ],
+  )?.url ?? fallbackProfile?.avatarUrl ?? null;
+  const handle = textValue(header?.channel_handle) ??
+    pageMetadata.find((value) => value.startsWith('@')) ??
+    fallbackProfile?.handle ??
+    null;
+  const channelIdCandidates = [
+    header?.channel_id,
+    metadata?.external_id,
+    fallbackProfile?.channelId,
+  ];
+  const channelId = channelIdCandidates.find(
+    (candidate) => typeof candidate === 'string' && candidate,
+  ) ?? null;
+  const subscriberText = textValue(header?.subscribers) ??
+    textValue(header?.metadata) ??
+    pageMetadata.find((value) => value !== handle && value !== displayName) ??
+    null;
+  const bannerUrl = largestThumbnail(
+    [
+      ...arrayOf(header?.banner),
+      ...arrayOf(header?.tv_banner),
+      ...arrayOf(header?.mobile_banner),
+      ...arrayOf(pageHeader?.banner?.image),
+      ...arrayOf(pageHeader?.hero_image?.image),
+    ],
+  )?.url ?? null;
+  const urls = accountChannelUrls(channelId, handle);
+
+  return displayName || avatarUrl || handle || channelId
+    ? {
+        displayName,
+        avatarUrl,
+        handle,
+        channelId,
+        subscriberText,
+        bannerUrl,
+        ...urls,
+      }
+    : null;
+}
+
+export function mapAccountRecap(recap) {
+  const highlights = listOf(recap?.header?.panels)
+    .map((panel) => {
+      const title = nullableMetadataText(panel?.title);
+      const strapline = nullableMetadataText(panel?.strapline);
+      const description = nullableMetadataText(panel?.description);
+      const backgroundUrl = largestArtworkThumbnail(
+        arrayOf(panel?.background_image?.image),
+      )?.url ?? null;
+      const thumbnailUrl = largestArtworkThumbnail(
+        arrayOf(panel?.thumbnail?.image),
+      )?.url ?? null;
+      if (!title && !strapline && !description) return null;
+      return {
+        title: title ?? strapline ?? description,
+        strapline,
+        description,
+        backgroundUrl,
+        thumbnailUrl,
+      };
+    })
+    .filter(Boolean);
+  const sections = mapFeedSections(recap?.sections);
+  return {
+    available: highlights.length > 0 || sections.length > 0,
+    highlights,
+    sections,
+  };
+}
+
+function accountChannelUrls(channelId, handle) {
+  const publicPath = typeof handle === 'string' && /^@[^/?#]+$/u.test(handle)
+    ? handle
+    : typeof channelId === 'string' && channelId
+      ? `channel/${channelId}`
+      : null;
+  return {
+    channelUrl: publicPath ? `https://www.youtube.com/${publicPath}` : null,
+    studioUrl: typeof channelId === 'string' && channelId
+      ? `https://studio.youtube.com/channel/${channelId}`
+      : 'https://studio.youtube.com/',
+  };
+}
+
+function selectAdaptivePlaybackFormats(info, quality = 'high') {
   const formats = arrayOf(info?.streaming_data?.adaptive_formats);
   const videoFormats = formats.filter(
     (format) => format?.has_video && !format?.has_audio,
   );
-  let audioFormats = formats.filter(
-    (format) => format?.has_audio && !format?.has_video && !format?.has_text,
-  );
-  if (videoFormats.length === 0 || audioFormats.length === 0) return null;
+  const audio = selectAudioPlaybackFormat(info, quality);
+  if (videoFormats.length === 0 || !audio) return null;
 
   const hdFormats = videoFormats.filter((format) => {
     const height = Number(format?.height ?? 0);
@@ -3202,15 +3421,40 @@ function selectAdaptivePlaybackFormats(info) {
       : Number(right?.bitrate ?? 0) - Number(left?.bitrate ?? 0);
   });
 
+  return { video: videoPool[0], audio };
+}
+
+function selectAudioPlaybackFormat(info, quality = 'high') {
+  let audioFormats = arrayOf(info?.streaming_data?.adaptive_formats).filter(
+    (format) => format?.has_audio && !format?.has_video && !format?.has_text,
+  );
+  if (audioFormats.length === 0) return null;
+
   const originalAudio = audioFormats.filter((format) => format?.is_original);
   if (originalAudio.length > 0) audioFormats = originalAudio;
   const unprocessedAudio = audioFormats.filter((format) => !format?.is_drc);
   if (unprocessedAudio.length > 0) audioFormats = unprocessedAudio;
-  audioFormats.sort(
-    (left, right) =>
-      Number(right?.bitrate ?? 0) - Number(left?.bitrate ?? 0),
+
+  const withBitrate = audioFormats.filter(
+    (format) => Number(format?.bitrate ?? 0) > 0,
   );
-  return { video: videoPool[0], audio: audioFormats[0] };
+  if (withBitrate.length > 0) audioFormats = withBitrate;
+  const targetBitrate = AUDIO_QUALITY_BITRATES[quality];
+  const capped = audioFormats.filter(
+    (format) => Number(format?.bitrate ?? 0) <= targetBitrate,
+  );
+  const qualityPool = capped.length > 0 ? capped : audioFormats;
+  qualityPool.sort((left, right) => {
+    const bitrateDifference =
+      Number(right?.bitrate ?? 0) - Number(left?.bitrate ?? 0);
+    if (bitrateDifference !== 0) return bitrateDifference;
+    const mimeDifference = String(left?.mime_type ?? '')
+      .localeCompare(String(right?.mime_type ?? ''));
+    return mimeDifference !== 0
+      ? mimeDifference
+      : Number(left?.itag ?? 0) - Number(right?.itag ?? 0);
+  });
+  return qualityPool[0] ?? null;
 }
 
 function normalizeFeedItemType(value) {

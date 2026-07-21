@@ -21,6 +21,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get motion => 'Motion';
 
   @override
+  String get audioQuality => 'Audio quality';
+
+  @override
+  String get audioQualityLow => 'Low';
+
+  @override
+  String get audioQualityNormal => 'Normal';
+
+  @override
+  String get audioQualityHigh => 'High';
+
+  @override
   String get reduceMotion => 'Reduce motion';
 
   @override
@@ -92,6 +104,38 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get profile => 'Profile';
+
+  @override
+  String get myChannel => 'My channel';
+
+  @override
+  String get editChannel => 'Edit channel';
+
+  @override
+  String get shareChannel => 'Share channel';
+
+  @override
+  String get channelLinkCopied => 'Channel link copied.';
+
+  @override
+  String get channelLinkCopyFailed => 'Unable to copy the channel link.';
+
+  @override
+  String get channelOpenFailed => 'Unable to open YouTube Studio.';
+
+  @override
+  String get channelContentUnavailable =>
+      'Your YouTube Music channel has no homepage sections available right now.';
+
+  @override
+  String get yourRecap => 'Your Recap';
+
+  @override
+  String get recapUnavailable => 'Recap is not available yet';
+
+  @override
+  String get recapUnavailableDescription =>
+      'YouTube Music has not provided Recap data for this account.';
 
   @override
   String get minimize => 'Minimize';

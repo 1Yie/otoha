@@ -122,6 +122,30 @@ abstract class AppLocalizations {
   /// **'Motion'**
   String get motion;
 
+  /// No description provided for @audioQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio quality'**
+  String get audioQuality;
+
+  /// No description provided for @audioQualityLow.
+  ///
+  /// In en, this message translates to:
+  /// **'Low'**
+  String get audioQualityLow;
+
+  /// No description provided for @audioQualityNormal.
+  ///
+  /// In en, this message translates to:
+  /// **'Normal'**
+  String get audioQualityNormal;
+
+  /// No description provided for @audioQualityHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'High'**
+  String get audioQualityHigh;
+
   /// No description provided for @reduceMotion.
   ///
   /// In en, this message translates to:
@@ -265,6 +289,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Profile'**
   String get profile;
+
+  /// No description provided for @myChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'My channel'**
+  String get myChannel;
+
+  /// No description provided for @editChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit channel'**
+  String get editChannel;
+
+  /// No description provided for @shareChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Share channel'**
+  String get shareChannel;
+
+  /// No description provided for @channelLinkCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel link copied.'**
+  String get channelLinkCopied;
+
+  /// No description provided for @channelLinkCopyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to copy the channel link.'**
+  String get channelLinkCopyFailed;
+
+  /// No description provided for @channelOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to open YouTube Studio.'**
+  String get channelOpenFailed;
+
+  /// No description provided for @channelContentUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Your YouTube Music channel has no homepage sections available right now.'**
+  String get channelContentUnavailable;
+
+  /// No description provided for @yourRecap.
+  ///
+  /// In en, this message translates to:
+  /// **'Your Recap'**
+  String get yourRecap;
+
+  /// No description provided for @recapUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Recap is not available yet'**
+  String get recapUnavailable;
+
+  /// No description provided for @recapUnavailableDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'YouTube Music has not provided Recap data for this account.'**
+  String get recapUnavailableDescription;
 
   /// No description provided for @minimize.
   ///

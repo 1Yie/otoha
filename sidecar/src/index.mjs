@@ -15,6 +15,7 @@ const methods = {
   'auth.cookie.signIn': ({ cookie, locale } = {}) =>
     service.signInWithCookie(cookie, locale),
   'auth.signOut': () => service.signOut(),
+  'account.channel': () => service.getAccountChannel(),
   'library.media': () => service.getLibraryMedia(),
   'library.playlist': ({ playlistId } = {}) => service.getPlaylist(playlistId),
   'library.playlist.more': ({ playlistId } = {}) =>
@@ -47,8 +48,8 @@ const methods = {
   'feed.collection': ({ itemType, id } = {}) =>
     service.getFeedCollection(itemType, id),
   'feed.track': ({ videoId } = {}) => service.getFeedTrack(videoId),
-  'playback.resolve': ({ videoId, mediaType } = {}) =>
-    service.getPlaybackStream(videoId, mediaType),
+  'playback.resolve': ({ videoId, mediaType, quality } = {}) =>
+    service.getPlaybackStream(videoId, mediaType, quality),
   'download.track': ({ videoId, directory, ...metadata } = {}) =>
     service.downloadMediaBundle(videoId, directory, metadata),
   'lyrics.get': ({ videoId, title, artist, album, durationSeconds } = {}) =>

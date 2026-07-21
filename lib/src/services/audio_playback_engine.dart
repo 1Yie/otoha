@@ -8,6 +8,8 @@ import 'youtube_sidecar_client.dart';
 
 enum AudioPlaybackFailure { engineCouldNotPlay, streamUnavailable, startFailed }
 
+enum AudioQuality { low, normal, high }
+
 class AudioOutputDevice {
   const AudioOutputDevice({required this.id, required this.description});
 
@@ -77,6 +79,7 @@ abstract interface class AudioPlaybackEngine {
     Duration initialPosition,
     bool isVideo,
     bool autoplay,
+    AudioQuality audioQuality,
   });
   Future<void> openLocalFile(String path, {Duration initialPosition});
   Future<void> play();
@@ -185,6 +188,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     Duration initialPosition = Duration.zero,
     bool isVideo = false,
     bool autoplay = true,
+    AudioQuality audioQuality = AudioQuality.high,
   }) async {
     if (isVideo) {
       videoController;
@@ -201,6 +205,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
       final result = await _client.call('playback.resolve', <String, Object?>{
         'videoId': videoId,
         'mediaType': isVideo ? 'video' : 'audio',
+        'quality': audioQuality.name,
       });
       if (request != _request || _isDisposed) {
         return;

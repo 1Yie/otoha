@@ -6,14 +6,16 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app/theme.dart';
 import '../models/catalog.dart';
-import '../state/desktop_shell_controllers.dart';
+import '../services/audio_playback_engine.dart';
 import '../state/app_locale_controller.dart';
-import '../state/youtube_library_controller.dart';
+import '../state/desktop_shell_controllers.dart';
 import '../state/offline_library_controller.dart';
+import '../state/youtube_library_controller.dart';
 import '../widgets/artwork_image.dart';
 import 'offline_library_workspace.dart';
 import 'offline_playlists_workspace.dart';
 import 'search_workspace.dart';
+import 'youtube_channel_workspace.dart';
 import 'youtube_feed_workspace.dart';
 import 'youtube_history_workspace.dart';
 import 'youtube_library_workspace.dart';
@@ -77,7 +79,13 @@ class WorkspaceView extends StatelessWidget {
         controller: offlineLibraryController,
         playerController: playerController,
       ),
+      WorkspacePage.channel => YouTubeChannelWorkspace(
+        controller: youtubeLibraryController,
+        playerController: playerController,
+        shellController: shellController,
+      ),
       WorkspacePage.settings => SettingsWorkspace(
+        playerController: playerController,
         shellController: shellController,
         localeController: localeController,
         offlineLibraryController: offlineLibraryController,
@@ -110,12 +118,14 @@ class LibraryWorkspace extends StatelessWidget {
 
 class SettingsWorkspace extends StatelessWidget {
   const SettingsWorkspace({
+    required this.playerController,
     required this.shellController,
     required this.localeController,
     required this.offlineLibraryController,
     super.key,
   });
 
+  final PlayerController playerController;
   final ShellController shellController;
   final AppLocaleController localeController;
   final OfflineLibraryController offlineLibraryController;
@@ -127,6 +137,53 @@ class SettingsWorkspace extends StatelessWidget {
       children: <Widget>[
         _PageHeading(title: l10n.settings, eyebrow: l10n.desktop),
         const SizedBox(height: 40),
+        _SectionHeading(l10n.audioQuality),
+        const SizedBox(height: 16),
+        AnimatedBuilder(
+          animation: playerController,
+          builder: (context, _) {
+            return Material(
+              color: OtohaColors.surface,
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppMetrics.radius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.graphic_eq_rounded),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: SegmentedButton<AudioQuality>(
+                        key: const Key('audio-quality-selector'),
+                        showSelectedIcon: false,
+                        segments: <ButtonSegment<AudioQuality>>[
+                          ButtonSegment<AudioQuality>(
+                            value: AudioQuality.low,
+                            label: Text(l10n.audioQualityLow),
+                          ),
+                          ButtonSegment<AudioQuality>(
+                            value: AudioQuality.normal,
+                            label: Text(l10n.audioQualityNormal),
+                          ),
+                          ButtonSegment<AudioQuality>(
+                            value: AudioQuality.high,
+                            label: Text(l10n.audioQualityHigh),
+                          ),
+                        ],
+                        selected: <AudioQuality>{playerController.audioQuality},
+                        onSelectionChanged: (selection) {
+                          playerController.setAudioQuality(selection.single);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 32),
         _SectionHeading(l10n.motion),
         const SizedBox(height: 16),
         AnimatedBuilder(

@@ -16,6 +16,7 @@ enum WorkspacePage {
   history,
   downloads,
   playlists,
+  channel,
   settings,
 }
 
@@ -28,6 +29,7 @@ extension WorkspacePageDetails on WorkspacePage {
     WorkspacePage.history => 'History',
     WorkspacePage.downloads => 'Downloads',
     WorkspacePage.playlists => 'Playlists',
+    WorkspacePage.channel => 'My channel',
     WorkspacePage.settings => 'Settings',
   };
 }
@@ -117,6 +119,7 @@ class PlayerController extends ChangeNotifier {
   bool _acceptReadyPositionFallback = false;
   bool _isShuffled = false;
   PlaybackRepeatMode _repeatMode = PlaybackRepeatMode.off;
+  AudioQuality _audioQuality = AudioQuality.high;
   AudioOutputState _audioOutputState = const AudioOutputState();
   bool _isSelectingOutputDevice = false;
   bool _hasOutputDeviceError = false;
@@ -133,6 +136,7 @@ class PlayerController extends ChangeNotifier {
   bool get canSwitchToVideo => _currentTrack?.canPlayVideo ?? false;
   bool get isShuffled => _isShuffled;
   PlaybackRepeatMode get repeatMode => _repeatMode;
+  AudioQuality get audioQuality => _audioQuality;
   List<AudioOutputDevice> get outputDevices => _audioOutputState.devices;
   AudioOutputDevice? get selectedOutputDevice =>
       _audioOutputState.selectedDevice;
@@ -160,6 +164,15 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  void setAudioQuality(AudioQuality value) {
+    if (_audioQuality == value) {
+      return;
+    }
+    _audioQuality = value;
+    notifyListeners();
+    _persistSession();
+  }
+
   Future<void> restoreSession() async {
     final store = _sessionStore;
     if (store == null) {
@@ -175,7 +188,16 @@ class PlayerController extends ChangeNotifier {
       return;
     }
     try {
-      final catalog = (session['catalog']! as List<Object?>)
+      _audioQuality = AudioQuality.values.firstWhere(
+        (quality) => quality.name == session!['audioQuality'],
+        orElse: () => AudioQuality.high,
+      );
+      final catalogValue = session['catalog'];
+      if (catalogValue == null) {
+        notifyListeners();
+        return;
+      }
+      final catalog = (catalogValue as List<Object?>)
           .map(
             (item) => Track.fromJson(
               (item! as Map<Object?, Object?>).cast<String, Object?>(),
@@ -183,6 +205,7 @@ class PlayerController extends ChangeNotifier {
           )
           .toList(growable: false);
       if (catalog.isEmpty) {
+        notifyListeners();
         return;
       }
       final byId = <String, Track>{
@@ -502,6 +525,7 @@ class PlayerController extends ChangeNotifier {
             initialPosition: initialPosition,
             isVideo: currentTrack.isVideo,
             autoplay: playWhenReady,
+            audioQuality: _audioQuality,
           ),
         );
       }
@@ -610,7 +634,14 @@ class PlayerController extends ChangeNotifier {
   void _persistSession({bool deduplicateAudioCheckpoint = false}) {
     final store = _sessionStore;
     final currentTrack = _currentTrack;
-    if (store == null || currentTrack == null) {
+    if (store == null) {
+      return;
+    }
+    if (currentTrack == null) {
+      final session = <String, Object?>{'audioQuality': _audioQuality.name};
+      _writeChain = _writeChain
+          .then((_) => store.write(session))
+          .catchError((_) {});
       return;
     }
     final isAudioCheckpoint = _positionSeconds.remainder(5) == 0;
@@ -634,6 +665,7 @@ class PlayerController extends ChangeNotifier {
       'isPlaying': _isPlaying,
       'isShuffled': _isShuffled,
       'repeatMode': _repeatMode.name,
+      'audioQuality': _audioQuality.name,
     };
     _writeChain = _writeChain
         .then((_) => store.write(session))

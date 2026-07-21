@@ -23,9 +23,11 @@ Otoha is a native Flutter application for Linux, macOS, and Windows. It combines
 ## Features
 
 - YouTube Music Home, Explore, Library, History, search, playlists, albums, artists, moods, and genres
+- A signed-in My Channel workspace with the selected YouTube channel identity, official personalized YouTube Music homepage sections, official Recap data when available, and direct edit and share actions
 - Native desktop playback through `media_kit`, including podcast audio and explicit switching from song-first audio to 1080p adaptive video with Otoha-styled controls
 - Seek, queue, shuffle, repeat, volume, buffering, fullscreen video, and output-device selection
-- Persistent playback sessions that restore the queue, current track, position, volume, shuffle, and repeat state without storing transient stream URLs
+- Low, Normal, and High online audio quality, applied to the next remote stream without interrupting current playback or changing downloads
+- Persistent playback sessions that restore the queue, current track, position, volume, shuffle, repeat, and audio-quality state without storing transient stream URLs
 - Timestamped LRCLIB lyrics with playback-following line highlighting and an untimed YouTube Music fallback
 - User-initiated offline media bundles with local audio, artwork, lyrics, metadata, and direct playback
 - Local offline playlists with rename, cover selection, track management, and deletion confirmation
@@ -120,6 +122,7 @@ Otoha keeps credential, transient playback, and offline data in separate storage
 - Download metadata and offline playlists use a dedicated non-credential application-support store.
 - Timestamped lyrics use a separate persistent cache; untimed fallback lyrics remain in memory.
 - Home, Explore, Library, and playlist metadata use a bounded cache that is cleared on sign-out.
+- My Channel metadata and official Recap availability use the same bounded, sign-out-cleared cache. Otoha does not estimate listening history when Recap is unavailable.
 - Search results, comments, Cookies, stream URLs, and headers are not placed in persistent metadata caches.
 
 The sidecar communicates with Flutter through newline-delimited JSON over standard input and output. It does not listen on a TCP port.
@@ -189,7 +192,7 @@ lib/
   src/services/     Sidecar, audio, credential, cache, session, and tray services
   src/state/        Workspace, player, account, locale, and offline controllers
   src/widgets/      Persistent shell, player, panels, search, and shared rows
-  src/workspaces/   Home, Explore, Library, History, Downloads, and Playlists
+  src/workspaces/   Home, Explore, Library, History, Channel, Settings, Downloads, and Playlists
 sidecar/
   src/              YouTube.js NDJSON service
   test/             Sidecar mapping and protocol tests
@@ -197,7 +200,7 @@ test/               Flutter controller and desktop widget tests
 tool/release/        Native installer packaging scripts
 ```
 
-The long-lived desktop shell owns the window frame, navigation, player, queue, panels, and account state. Workspace navigation replaces only the central content region, so playback and remote sessions survive navigation. Remote playback resolves media lazily for the selected queue item, while downloaded tracks open their local files directly.
+The long-lived desktop shell owns the window frame, navigation, player, queue, panels, and account state. Workspace navigation replaces only the central content region, so playback and remote sessions survive navigation. The signed-in title-bar avatar opens My Channel, while the signed-out avatar opens authentication. Remote playback resolves media lazily for the selected queue item using the persisted quality preference, while downloaded tracks open their local files directly.
 
 Additional subsystem notes are available under [`docs/contexts/`](docs/contexts/).
 

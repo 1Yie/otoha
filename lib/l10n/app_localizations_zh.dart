@@ -21,6 +21,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get motion => '动画';
 
   @override
+  String get audioQuality => '音频质量';
+
+  @override
+  String get audioQualityLow => '低';
+
+  @override
+  String get audioQualityNormal => '标准';
+
+  @override
+  String get audioQualityHigh => '高';
+
+  @override
   String get reduceMotion => '减少动画';
 
   @override
@@ -91,6 +103,36 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get profile => '个人资料';
+
+  @override
+  String get myChannel => '我的频道';
+
+  @override
+  String get editChannel => '编辑频道';
+
+  @override
+  String get shareChannel => '分享频道';
+
+  @override
+  String get channelLinkCopied => '频道链接已复制。';
+
+  @override
+  String get channelLinkCopyFailed => '无法复制频道链接。';
+
+  @override
+  String get channelOpenFailed => '无法打开 YouTube Studio。';
+
+  @override
+  String get channelContentUnavailable => '你的 YouTube Music 频道目前没有可用的主页内容。';
+
+  @override
+  String get yourRecap => '你的 Recap';
+
+  @override
+  String get recapUnavailable => 'Recap 暂不可用';
+
+  @override
+  String get recapUnavailableDescription => 'YouTube Music 尚未为此账号提供 Recap 数据。';
 
   @override
   String get minimize => '最小化';

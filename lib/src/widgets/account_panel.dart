@@ -148,15 +148,6 @@ class _ConnectedView extends StatelessWidget {
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 24),
-        OutlinedButton.icon(
-          key: const Key('youtube-library-sync'),
-          onPressed: controller.isLoadingLibrary
-              ? null
-              : () => controller.loadMediaLibrary(forceRefresh: true),
-          icon: const Icon(Icons.sync_rounded),
-          label: Text(l10n.syncLibrary),
-        ),
-        const SizedBox(height: 8),
         TextButton.icon(
           key: const Key('youtube-sign-out'),
           onPressed: controller.signOut,

@@ -652,6 +652,7 @@ class _SearchItem {
         WorkspacePage.history => Icons.history_rounded,
         WorkspacePage.downloads => Icons.download_outlined,
         WorkspacePage.playlists => Icons.queue_music_outlined,
+        WorkspacePage.channel => Icons.account_circle_outlined,
         WorkspacePage.settings => Icons.settings_outlined,
       },
       workspace: page,
@@ -710,6 +711,7 @@ String _workspaceLabel(WorkspacePage page, AppLocalizations l10n) =>
       WorkspacePage.history => l10n.history,
       WorkspacePage.downloads => l10n.downloads,
       WorkspacePage.playlists => l10n.playlists,
+      WorkspacePage.channel => l10n.myChannel,
       WorkspacePage.settings => l10n.settings,
     };
 

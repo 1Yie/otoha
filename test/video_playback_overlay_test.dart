@@ -380,6 +380,7 @@ class _ControlledPlaybackEngine implements AudioPlaybackEngine {
     Duration initialPosition = Duration.zero,
     bool isVideo = false,
     bool autoplay = true,
+    AudioQuality audioQuality = AudioQuality.high,
   }) async {
     final state = openState;
     if (state != null) {

@@ -6,7 +6,9 @@ import test from 'node:test';
 
 import {
   mapBrowseFeedSections,
+  mapAccountChannel,
   mapAccountProfile,
+  mapAccountRecap,
   mapCommentThread,
   mapFeedSections,
   mapRawArtistDetail,
@@ -428,6 +430,8 @@ test('maps the active account name and avatar from a Cookie session', () => {
       },
       {
         account_name: text('Otoha listener'),
+        channel_handle: text('@otoha-listener'),
+        endpoint: { payload: { browseId: 'UCotoha-listener' } },
         account_photo: [
           { url: 'small-avatar', width: 48 },
           { url: 'large-avatar', width: 256 },
@@ -435,7 +439,360 @@ test('maps the active account name and avatar from a Cookie session', () => {
         is_selected: true,
       },
     ]),
-    { displayName: 'Otoha listener', avatarUrl: 'large-avatar' },
+    {
+      displayName: 'Otoha listener',
+      avatarUrl: 'large-avatar',
+      handle: '@otoha-listener',
+      channelId: 'UCotoha-listener',
+    },
+  );
+});
+
+test('maps a channel header and constructs controlled YouTube URLs', () => {
+  const text = (value) => ({ toString: () => value });
+  assert.deepEqual(
+    mapAccountChannel(
+      {
+        header: {
+          author: {
+            name: 'Otoha listener',
+            thumbnails: [{ url: 'channel-avatar', width: 256 }],
+          },
+          banner: [],
+          mobile_banner: [
+            { url: 'small-banner', width: 640 },
+          ],
+          tv_banner: [
+            { url: 'large-banner', width: 2120 },
+          ],
+          subscribers: text('12 subscribers'),
+          channel_handle: text('@otoha-listener'),
+          channel_id: 'UCotoha-listener',
+        },
+      },
+      null,
+    ),
+    {
+      displayName: 'Otoha listener',
+      avatarUrl: 'channel-avatar',
+      handle: '@otoha-listener',
+      channelId: 'UCotoha-listener',
+      subscriberText: '12 subscribers',
+      bannerUrl: 'large-banner',
+      channelUrl: 'https://www.youtube.com/@otoha-listener',
+      studioUrl: 'https://studio.youtube.com/channel/UCotoha-listener',
+    },
+  );
+});
+
+test('maps modern page-header channel identity and artwork', () => {
+  const text = (value) => ({ toString: () => value });
+  assert.deepEqual(
+    mapAccountChannel({
+      header: {
+        page_title: 'Page title fallback',
+        content: {
+          title: { text: text('Modern listener') },
+          image: {
+            avatar: {
+              image: [
+                { url: 'small-modern-avatar', width: 48 },
+                { url: 'large-modern-avatar', width: 256 },
+              ],
+            },
+          },
+          metadata: {
+            metadata_rows: [
+              {
+                metadata_parts: [
+                  { text: text('@modern-listener') },
+                  { text: text('42 subscribers') },
+                ],
+              },
+            ],
+          },
+          banner: {
+            image: [{ url: 'modern-banner', width: 2048 }],
+          },
+        },
+      },
+      metadata: { external_id: 'UCmodern-listener' },
+    }),
+    {
+      displayName: 'Modern listener',
+      avatarUrl: 'large-modern-avatar',
+      handle: '@modern-listener',
+      channelId: 'UCmodern-listener',
+      subscriberText: '42 subscribers',
+      bannerUrl: 'modern-banner',
+      channelUrl: 'https://www.youtube.com/@modern-listener',
+      studioUrl: 'https://studio.youtube.com/channel/UCmodern-listener',
+    },
+  );
+  assert.deepEqual(
+    mapAccountChannel(
+      {
+        header: {
+          title: text('Interactive listener'),
+          metadata: text('7 subscribers'),
+          box_art: [{ url: 'interactive-avatar', width: 512 }],
+          banner: [{ url: 'interactive-banner', width: 2560 }],
+        },
+      },
+      {
+        handle: '@interactive-listener',
+        channelId: 'UCinteractive-listener',
+      },
+    ),
+    {
+      displayName: 'Interactive listener',
+      avatarUrl: 'interactive-avatar',
+      handle: '@interactive-listener',
+      channelId: 'UCinteractive-listener',
+      subscriberText: '7 subscribers',
+      bannerUrl: 'interactive-banner',
+      channelUrl: 'https://www.youtube.com/@interactive-listener',
+      studioUrl: 'https://studio.youtube.com/channel/UCinteractive-listener',
+    },
+  );
+});
+
+test('maps only official recap highlights and feed sections', () => {
+  assert.deepEqual(
+    mapAccountRecap({
+      header: {
+        panels: [
+          {
+            title: 'Your recent listening',
+            strapline: 'Private',
+            description: '1,234 minutes',
+            background_image: {
+              image: [{ url: 'recap-background', width: 1920 }],
+            },
+          },
+        ],
+      },
+      sections: [
+        {
+          title: 'Top songs',
+          contents: [
+            {
+              item_type: 'song',
+              id: 'song-id',
+              title: 'Most played song',
+            },
+          ],
+        },
+      ],
+    }),
+    {
+      available: true,
+      highlights: [
+        {
+          title: 'Your recent listening',
+          strapline: 'Private',
+          description: '1,234 minutes',
+          backgroundUrl: 'recap-background',
+          thumbnailUrl: null,
+        },
+      ],
+      sections: [
+        {
+          title: 'Top songs',
+          items: [
+            {
+              id: 'song-id',
+              itemType: 'song',
+              title: 'Most played song',
+              subtitle: null,
+              videoId: 'song-id',
+              artists: [],
+              album: null,
+              durationSeconds: 0,
+              thumbnailUrl: null,
+            },
+          ],
+        },
+      ],
+    },
+  );
+  assert.deepEqual(mapAccountRecap(null), {
+    available: false,
+    highlights: [],
+    sections: [],
+  });
+});
+
+test('loads channel content and recap independently for the selected account', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.profile = {
+    displayName: 'Fallback name',
+    avatarUrl: 'fallback-avatar',
+    handle: '@otoha-listener',
+    channelId: 'UCotoha-listener',
+  };
+  service.innertube = {
+    getChannel: async (channelId) => {
+      calls.push(['channel', channelId]);
+      return {
+        header: {
+          author: { name: 'Channel name', thumbnails: [] },
+          channel_id: 'UCotoha-listener',
+        },
+      };
+    },
+    actions: {
+      execute: async (endpoint, request) => {
+        calls.push(['content', endpoint, request]);
+        return {
+          contents: {
+            item: () => ({
+              tabs: [
+                {
+                  selected: true,
+                  content: {
+                    contents: [
+                      {
+                        header: { title: 'Songs on repeat' },
+                        num_items_per_column: 4,
+                        contents: [
+                          {
+                            item_type: 'song',
+                            id: 'repeat-song',
+                            title: 'Repeat song',
+                          },
+                        ],
+                      },
+                      {
+                        header: { title: 'Artists on repeat' },
+                        contents: [
+                          {
+                            item_type: 'artist',
+                            id: 'UCartist',
+                            title: 'Repeat artist',
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+          },
+        };
+      },
+    },
+    music: {
+      getRecap: async () => {
+        calls.push(['recap']);
+        throw new Error('Recap is not available yet.');
+      },
+    },
+  };
+
+  const result = await service.getAccountChannel();
+
+  assert.equal(result.profile.displayName, 'Channel name');
+  assert.equal(result.profile.avatarUrl, 'fallback-avatar');
+  assert.deepEqual(
+    result.content.sections.map((section) => ({
+      title: section.title,
+      itemsPerColumn: section.itemsPerColumn,
+      itemType: section.items[0].itemType,
+    })),
+    [
+      {
+        title: 'Songs on repeat',
+        itemsPerColumn: 4,
+        itemType: 'song',
+      },
+      {
+        title: 'Artists on repeat',
+        itemsPerColumn: undefined,
+        itemType: 'artist',
+      },
+    ],
+  );
+  assert.deepEqual(result.recap, {
+    available: false,
+    highlights: [],
+    sections: [],
+  });
+  assert.deepEqual(calls, [
+    ['channel', 'UCotoha-listener'],
+    [
+      'content',
+      'browse',
+      {
+        browseId: 'UCotoha-listener',
+        client: 'YTMUSIC',
+        parse: true,
+      },
+    ],
+    ['recap'],
+  ]);
+  assert.equal(JSON.stringify(result).includes('SID='), false);
+});
+
+test('keeps official recap when the public channel request fails', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.profile = {
+    displayName: 'Fallback name',
+    avatarUrl: 'fallback-avatar',
+    handle: '@otoha-listener',
+    channelId: 'UCotoha-listener',
+  };
+  service.innertube = {
+    getChannel: async () => {
+      throw new Error('Channel header unavailable.');
+    },
+    actions: {
+      execute: async () => {
+        throw new Error('Channel content unavailable.');
+      },
+    },
+    music: {
+      getRecap: async () => ({
+        header: {
+          panels: [{ title: 'Official recap', description: '42 minutes' }],
+        },
+        sections: [],
+      }),
+    },
+  };
+
+  const result = await service.getAccountChannel();
+
+  assert.equal(result.profile.displayName, 'Fallback name');
+  assert.equal(result.profile.bannerUrl, null);
+  assert.deepEqual(result.content, { sections: [] });
+  assert.equal(result.recap.available, true);
+  assert.equal(result.recap.highlights[0].title, 'Official recap');
+});
+
+test('reports a retryable channel failure when no account data is usable', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.profile = null;
+  service.innertube = {
+    account: {
+      getInfo: async () => {
+        throw new Error('Profile unavailable.');
+      },
+    },
+    music: {
+      getRecap: async () => {
+        throw new Error('Recap unavailable.');
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => service.getAccountChannel(),
+    (error) => error.code === 'CHANNEL_LOAD_FAILED',
   );
 });
 
@@ -2702,13 +3059,22 @@ test('resolves an authenticated audio-only playback stream without credentials',
   const service = new YouTubeService();
   service.authMode = 'cookie';
   service.innertube = {
-    getStreamingData: async (videoId, options) => {
+    getBasicInfo: async (videoId, options) => {
       calls.push({ videoId, options });
       return {
-        url: 'https://audio.example.test/stream?token=short-lived',
-        mime_type: 'audio/webm; codecs="opus"',
-        bitrate: 128000,
-        approx_duration_ms: 213000,
+        streaming_data: {
+          adaptive_formats: [
+            {
+              has_audio: true,
+              has_video: false,
+              is_original: true,
+              url: 'https://audio.example.test/stream?token=short-lived',
+              mime_type: 'audio/webm; codecs="opus"',
+              bitrate: 128000,
+              approx_duration_ms: 213000,
+            },
+          ],
+        },
       };
     },
   };
@@ -2729,13 +3095,52 @@ test('resolves an authenticated audio-only playback stream without credentials',
       videoId: 'video-id',
       options: {
         client: 'YTMUSIC',
-        type: 'audio',
-        quality: 'best',
-        format: 'any',
       },
     },
   ]);
   assert.equal(JSON.stringify(result).includes('SID='), false);
+});
+
+test('selects deterministic capped audio bitrates for playback quality', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    getBasicInfo: async () => ({
+      basic_info: { duration: 200 },
+      streaming_data: {
+        adaptive_formats: [32_000, 48_000, 96_000, 128_000, 192_000].map(
+          (bitrate, index) => ({
+            has_audio: true,
+            has_video: false,
+            is_original: true,
+            bitrate,
+            itag: index + 1,
+            mime_type: 'audio/webm; codecs="opus"',
+            decipher: async () => `https://audio.example.test/${bitrate}`,
+          }),
+        ),
+      },
+    }),
+  };
+
+  const low = await service.getPlaybackStream('video-id', 'audio', 'low');
+  const normal = await service.getPlaybackStream('video-id', 'audio', 'normal');
+  const high = await service.getPlaybackStream('video-id', 'audio', 'high');
+
+  assert.equal(low.stream.bitrate, 48_000);
+  assert.equal(normal.stream.bitrate, 128_000);
+  assert.equal(high.stream.bitrate, 192_000);
+  assert.equal(low.stream.url, 'https://audio.example.test/48000');
+});
+
+test('rejects an unknown playback quality', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+
+  await assert.rejects(
+    () => service.getPlaybackStream('video-id', 'audio', 'lossless'),
+    (error) => error.code === 'INVALID_AUDIO_QUALITY',
+  );
 });
 
 test('falls back to another client for podcast audio playback', async () => {
@@ -2743,16 +3148,25 @@ test('falls back to another client for podcast audio playback', async () => {
   const service = new YouTubeService();
   service.authMode = 'cookie';
   service.innertube = {
-    getStreamingData: async (videoId, options) => {
+    getBasicInfo: async (videoId, options) => {
       calls.push({ videoId, options });
       if (options.client === 'YTMUSIC') {
         throw new Error('No matching formats found');
       }
       return {
-        url: 'https://audio.example.test/podcast',
-        mime_type: 'audio/mp4; codecs="mp4a.40.2"',
-        bitrate: 96000,
-        approx_duration_ms: 1800000,
+        streaming_data: {
+          adaptive_formats: [
+            {
+              has_audio: true,
+              has_video: false,
+              is_original: true,
+              url: 'https://audio.example.test/podcast',
+              mime_type: 'audio/mp4; codecs="mp4a.40.2"',
+              bitrate: 96000,
+              approx_duration_ms: 1800000,
+            },
+          ],
+        },
       };
     },
   };
@@ -2808,6 +3222,14 @@ test('resolves an adaptive DASH video stream for visible playback', async () => 
     mime_type: 'audio/mp4; codecs="mp4a.40.2"',
     decipher: async () => 'https://audio.example.test/original',
   };
+  const originalLowAudio = {
+    has_video: false,
+    has_audio: true,
+    is_original: true,
+    bitrate: 48000,
+    mime_type: 'audio/webm; codecs="opus"',
+    decipher: async () => 'https://audio.example.test/original-low',
+  };
   const service = new YouTubeService();
   service.authMode = 'cookie';
   service.innertube = {
@@ -2822,6 +3244,7 @@ test('resolves an adaptive DASH video stream for visible playback', async () => 
             video1080Avc,
             alternateAudio,
             originalAudio,
+            originalLowAudio,
           ],
         },
       };
@@ -2837,7 +3260,15 @@ test('resolves an adaptive DASH video stream for visible playback', async () => 
   assert.equal(result.stream.audioUrl, 'https://audio.example.test/original');
   assert.equal(result.stream.width, 1920);
   assert.equal(result.stream.height, 1080);
+  const lowResult = await service.getPlaybackStream('video-id', 'video', 'low');
+  assert.equal(lowResult.stream.audioUrl, 'https://audio.example.test/original-low');
   assert.deepEqual(calls, [
+    {
+      videoId: 'video-id',
+      options: {
+        client: 'YTMUSIC',
+      },
+    },
     {
       videoId: 'video-id',
       options: {
@@ -2851,7 +3282,7 @@ test('does not expose the upstream failure when audio playback cannot resolve', 
   const service = new YouTubeService();
   service.authMode = 'cookie';
   service.innertube = {
-    getStreamingData: async () => {
+    getBasicInfo: async () => {
       throw new Error('Fetch failed for https://audio.example.test/?token=secret');
     },
   };

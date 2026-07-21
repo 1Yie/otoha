@@ -4,6 +4,10 @@
   "settings": "Settings",
   "desktop": "Desktop",
   "motion": "Motion",
+  "audioQuality": "Audio quality",
+  "audioQualityLow": "Low",
+  "audioQualityNormal": "Normal",
+  "audioQualityHigh": "High",
   "reduceMotion": "Reduce motion",
   "language": "Language",
   "english": "English",
@@ -28,6 +32,16 @@
   ,"back": "Back"
   ,"forward": "Forward"
   ,"profile": "Profile"
+  ,"myChannel": "My channel"
+  ,"editChannel": "Edit channel"
+  ,"shareChannel": "Share channel"
+  ,"channelLinkCopied": "Channel link copied."
+  ,"channelLinkCopyFailed": "Unable to copy the channel link."
+  ,"channelOpenFailed": "Unable to open YouTube Studio."
+  ,"channelContentUnavailable": "Your YouTube Music channel has no homepage sections available right now."
+  ,"yourRecap": "Your Recap"
+  ,"recapUnavailable": "Recap is not available yet"
+  ,"recapUnavailableDescription": "YouTube Music has not provided Recap data for this account."
   ,"minimize": "Minimize"
   ,"maximize": "Maximize"
   ,"close": "Close"

@@ -16,6 +16,7 @@ import 'package:otoha/src/models/catalog.dart';
 import 'package:otoha/src/models/offline_library.dart';
 import 'package:otoha/src/models/youtube_library.dart';
 import 'package:otoha/src/services/credential_store.dart';
+import 'package:otoha/src/services/audio_playback_engine.dart';
 import 'package:otoha/src/services/offline_library_store.dart';
 import 'package:otoha/src/services/player_session_store.dart';
 import 'package:otoha/src/services/youtube_sidecar_client.dart';
@@ -1020,6 +1021,12 @@ void main() {
       find.byKey(const Key('youtube-cookie-submit')),
     );
     expect(submit.onPressed, isNotNull);
+
+    await tester.tap(find.byKey(const Key('youtube-cookie-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('youtube-connected')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-library-sync')), findsNothing);
   });
 
   testWidgets('authentication panel exposes credential-safe diagnostics', (
@@ -1051,9 +1058,7 @@ void main() {
     );
   });
 
-  testWidgets('signed-in account drawer keeps its avatar at 64 pixels', (
-    tester,
-  ) async {
+  testWidgets('signed-in profile opens My channel workspace', (tester) async {
     await _setDesktopSurface(tester);
     final libraryController = _signedOutLibraryController();
     addTearDown(libraryController.dispose);
@@ -1066,10 +1071,12 @@ void main() {
     await tester.tap(find.byKey(const Key('open-account')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('youtube-connected')), findsOneWidget);
+    expect(find.byKey(const Key('youtube-channel-workspace')), findsOneWidget);
+    expect(find.byKey(const Key('panel-account')), findsNothing);
+    expect(find.text('My channel'), findsOneWidget);
     expect(
-      tester.getSize(find.byKey(const Key('youtube-account-avatar'))),
-      const Size(64, 64),
+      tester.getTopLeft(find.byKey(const Key('youtube-channel-banner'))).dy,
+      tester.getTopLeft(find.byKey(const Key('workspace-clip'))).dy,
     );
   });
 
@@ -1120,6 +1127,56 @@ void main() {
     expect(localeController.locale, const Locale('zh'));
     expect(find.text('设置'), findsWidgets);
     expect(find.text('动画'), findsOneWidget);
+  });
+
+  testWidgets('Settings persists online audio quality without a queue', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController();
+    final sessionStore = _MutablePlayerSessionStore();
+    addTearDown(libraryController.dispose);
+    await tester.pumpWidget(
+      OtohaApp(
+        youtubeLibraryController: libraryController,
+        playerSessionStore: sessionStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('open-settings')));
+    await tester.pumpAndSettle();
+
+    final selector = tester.widget<SegmentedButton<AudioQuality>>(
+      find.byKey(const Key('audio-quality-selector')),
+    );
+    expect(selector.selected, <AudioQuality>{AudioQuality.high});
+    final selectorTheme = Theme.of(
+      tester.element(find.byKey(const Key('audio-quality-selector'))),
+    ).segmentedButtonTheme.style!;
+    expect(
+      selectorTheme.backgroundColor!.resolve(<WidgetState>{}),
+      OtohaColors.surfaceRaised,
+    );
+    expect(
+      selectorTheme.backgroundColor!.resolve(<WidgetState>{
+        WidgetState.selected,
+      }),
+      OtohaColors.accent,
+    );
+    expect(
+      selectorTheme.foregroundColor!.resolve(<WidgetState>{
+        WidgetState.selected,
+      }),
+      Theme.of(
+        tester.element(find.byKey(const Key('audio-quality-selector'))),
+      ).colorScheme.onPrimary,
+    );
+
+    await tester.tap(find.text('Normal'));
+    await tester.pump();
+
+    expect(sessionStore.value, <String, Object?>{'audioQuality': 'normal'});
   });
 
   testWidgets('Settings displays the app icon and package version', (
@@ -1175,6 +1232,11 @@ void main() {
     await tester.pumpAndSettle();
 
     final licenses = find.byKey(const Key('settings-open-source-licenses'));
+    await tester.scrollUntilVisible(
+      licenses,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(licenses, findsOneWidget);
     expect(find.text('Licenses and notices'), findsOneWidget);
 
@@ -3873,6 +3935,20 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     }
     return switch (method) {
       'auth.cookie.signIn' => <String, Object?>{'authenticated': true},
+      'account.channel' => <String, Object?>{
+        'profile': <String, Object?>{
+          'displayName': 'Test listener',
+          'handle': '@test-listener',
+          'channelId': 'UC_TEST',
+          'channelUrl': 'https://www.youtube.com/channel/UC_TEST',
+          'studioUrl': 'https://studio.youtube.com/channel/UC_TEST/editing',
+        },
+        'recap': <String, Object?>{
+          'available': false,
+          'highlights': <Object?>[],
+          'sections': <Object?>[],
+        },
+      },
       'library.media' => <String, Object?>{
         'playlists': <Object?>[
           <String, Object?>{
@@ -4365,6 +4441,21 @@ class _FixedPlayerSessionStore implements PlayerSessionStore {
 
   @override
   Future<void> delete() async {}
+}
+
+class _MutablePlayerSessionStore implements PlayerSessionStore {
+  Map<String, Object?>? value;
+
+  @override
+  Future<void> delete() async => value = null;
+
+  @override
+  Future<Map<String, Object?>?> read() async => value;
+
+  @override
+  Future<void> write(Map<String, Object?> value) async {
+    this.value = Map<String, Object?>.of(value);
+  }
 }
 
 class _MemoryOfflineLibraryStore implements OfflineLibraryStore {

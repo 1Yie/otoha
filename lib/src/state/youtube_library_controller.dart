@@ -20,6 +20,7 @@ enum YouTubeLibraryError {
 
 class YouTubeLibraryController extends ChangeNotifier {
   static const _mediaLibraryCacheKey = 'library.media.v4';
+  static const _channelCacheKey = 'account.channel.v2';
 
   YouTubeLibraryController({
     required YouTubeSidecarClient client,
@@ -115,6 +116,10 @@ class YouTubeLibraryController extends ChangeNotifier {
   YouTubeLibraryError? _searchErrorMessage;
   String? _profileName;
   String? _profileAvatarUrl;
+  YouTubeChannelProfile? _channelProfile;
+  YouTubeLibraryError? _channelErrorMessage;
+  bool _isLoadingChannel = false;
+  int _channelRequest = 0;
   String? _ratingVideoId;
   String? _followingArtistId;
   String? _savedEpisodeVideoId;
@@ -191,6 +196,9 @@ class YouTubeLibraryController extends ChangeNotifier {
   String? get errorDiagnostic => _errorDiagnostic;
   String? get profileName => _profileName;
   String? get profileAvatarUrl => _profileAvatarUrl;
+  YouTubeChannelProfile? get channelProfile => _channelProfile;
+  YouTubeLibraryError? get channelErrorMessage => _channelErrorMessage;
+  bool get isLoadingChannel => _isLoadingChannel;
   bool get isSignedIn => _status == YouTubeAccountStatus.signedIn;
   String get locale => _locale;
 
@@ -255,6 +263,8 @@ class YouTubeLibraryController extends ChangeNotifier {
   }
 
   Future<void> signInWithCookie(String cookie) async {
+    _invalidateChannelRequest();
+    _clearChannelState();
     _status = YouTubeAccountStatus.authorizing;
     _errorMessage = null;
     _errorDiagnostic = null;
@@ -277,6 +287,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _invalidateChannelRequest();
     try {
       await _client.call('auth.signOut');
     } on Object {
@@ -341,6 +352,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     _feedActionErrorMessage = null;
     _profileName = null;
     _profileAvatarUrl = null;
+    _clearChannelState();
     _ratingVideoId = null;
     _followingArtistId = null;
     _savedEpisodeVideoId = null;
@@ -360,6 +372,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     if (!isSignedIn) {
       return;
     }
+    _invalidateChannelRequest();
     try {
       await _client.call('session.setLocale', <String, Object?>{
         'locale': _locale,
@@ -391,6 +404,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       _isLoadingMorePodcast = false;
       _isLoadingMoreHistory = false;
       _isLoadingMorePlaylist = false;
+      _clearChannelState();
       notifyListeners();
       await _syncAccountData();
     } on Object {
@@ -425,6 +439,47 @@ class YouTubeLibraryController extends ChangeNotifier {
     } finally {
       _isLoadingLibrary = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> loadChannelProfile({bool forceRefresh = false}) async {
+    if (!isSignedIn || _isLoadingChannel) {
+      return;
+    }
+    final request = ++_channelRequest;
+    _isLoadingChannel = true;
+    _channelErrorMessage = null;
+    notifyListeners();
+    try {
+      final cached = forceRefresh
+          ? null
+          : await _metadataCache?.read(_channelCacheKey);
+      if (!_isCurrentChannelRequest(request)) {
+        return;
+      }
+      if (cached != null) {
+        _applyChannelResult(cached.data);
+        notifyListeners();
+        if (cached.isFresh(const Duration(minutes: 15))) {
+          return;
+        }
+      }
+
+      final result = await _client.call('account.channel');
+      if (!_isCurrentChannelRequest(request)) {
+        return;
+      }
+      _applyChannelResult(result);
+      await _metadataCache?.write(_channelCacheKey, result);
+    } on Object catch (error) {
+      if (_isCurrentChannelRequest(request)) {
+        _channelErrorMessage = _requestErrorFor(error);
+      }
+    } finally {
+      if (_isCurrentChannelRequest(request)) {
+        _isLoadingChannel = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1458,6 +1513,7 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _invalidateChannelRequest();
     _accountWriteCooldownTimer?.cancel();
     unawaited(_eventSubscription.cancel());
     unawaited(_client.dispose());
@@ -1703,6 +1759,26 @@ class YouTubeLibraryController extends ChangeNotifier {
     }
     _profileName = profile['displayName'] as String?;
     _profileAvatarUrl = profile['avatarUrl'] as String?;
+  }
+
+  void _applyChannelResult(Map<String, Object?> result) {
+    final profile = YouTubeChannelProfile.fromJson(result);
+    _channelProfile = profile;
+    _profileName ??= profile.displayName;
+    _profileAvatarUrl ??= profile.avatarUrl;
+  }
+
+  bool _isCurrentChannelRequest(int request) =>
+      isSignedIn && request == _channelRequest;
+
+  void _invalidateChannelRequest() {
+    _channelRequest += 1;
+  }
+
+  void _clearChannelState() {
+    _channelProfile = null;
+    _channelErrorMessage = null;
+    _isLoadingChannel = false;
   }
 
   void _beginAccountWriteCooldown() {
