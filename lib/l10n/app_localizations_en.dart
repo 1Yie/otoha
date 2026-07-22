@@ -128,16 +128,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your YouTube Music channel has no homepage sections available right now.';
 
   @override
-  String get yourRecap => 'Your Recap';
-
-  @override
-  String get recapUnavailable => 'Recap is not available yet';
-
-  @override
-  String get recapUnavailableDescription =>
-      'YouTube Music has not provided Recap data for this account.';
-
-  @override
   String get minimize => 'Minimize';
 
   @override

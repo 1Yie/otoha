@@ -332,24 +332,6 @@ abstract class AppLocalizations {
   /// **'Your YouTube Music channel has no homepage sections available right now.'**
   String get channelContentUnavailable;
 
-  /// No description provided for @yourRecap.
-  ///
-  /// In en, this message translates to:
-  /// **'Your Recap'**
-  String get yourRecap;
-
-  /// No description provided for @recapUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Recap is not available yet'**
-  String get recapUnavailable;
-
-  /// No description provided for @recapUnavailableDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'YouTube Music has not provided Recap data for this account.'**
-  String get recapUnavailableDescription;
-
   /// No description provided for @minimize.
   ///
   /// In en, this message translates to:

@@ -174,6 +174,69 @@ void main() {
     expect(results[1]['pid'], results[0]['pid']);
   });
 
+  test(
+    'logs every request outcome without exposing sensitive values',
+    () async {
+      final logs = <String>[];
+      final client = YouTubeSidecarClient(
+        executable: 'node',
+        entryPath: File('test/fixtures/sidecar_echo.mjs').absolute.path,
+        debugLogger: logs.add,
+      );
+      addTearDown(client.dispose);
+
+      await client.call('first', <String, Object?>{
+        'query': 'listener mixes',
+        'cookie': 'SID=secret-cookie',
+        'text': 'secret-comment',
+        'nested': <String, Object?>{'audioUrl': 'https://media.example/audio'},
+      });
+      await expectLater(
+        client.call('fail', <String, Object?>{
+          'credential': 'saved-credential',
+        }),
+        throwsA(isA<SidecarException>()),
+      );
+
+      expect(logs, hasLength(4));
+      expect(
+        logs[0],
+        allOf(
+          contains('request: id=1 method=first'),
+          contains('"query":"listener mixes"'),
+          contains('"cookie":"<redacted>"'),
+          contains('"text":"<redacted>"'),
+          contains('"audioUrl":"<redacted>"'),
+        ),
+      );
+      expect(
+        logs[1],
+        matches(
+          RegExp(
+            r'response: id=1 method=first status=success '
+            r'durationMs=\d+ resultKeys=\[pid\]',
+          ),
+        ),
+      );
+      expect(logs[2], contains('request: id=2 method=fail'));
+      expect(logs[2], contains('"credential":"<redacted>"'));
+      expect(
+        logs[3],
+        matches(
+          RegExp(
+            r'response: id=2 method=fail status=error '
+            r'durationMs=\d+ code=YOUTUBE_ERROR type=SidecarException',
+          ),
+        ),
+      );
+      final output = logs.join('\n');
+      expect(output, isNot(contains('secret-cookie')));
+      expect(output, isNot(contains('secret-comment')));
+      expect(output, isNot(contains('media.example')));
+      expect(output, isNot(contains('saved-credential')));
+    },
+  );
+
   test('records safe sidecar failure diagnostics', () async {
     final client = YouTubeSidecarClient(
       executable: 'node',

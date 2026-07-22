@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'desktop_proxy_environment.dart';
 
 class SidecarEvent {
@@ -121,25 +123,36 @@ class SidecarBundleLocator {
   }
 }
 
+typedef SidecarDebugLogger = void Function(String message);
+
 class YouTubeSidecarClient {
   YouTubeSidecarClient({
     String? executable,
     String? entryPath,
     Map<String, String>? processEnvironment,
     Duration requestTimeout = const Duration(minutes: 2),
-  }) : this._(executable, entryPath, processEnvironment, requestTimeout);
+    SidecarDebugLogger? debugLogger,
+  }) : this._(
+         executable,
+         entryPath,
+         processEnvironment,
+         requestTimeout,
+         debugLogger,
+       );
 
   YouTubeSidecarClient._(
     this._executable,
     this._entryPath,
     this._processEnvironment,
     this._requestTimeout,
+    this._debugLogger,
   );
 
   final String? _executable;
   final String? _entryPath;
   final Map<String, String>? _processEnvironment;
   final Duration _requestTimeout;
+  final SidecarDebugLogger? _debugLogger;
   final StreamController<SidecarEvent> _events =
       StreamController<SidecarEvent>.broadcast();
   final StreamController<SidecarFailure> _failures =
@@ -165,20 +178,32 @@ class YouTubeSidecarClient {
     String method, [
     Map<String, Object?> params = const <String, Object?>{},
   ]) async {
-    await _ensureStarted();
     final id = '${++_nextRequestId}';
-    final completer = Completer<Map<String, Object?>>();
-    _pending[id] = completer;
-    _process!.stdin.writeln(
-      jsonEncode(<String, Object?>{
-        'id': id,
-        'method': method,
-        'params': params,
-      }),
+    final stopwatch = Stopwatch()..start();
+    _logDebug(
+      'Otoha sidecar request: id=$id method=$method '
+      'params=${_paramsForLog(params)}',
     );
 
     try {
-      return await completer.future.timeout(_requestTimeout);
+      await _ensureStarted();
+      final completer = Completer<Map<String, Object?>>();
+      _pending[id] = completer;
+      _process!.stdin.writeln(
+        jsonEncode(<String, Object?>{
+          'id': id,
+          'method': method,
+          'params': params,
+        }),
+      );
+      final result = await completer.future.timeout(_requestTimeout);
+      final resultKeys = result.keys.toList(growable: false)..sort();
+      _logDebug(
+        'Otoha sidecar response: id=$id method=$method status=success '
+        'durationMs=${stopwatch.elapsedMilliseconds} '
+        'resultKeys=[${resultKeys.join(',')}]',
+      );
+      return result;
     } on TimeoutException {
       _pending.remove(id);
       _recordFailure(<String, Object?>{
@@ -186,11 +211,93 @@ class YouTubeSidecarClient {
         'code': 'SIDECAR_TIMEOUT',
         'errorType': 'Timeout',
       });
+      _logDebug(
+        'Otoha sidecar response: id=$id method=$method status=error '
+        'durationMs=${stopwatch.elapsedMilliseconds} '
+        'code=SIDECAR_TIMEOUT type=Timeout',
+      );
       throw const SidecarException(
         'SIDECAR_TIMEOUT',
         'The YouTube service did not respond in time.',
       );
+    } on SidecarException catch (error) {
+      _pending.remove(id);
+      _logDebug(
+        'Otoha sidecar response: id=$id method=$method status=error '
+        'durationMs=${stopwatch.elapsedMilliseconds} '
+        'code=${error.code} type=SidecarException',
+      );
+      rethrow;
+    } on Object catch (error) {
+      _pending.remove(id);
+      _logDebug(
+        'Otoha sidecar response: id=$id method=$method status=error '
+        'durationMs=${stopwatch.elapsedMilliseconds} '
+        'code=UNEXPECTED_ERROR type=${error.runtimeType}',
+      );
+      rethrow;
     }
+  }
+
+  void _logDebug(String message) {
+    try {
+      final logger = _debugLogger;
+      if (logger != null) {
+        logger(message);
+      } else if (kDebugMode) {
+        stderr.writeln(message);
+      }
+    } on Object {
+      // Diagnostics must not change the request outcome.
+    }
+  }
+
+  String _paramsForLog(Map<String, Object?> params) {
+    try {
+      return jsonEncode(_redactForLog(params));
+    } on Object {
+      final keys = params.keys.toList(growable: false)..sort();
+      return '{keys:[${keys.join(',')}]}';
+    }
+  }
+
+  Object? _redactForLog(Object? value, [String? key]) {
+    if (key != null && _isSensitiveLogKey(key)) {
+      return '<redacted>';
+    }
+    if (value is Map<Object?, Object?>) {
+      final redacted = <String, Object?>{};
+      for (final entry in value.entries) {
+        final entryKey = entry.key;
+        if (entryKey is String) {
+          redacted[entryKey] = _redactForLog(entry.value, entryKey);
+        }
+      }
+      return redacted;
+    }
+    if (value is Iterable<Object?>) {
+      return value.map((item) => _redactForLog(item)).toList(growable: false);
+    }
+    if (value == null || value is String || value is num || value is bool) {
+      return value;
+    }
+    return '<${value.runtimeType}>';
+  }
+
+  bool _isSensitiveLogKey(String key) {
+    final normalized = key.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+    return normalized.contains('cookie') ||
+        normalized.contains('credential') ||
+        normalized.contains('authorization') ||
+        normalized.contains('password') ||
+        normalized.contains('secret') ||
+        normalized.contains('token') ||
+        normalized.contains('header') ||
+        normalized.contains('url') ||
+        normalized == 'text' ||
+        normalized.contains('comment') ||
+        normalized == 'body' ||
+        normalized == 'directory';
   }
 
   Future<void> dispose() async {

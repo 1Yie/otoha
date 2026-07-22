@@ -111,11 +111,12 @@ void main() {
     expect(controller.channelProfile?.handle, '@test-listener');
     expect(
       controller.channelProfile?.channelSections.single.title,
-      'Your mixes',
+      'Personalized playlists',
     );
-    expect(controller.channelProfile?.recapAvailable, isTrue);
-    expect(controller.channelProfile?.recapHighlights.single.title, 'Recent');
-    expect(controller.channelProfile?.recapSections.single.title, 'Top songs');
+    expect(
+      controller.channelProfile?.channelSections.single.subtitle,
+      'Private',
+    );
     expect(client.methods, <String>['account.channel']);
     expect(cache.entries, contains('account.channel.v2'));
 
@@ -2132,7 +2133,8 @@ Map<String, Object?> _channelResponse({String displayName = 'Test listener'}) =>
       'content': <String, Object?>{
         'sections': <Object?>[
           <String, Object?>{
-            'title': 'Your mixes',
+            'title': 'Personalized playlists',
+            'subtitle': 'Private',
             'items': <Object?>[
               <String, Object?>{
                 'id': 'personal-mix',
@@ -2140,32 +2142,6 @@ Map<String, Object?> _channelResponse({String displayName = 'Test listener'}) =>
                 'title': 'Personal mix',
                 'artists': <String>[],
                 'durationSeconds': 0,
-              },
-            ],
-          },
-        ],
-      },
-      'recap': <String, Object?>{
-        'available': true,
-        'highlights': <Object?>[
-          <String, Object?>{
-            'title': 'Recent',
-            'strapline': 'Private',
-            'description': '42 minutes',
-            'backgroundUrl': 'https://example.test/recap.jpg',
-          },
-        ],
-        'sections': <Object?>[
-          <String, Object?>{
-            'title': 'Top songs',
-            'items': <Object?>[
-              <String, Object?>{
-                'id': 'top-song',
-                'itemType': 'song',
-                'title': 'Top song',
-                'videoId': 'top-song',
-                'artists': <String>['Top artist'],
-                'durationSeconds': 180,
               },
             ],
           },

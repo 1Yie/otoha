@@ -16,7 +16,6 @@
 - `YouTubeFeedSection`
 - `YouTubeFeedItem`
 - `YouTubeChannelProfile`
-- `YouTubeRecapHighlight`
 - `YouTubeService`
 
 ## Authentication
@@ -115,7 +114,21 @@ songs, and artists. Flutter caches the profile and channel-home metadata under
 - Linux builds require the `libsecret` development package.
 - Use a new private browser window when copying the YouTube Cookie header.
 - Cookie values are full account credentials and must never be logged or committed.
-- Channel headers may use regular, interactive, or page-header renderers. Select the best official banner and avatar candidate without synthesizing profile or feed data; empty channel-home and Recap states must remain truthful.
+- Debug builds log every sidecar request and its success, error, or timeout
+  outcome to Dart stderr. Request parameters redact credentials, Cookies,
+  headers, URLs, comment text, tokens, and download directories; successful
+  responses expose only top-level result keys.
+- In Debug, each entry into My Channel bypasses the in-memory profile and
+  `account.channel.v2` cache once so `account.channel` and its outcome are
+  observable. Ordinary rebuilds do not repeat the request. Release builds keep
+  the existing profile and 15-minute cache behavior.
+- Regular YouTube channel headers may use C4, interactive, or page-header
+  renderers. Select the best official banner and avatar candidate from that
+  channel without falling back to YTMUSIC browse artwork or synthesizing
+  profile data; an empty channel-home state must remain truthful.
+- `Innertube.getChannel()` requires a canonical channel ID. Resolve account
+  handles through `Innertube.resolveURL()` first; never send an `@handle` as a
+  regular YouTube or YTMUSIC `browseId`.
 - Library page tokens must be exhausted.
 - History uses the authenticated YTMUSIC `FEmusic_history` browse surface, not
   the generic YouTube `FEhistory` watch history. Keep results in memory only.
@@ -174,5 +187,5 @@ songs, and artists. Flutter caches the profile and channel-home metadata under
   downloads remain valid.
 - `interaction.rate` and `comments.create` are user-initiated Cookie-authenticated account writes. Flutter and the sidecar enforce one shared two-second cooldown; never submit automatically, log comment bodies, or persist interaction request data.
 - Remote artwork and Home, Explore, Library, and playlist metadata may use their bounded cache; clear the metadata cache on sign-out. Local offline downloads, local offline playlist metadata, and timestamped LRC lyrics use separate non-credential stores and remain available after sign-out. Never cache Cookies, stream URLs, headers, comment bodies, or search results.
-- My Channel profile and Recap metadata use a 15-minute bounded-cache freshness window and are invalidated on sign-in, sign-out, locale changes, and disposal. Stale in-flight responses must not repopulate signed-out state.
+- My Channel profile and private channel-home metadata use a 15-minute bounded-cache freshness window and are invalidated on sign-in, sign-out, locale changes, and disposal. Stale in-flight responses must not repopulate signed-out state.
 - Channel edit and share URLs are generated only from the selected channel ID or validated handle. Flutter opens only HTTPS YouTube hosts externally and copies only the canonical public channel URL.

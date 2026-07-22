@@ -193,21 +193,13 @@ export class YouTubeService {
           parse: true,
         })
       : Promise.resolve(null);
-    const recapRequest = typeof this.innertube.music?.getRecap === 'function'
-      ? this.innertube.music.getRecap()
-      : Promise.resolve(null);
-    const [channelResult, channelContentResult, recapResult] =
-      await Promise.allSettled([
-        channelRequest,
-        channelContentRequest,
-        recapRequest,
-      ]);
+    const [channelResult, channelContentResult] = await Promise.allSettled([
+      channelRequest,
+      channelContentRequest,
+    ]);
 
     const channel = channelResult.status === 'fulfilled'
       ? channelResult.value
-      : null;
-    const recap = recapResult.status === 'fulfilled'
-      ? recapResult.value
       : null;
     const fallbackProfile = resolvedChannelId && profile
       ? { ...profile, channelId: resolvedChannelId }
@@ -216,7 +208,6 @@ export class YouTubeService {
     if (mappedProfile) {
       this.profile = mappedProfile;
     }
-    const mappedRecap = mapAccountRecap(recap);
     let channelSections = [];
     let channelContentParseFailure = null;
     if (
@@ -233,8 +224,7 @@ export class YouTubeService {
 
     if (
       !mappedProfile &&
-      channelSections.length === 0 &&
-      !mappedRecap.available
+      channelSections.length === 0
     ) {
       const failure = [
         channelResult.status === 'rejected' ? channelResult.reason : null,
@@ -242,7 +232,6 @@ export class YouTubeService {
           ? channelContentResult.reason
           : null,
         channelContentParseFailure,
-        recapResult.status === 'rejected' ? recapResult.reason : null,
       ].find(Boolean) ?? null;
       throw new SidecarError(
         'CHANNEL_LOAD_FAILED',
@@ -254,7 +243,6 @@ export class YouTubeService {
     return {
       profile: mappedProfile,
       content: { sections: channelSections },
-      recap: mappedRecap,
     };
   }
 
@@ -3376,36 +3364,6 @@ export function mapAccountChannel(channel, fallbackProfile = null) {
         ...urls,
       }
     : null;
-}
-
-export function mapAccountRecap(recap) {
-  const highlights = listOf(recap?.header?.panels)
-    .map((panel) => {
-      const title = nullableMetadataText(panel?.title);
-      const strapline = nullableMetadataText(panel?.strapline);
-      const description = nullableMetadataText(panel?.description);
-      const backgroundUrl = largestArtworkThumbnail(
-        arrayOf(panel?.background_image?.image),
-      )?.url ?? null;
-      const thumbnailUrl = largestArtworkThumbnail(
-        arrayOf(panel?.thumbnail?.image),
-      )?.url ?? null;
-      if (!title && !strapline && !description) return null;
-      return {
-        title: title ?? strapline ?? description,
-        strapline,
-        description,
-        backgroundUrl,
-        thumbnailUrl,
-      };
-    })
-    .filter(Boolean);
-  const sections = mapFeedSections(recap?.sections);
-  return {
-    available: highlights.length > 0 || sections.length > 0,
-    highlights,
-    sections,
-  };
 }
 
 function accountChannelUrls(channelId, handle) {

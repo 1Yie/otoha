@@ -1060,7 +1060,10 @@ void main() {
 
   testWidgets('signed-in profile opens My channel workspace', (tester) async {
     await _setDesktopSurface(tester);
-    final libraryController = _signedOutLibraryController();
+    final sidecarClient = _NoopSidecarClient();
+    final libraryController = _signedOutLibraryController(
+      client: sidecarClient,
+    );
     addTearDown(libraryController.dispose);
     await libraryController.signInWithCookie('SID=test-cookie');
     await tester.pumpWidget(
@@ -1077,6 +1080,26 @@ void main() {
     expect(
       tester.getTopLeft(find.byKey(const Key('youtube-channel-banner'))).dy,
       tester.getTopLeft(find.byKey(const Key('workspace-clip'))).dy,
+    );
+    expect(
+      sidecarClient.methods.where((method) => method == 'account.channel'),
+      hasLength(1),
+    );
+
+    await tester.pump();
+    expect(
+      sidecarClient.methods.where((method) => method == 'account.channel'),
+      hasLength(1),
+    );
+
+    await tester.tap(find.byKey(const Key('sidebar-home')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-account')));
+    await tester.pumpAndSettle();
+
+    expect(
+      sidecarClient.methods.where((method) => method == 'account.channel'),
+      hasLength(2),
     );
   });
 
@@ -3993,11 +4016,7 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
           'channelUrl': 'https://www.youtube.com/channel/UC_TEST',
           'studioUrl': 'https://studio.youtube.com/channel/UC_TEST/editing',
         },
-        'recap': <String, Object?>{
-          'available': false,
-          'highlights': <Object?>[],
-          'sections': <Object?>[],
-        },
+        'content': <String, Object?>{'sections': <Object?>[]},
       },
       'library.media' => <String, Object?>{
         'playlists': <Object?>[

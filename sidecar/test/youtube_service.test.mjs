@@ -8,7 +8,6 @@ import {
   mapBrowseFeedSections,
   mapAccountChannel,
   mapAccountProfile,
-  mapAccountRecap,
   mapCommentThread,
   mapFeedSections,
   mapRawArtistDetail,
@@ -563,185 +562,6 @@ test('maps modern page-header channel identity and artwork', () => {
   );
 });
 
-test('maps only official recap highlights and feed sections', () => {
-  assert.deepEqual(
-    mapAccountRecap({
-      header: {
-        panels: [
-          {
-            title: 'Your recent listening',
-            strapline: 'Private',
-            description: '1,234 minutes',
-            background_image: {
-              image: [{ url: 'recap-background', width: 1920 }],
-            },
-          },
-        ],
-      },
-      sections: [
-        {
-          title: 'Top songs',
-          contents: [
-            {
-              item_type: 'song',
-              id: 'song-id',
-              title: 'Most played song',
-            },
-          ],
-        },
-      ],
-    }),
-    {
-      available: true,
-      highlights: [
-        {
-          title: 'Your recent listening',
-          strapline: 'Private',
-          description: '1,234 minutes',
-          backgroundUrl: 'recap-background',
-          thumbnailUrl: null,
-        },
-      ],
-      sections: [
-        {
-          title: 'Top songs',
-          items: [
-            {
-              id: 'song-id',
-              itemType: 'song',
-              title: 'Most played song',
-              subtitle: null,
-              videoId: 'song-id',
-              artists: [],
-              album: null,
-              durationSeconds: 0,
-              thumbnailUrl: null,
-            },
-          ],
-        },
-      ],
-    },
-  );
-  assert.deepEqual(mapAccountRecap(null), {
-    available: false,
-    highlights: [],
-    sections: [],
-  });
-});
-
-test('loads channel content and recap independently for the selected account', async () => {
-  const calls = [];
-  const service = new YouTubeService();
-  service.authMode = 'cookie';
-  service.profile = {
-    displayName: 'Fallback name',
-    avatarUrl: 'fallback-avatar',
-    handle: '@otoha-listener',
-    channelId: 'UCotoha-listener',
-  };
-  service.innertube = {
-    getChannel: async (channelId) => {
-      calls.push(['channel', channelId]);
-      return {
-        header: {
-          author: { name: 'Channel name', thumbnails: [] },
-          channel_id: 'UCotoha-listener',
-        },
-      };
-    },
-    actions: {
-      execute: async (endpoint, request) => {
-        calls.push(['content', endpoint, request]);
-        return {
-          contents: {
-            item: () => ({
-              tabs: [
-                {
-                  selected: true,
-                  content: {
-                    contents: [
-                      {
-                        header: { title: 'Songs on repeat' },
-                        num_items_per_column: 4,
-                        contents: [
-                          {
-                            item_type: 'song',
-                            id: 'repeat-song',
-                            title: 'Repeat song',
-                          },
-                        ],
-                      },
-                      {
-                        header: { title: 'Artists on repeat' },
-                        contents: [
-                          {
-                            item_type: 'artist',
-                            id: 'UCartist',
-                            title: 'Repeat artist',
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                },
-              ],
-            }),
-          },
-        };
-      },
-    },
-    music: {
-      getRecap: async () => {
-        calls.push(['recap']);
-        throw new Error('Recap is not available yet.');
-      },
-    },
-  };
-
-  const result = await service.getAccountChannel();
-
-  assert.equal(result.profile.displayName, 'Channel name');
-  assert.equal(result.profile.avatarUrl, 'fallback-avatar');
-  assert.deepEqual(
-    result.content.sections.map((section) => ({
-      title: section.title,
-      itemsPerColumn: section.itemsPerColumn,
-      itemType: section.items[0].itemType,
-    })),
-    [
-      {
-        title: 'Songs on repeat',
-        itemsPerColumn: 4,
-        itemType: 'song',
-      },
-      {
-        title: 'Artists on repeat',
-        itemsPerColumn: undefined,
-        itemType: 'artist',
-      },
-    ],
-  );
-  assert.deepEqual(result.recap, {
-    available: false,
-    highlights: [],
-    sections: [],
-  });
-  assert.deepEqual(calls, [
-    ['channel', 'UCotoha-listener'],
-    [
-      'content',
-      'browse',
-      {
-        browseId: 'UCotoha-listener',
-        client: 'YTMUSIC',
-        parse: true,
-      },
-    ],
-    ['recap'],
-  ]);
-  assert.equal(JSON.stringify(result).includes('SID='), false);
-});
-
 test('loads private channel-home content for the selected account', async () => {
   const calls = [];
   const service = new YouTubeService();
@@ -814,6 +634,9 @@ test('loads private channel-home content for the selected account', async () => 
         };
       },
     },
+    music: {
+      getRecap: async () => calls.push(['recap']),
+    },
   };
 
   const result = await service.getAccountChannel();
@@ -843,6 +666,7 @@ test('loads private channel-home content for the selected account', async () => 
       },
     ],
   );
+  assert.deepEqual(Object.keys(result), ['profile', 'content']);
   assert.deepEqual(calls, [
     ['channel', 'UCotoha-listener'],
     [
@@ -976,7 +800,7 @@ test('does not browse a handle when URL resolution is not a channel', async () =
   ]);
 });
 
-test('keeps official recap when the public channel request fails', async () => {
+test('keeps private channel-home content when the public header fails', async () => {
   const service = new YouTubeService();
   service.authMode = 'cookie';
   service.profile = {
@@ -990,16 +814,33 @@ test('keeps official recap when the public channel request fails', async () => {
       throw new Error('Channel header unavailable.');
     },
     actions: {
-      execute: async () => {
-        throw new Error('Channel content unavailable.');
-      },
-    },
-    music: {
-      getRecap: async () => ({
-        header: {
-          panels: [{ title: 'Official recap', description: '42 minutes' }],
+      execute: async () => ({
+        contents: {
+          item: () => ({
+            tabs: [
+              {
+                selected: true,
+                content: {
+                  contents: [
+                    {
+                      header: {
+                        title: 'Personalized playlists',
+                        strapline: 'Private',
+                      },
+                      contents: [
+                        {
+                          item_type: 'playlist',
+                          id: 'personal-radio',
+                          title: 'Listener radio',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
         },
-        sections: [],
       }),
     },
   };
@@ -1008,9 +849,9 @@ test('keeps official recap when the public channel request fails', async () => {
 
   assert.equal(result.profile.displayName, 'Fallback name');
   assert.equal(result.profile.bannerUrl, null);
-  assert.deepEqual(result.content, { sections: [] });
-  assert.equal(result.recap.available, true);
-  assert.equal(result.recap.highlights[0].title, 'Official recap');
+  assert.equal(result.content.sections[0].title, 'Personalized playlists');
+  assert.equal(result.content.sections[0].subtitle, 'Private');
+  assert.equal(result.content.sections[0].items[0].title, 'Listener radio');
 });
 
 test('reports a retryable channel failure when no account data is usable', async () => {
@@ -1021,11 +862,6 @@ test('reports a retryable channel failure when no account data is usable', async
     account: {
       getInfo: async () => {
         throw new Error('Profile unavailable.');
-      },
-    },
-    music: {
-      getRecap: async () => {
-        throw new Error('Recap unavailable.');
       },
     },
   };

@@ -126,15 +126,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get channelContentUnavailable => '你的 YouTube Music 频道目前没有可用的主页内容。';
 
   @override
-  String get yourRecap => '你的 Recap';
-
-  @override
-  String get recapUnavailable => 'Recap 暂不可用';
-
-  @override
-  String get recapUnavailableDescription => 'YouTube Music 尚未为此账号提供 Recap 数据。';
-
-  @override
   String get minimize => '最小化';
 
   @override

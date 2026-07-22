@@ -12,99 +12,89 @@ import 'package:otoha/src/workspaces/youtube_channel_workspace.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('channel renders official Recap and runs channel actions', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1120, 720));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final client = _ChannelSidecarClient();
-    final controller = YouTubeLibraryController(
-      client: client,
-      credentialStore: _MemoryCredentialStore(),
-    );
-    addTearDown(controller.dispose);
-    await controller.signInWithCookie('SID=test-cookie');
-    final playerController = PlayerController(const []);
-    addTearDown(playerController.dispose);
-    Uri? launchedUri;
-    String? copiedText;
+  testWidgets(
+    'channel renders private home sections and runs channel actions',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1120, 720));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final client = _ChannelSidecarClient();
+      final controller = YouTubeLibraryController(
+        client: client,
+        credentialStore: _MemoryCredentialStore(),
+      );
+      addTearDown(controller.dispose);
+      await controller.signInWithCookie('SID=test-cookie');
+      final playerController = PlayerController(const []);
+      addTearDown(playerController.dispose);
+      Uri? launchedUri;
+      String? copiedText;
 
-    await tester.pumpWidget(
-      _ChannelTestApp(
-        controller: controller,
-        playerController: playerController,
-        launchExternalUrl: (uri) async {
-          launchedUri = uri;
-          return true;
-        },
-        copyText: (text) async => copiedText = text,
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _ChannelTestApp(
+          controller: controller,
+          playerController: playerController,
+          launchExternalUrl: (uri) async {
+            launchedUri = uri;
+            return true;
+          },
+          copyText: (text) async => copiedText = text,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('youtube-channel-workspace')), findsOneWidget);
-    expect(find.text('Test listener'), findsOneWidget);
-    expect(find.text('@test-listener'), findsOneWidget);
-    expect(find.text('Listen again'), findsOneWidget);
-    expect(find.text('Channel song'), findsOneWidget);
-    expect(
-      find.byKey(const Key('youtube-channel-recap-highlights')),
-      findsOneWidget,
-    );
-    expect(find.text('Your top artist'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+      expect(
+        find.byKey(const Key('youtube-channel-workspace')),
+        findsOneWidget,
+      );
+      expect(find.text('Test listener'), findsOneWidget);
+      expect(find.text('@test-listener'), findsOneWidget);
+      expect(find.text('Private'), findsOneWidget);
+      expect(find.text('Personalized playlists'), findsOneWidget);
+      expect(find.text('Recent · Private'), findsOneWidget);
+      expect(find.text('Most listened songs'), findsOneWidget);
+      expect(find.text('Channel song'), findsOneWidget);
+      expect(find.text('Your Recap'), findsNothing);
+      expect(tester.takeException(), isNull);
 
-    await tester.tap(find.byKey(const Key('youtube-feed-song-channel-song')));
-    await tester.pump();
-    expect(playerController.currentTrack?.title, 'Channel song');
-    playerController.togglePlaying();
-    await tester.pump();
+      await tester.tap(find.byKey(const Key('youtube-feed-song-channel-song')));
+      await tester.pump();
+      expect(playerController.currentTrack?.title, 'Channel song');
+      playerController.togglePlaying();
+      await tester.pump();
 
-    await tester.tap(find.byKey(const Key('youtube-channel-edit')));
-    await tester.pump();
-    expect(
-      launchedUri,
-      Uri.parse('https://studio.youtube.com/channel/UC_TEST/editing'),
-    );
+      await tester.tap(find.byKey(const Key('youtube-channel-edit')));
+      await tester.pump();
+      expect(
+        launchedUri,
+        Uri.parse('https://studio.youtube.com/channel/UC_TEST/editing'),
+      );
 
-    await tester.tap(find.byKey(const Key('youtube-channel-share')));
-    await tester.pump();
-    expect(copiedText, 'https://www.youtube.com/channel/UC_TEST');
-    expect(find.text('Channel link copied.'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('youtube-channel-share')));
+      await tester.pump();
+      expect(copiedText, 'https://www.youtube.com/channel/UC_TEST');
+      expect(find.text('Channel link copied.'), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('youtube-channel-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign out'));
-    await tester.pumpAndSettle();
-    expect(controller.isSignedIn, isFalse);
-  });
+      await tester.dragUntilVisible(
+        find.text('Most listened artists'),
+        find.byKey(const Key('youtube-channel-workspace')),
+        const Offset(0, -300),
+      );
+      expect(find.text('Recent · Private'), findsWidgets);
+      expect(find.text('Most listened artists'), findsOneWidget);
 
-  testWidgets('channel shows the truthful unavailable Recap state', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(900, 720));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final client = _ChannelSidecarClient(recapAvailable: false);
-    final controller = YouTubeLibraryController(
-      client: client,
-      credentialStore: _MemoryCredentialStore(),
-    );
-    addTearDown(controller.dispose);
-    await controller.signInWithCookie('SID=test-cookie');
+      await tester.dragUntilVisible(
+        find.byKey(const Key('youtube-channel-menu')),
+        find.byKey(const Key('youtube-channel-workspace')),
+        const Offset(0, 300),
+      );
 
-    await tester.pumpWidget(_ChannelTestApp(controller: controller));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const Key('youtube-channel-recap-unavailable')),
-      findsOneWidget,
-    );
-    expect(
-      find.text('YouTube Music has not provided Recap data for this account.'),
-      findsOneWidget,
-    );
-    expect(tester.takeException(), isNull);
-  });
+      await tester.tap(find.byKey(const Key('youtube-channel-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sign out'));
+      await tester.pumpAndSettle();
+      expect(controller.isSignedIn, isFalse);
+    },
+  );
 
   testWidgets('channel actions keep a dark surface over banner artwork', (
     tester,
@@ -199,6 +189,36 @@ void main() {
     expect(client.channelRequestCount, 2);
   });
 
+  testWidgets('debug channel entry refreshes once per workspace mount', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final client = _ChannelSidecarClient();
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+    await controller.loadChannelProfile(forceRefresh: true);
+    expect(client.channelRequestCount, 1);
+
+    await tester.pumpWidget(_ChannelTestApp(controller: controller));
+    await tester.pumpAndSettle();
+    expect(client.channelRequestCount, 2);
+
+    await tester.pumpWidget(_ChannelTestApp(controller: controller));
+    await tester.pumpAndSettle();
+    expect(client.channelRequestCount, 2);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(_ChannelTestApp(controller: controller));
+    await tester.pumpAndSettle();
+    expect(client.channelRequestCount, 3);
+  });
+
   testWidgets('channel opens official collection and browse details', (
     tester,
   ) async {
@@ -226,6 +246,15 @@ void main() {
     expect(find.text('Collection track one'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('youtube-feed-collection-back')));
+    await tester.pumpAndSettle();
+    await tester.dragUntilVisible(
+      find.byKey(const Key('youtube-feed-artist-channel-artist')),
+      find.byKey(const Key('youtube-channel-workspace')),
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('youtube-feed-artist-channel-artist')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const Key('youtube-feed-artist-channel-artist')),
@@ -261,8 +290,16 @@ void main() {
     final header = tester.getRect(
       find.byKey(const Key('youtube-channel-banner')),
     );
+    final avatar = tester.getRect(
+      find.byKey(const Key('youtube-channel-avatar')),
+    );
+    final name = tester.getRect(find.byKey(const Key('youtube-channel-name')));
+    final subscriber = tester.getRect(
+      find.byKey(const Key('youtube-channel-subscriber')),
+    );
     expect(header.top, workspace.top);
     expect(header.height, 256);
+    expect((name.top + subscriber.bottom) / 2, closeTo(avatar.center.dy, 1));
     expect(find.byKey(const Key('youtube-channel-edit')), findsOneWidget);
     expect(find.byKey(const Key('youtube-channel-share')), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -285,7 +322,7 @@ void main() {
         find.byKey(const Key('youtube-channel-content-unavailable')),
         findsOneWidget,
       );
-      expect(find.text('Listen again'), findsNothing);
+      expect(find.text('Personalized playlists'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -343,13 +380,11 @@ class _ChannelTestAppState extends State<_ChannelTestApp> {
 
 class _ChannelSidecarClient extends YouTubeSidecarClient {
   _ChannelSidecarClient({
-    this.recapAvailable = true,
     this.failFirstChannelRequest = false,
     this.includeBanner = true,
     this.includeContent = true,
   }) : super(entryPath: 'unused');
 
-  final bool recapAvailable;
   final bool failFirstChannelRequest;
   final bool includeBanner;
   final bool includeContent;
@@ -402,7 +437,6 @@ class _ChannelSidecarClient extends YouTubeSidecarClient {
           );
         }
         return _channelResponse(
-          recapAvailable: recapAvailable,
           includeBanner: includeBanner,
           includeContent: includeContent,
         );
@@ -469,7 +503,6 @@ class _MemoryCredentialStore implements CredentialStore {
 }
 
 Map<String, Object?> _channelResponse({
-  required bool recapAvailable,
   required bool includeBanner,
   required bool includeContent,
 }) => <String, Object?>{
@@ -487,8 +520,24 @@ Map<String, Object?> _channelResponse({
     'sections': <Object?>[
       if (includeContent)
         <String, Object?>{
-          'title': 'Listen again',
-          'subtitle': 'From your official channel home',
+          'title': 'Personalized playlists',
+          'subtitle': 'Private',
+          'items': <Object?>[
+            <String, Object?>{
+              'id': 'channel-playlist',
+              'itemType': 'playlist',
+              'title': 'Official collection',
+              'artists': <String>['Channel artist'],
+              'durationSeconds': 0,
+              'thumbnailUrl': 'assets/artwork/cover_05.png',
+            },
+          ],
+        },
+      if (includeContent)
+        <String, Object?>{
+          'title': 'Most listened songs',
+          'subtitle': 'Recent · Private',
+          'itemsPerColumn': 4,
           'items': <Object?>[
             <String, Object?>{
               'id': 'channel-song',
@@ -500,14 +549,13 @@ Map<String, Object?> _channelResponse({
               'durationSeconds': 213,
               'thumbnailUrl': 'assets/artwork/cover_04.png',
             },
-            <String, Object?>{
-              'id': 'channel-playlist',
-              'itemType': 'playlist',
-              'title': 'Official collection',
-              'artists': <String>['Channel artist'],
-              'durationSeconds': 0,
-              'thumbnailUrl': 'assets/artwork/cover_05.png',
-            },
+          ],
+        },
+      if (includeContent)
+        <String, Object?>{
+          'title': 'Most listened artists',
+          'subtitle': 'Recent · Private',
+          'items': <Object?>[
             <String, Object?>{
               'id': 'channel-artist',
               'itemType': 'artist',
@@ -519,19 +567,5 @@ Map<String, Object?> _channelResponse({
           ],
         },
     ],
-  },
-  'recap': <String, Object?>{
-    'available': recapAvailable,
-    'highlights': recapAvailable
-        ? <Object?>[
-            <String, Object?>{
-              'title': 'Your top artist',
-              'strapline': 'This year',
-              'description': 'Official YouTube Music Recap data',
-              'thumbnailUrl': 'assets/artwork/cover_03.png',
-            },
-          ]
-        : <Object?>[],
-    'sections': <Object?>[],
   },
 };

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:otoha/l10n/app_localizations.dart';
@@ -34,94 +35,98 @@ class YouTubeChannelWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        if (!controller.isSignedIn) {
-          return _SignedOutChannel(
-            onSignIn: () => shellController.togglePanel(SidePanel.account),
-          );
-        }
-
-        final collection = controller.selectedFeedCollection;
-        if (collection?.source == 'channel') {
-          return YouTubeFeedCollectionDetailView(
-            detail: collection!,
-            playerController: playerController,
-            isSaved: controller.isAlbumSaved(collection.id),
-            isSaving: controller.albumLibraryWriteId == collection.id,
-            canToggleLibrary:
-                controller.albumLibraryWriteId == null &&
-                !controller.isAccountWriteCoolingDown,
-            onToggleLibrary: () =>
-                unawaited(controller.toggleAlbumLibrary(collection)),
-            onBack: controller.closeFeedDetail,
-          );
-        }
-        final podcast = controller.selectedPodcastShow;
-        if (podcast?.source == 'channel') {
-          return YouTubePodcastShowDetailView(
-            detail: podcast!,
-            loadingItemId: controller.loadingFeedItemId,
-            isLoadingMore: controller.isLoadingMorePodcast,
-            isSaved: controller.isPodcastSaved(podcast.id),
-            isSaving: controller.podcastLibraryWriteId == podcast.id,
-            canToggleLibrary:
-                controller.podcastLibraryWriteId == null &&
-                !controller.isAccountWriteCoolingDown,
-            onBack: controller.closeFeedDetail,
-            onLoadMore: controller.loadMorePodcastShow,
-            onToggleLibrary: () =>
-                unawaited(controller.togglePodcastLibrary(podcast)),
-            onTap: _actionFor,
-          );
-        }
-        final browse = controller.selectedFeedBrowse;
-        if (browse?.source == 'channel') {
-          return YouTubeFeedBrowseDetailView(
-            detail: browse!,
-            playerController: playerController,
-            youtubeLibraryController: controller,
-            loadingItemId: controller.loadingFeedItemId,
-            reduceMotion: shellController.reduceMotion,
-            onBack: controller.closeFeedDetail,
-            onTap: _actionFor,
-          );
-        }
-
-        final profile = controller.channelProfile;
-        if (profile == null) {
-          if (!controller.isLoadingChannel &&
-              controller.channelErrorMessage == null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              unawaited(controller.loadChannelProfile());
-            });
-          }
-          if (controller.channelErrorMessage != null) {
-            return _ChannelLoadError(
-              error: controller.channelErrorMessage!,
-              onRetry: () => controller.loadChannelProfile(forceRefresh: true),
+    return _ChannelEntryLoader(
+      controller: controller,
+      child: AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) {
+          if (!controller.isSignedIn) {
+            return _SignedOutChannel(
+              onSignIn: () => shellController.togglePanel(SidePanel.account),
             );
           }
-          return const Center(
-            child: CircularProgressIndicator(
-              key: Key('youtube-channel-loading'),
-            ),
-          );
-        }
 
-        return _ChannelContent(
-          profile: profile,
-          fallbackName: controller.profileName,
-          loadingItemId: controller.loadingFeedItemId,
-          reduceMotion: shellController.reduceMotion,
-          feedError: controller.feedActionErrorMessage,
-          onFeedItem: _actionFor,
-          onEdit: () => _openStudio(context, profile),
-          onShare: () => _shareChannel(context, profile),
-          onSignOut: controller.signOut,
-        );
-      },
+          final collection = controller.selectedFeedCollection;
+          if (collection?.source == 'channel') {
+            return YouTubeFeedCollectionDetailView(
+              detail: collection!,
+              playerController: playerController,
+              isSaved: controller.isAlbumSaved(collection.id),
+              isSaving: controller.albumLibraryWriteId == collection.id,
+              canToggleLibrary:
+                  controller.albumLibraryWriteId == null &&
+                  !controller.isAccountWriteCoolingDown,
+              onToggleLibrary: () =>
+                  unawaited(controller.toggleAlbumLibrary(collection)),
+              onBack: controller.closeFeedDetail,
+            );
+          }
+          final podcast = controller.selectedPodcastShow;
+          if (podcast?.source == 'channel') {
+            return YouTubePodcastShowDetailView(
+              detail: podcast!,
+              loadingItemId: controller.loadingFeedItemId,
+              isLoadingMore: controller.isLoadingMorePodcast,
+              isSaved: controller.isPodcastSaved(podcast.id),
+              isSaving: controller.podcastLibraryWriteId == podcast.id,
+              canToggleLibrary:
+                  controller.podcastLibraryWriteId == null &&
+                  !controller.isAccountWriteCoolingDown,
+              onBack: controller.closeFeedDetail,
+              onLoadMore: controller.loadMorePodcastShow,
+              onToggleLibrary: () =>
+                  unawaited(controller.togglePodcastLibrary(podcast)),
+              onTap: _actionFor,
+            );
+          }
+          final browse = controller.selectedFeedBrowse;
+          if (browse?.source == 'channel') {
+            return YouTubeFeedBrowseDetailView(
+              detail: browse!,
+              playerController: playerController,
+              youtubeLibraryController: controller,
+              loadingItemId: controller.loadingFeedItemId,
+              reduceMotion: shellController.reduceMotion,
+              onBack: controller.closeFeedDetail,
+              onTap: _actionFor,
+            );
+          }
+
+          final profile = controller.channelProfile;
+          if (profile == null) {
+            if (!controller.isLoadingChannel &&
+                controller.channelErrorMessage == null) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                unawaited(controller.loadChannelProfile());
+              });
+            }
+            if (controller.channelErrorMessage != null) {
+              return _ChannelLoadError(
+                error: controller.channelErrorMessage!,
+                onRetry: () =>
+                    controller.loadChannelProfile(forceRefresh: true),
+              );
+            }
+            return const Center(
+              child: CircularProgressIndicator(
+                key: Key('youtube-channel-loading'),
+              ),
+            );
+          }
+
+          return _ChannelContent(
+            profile: profile,
+            fallbackName: controller.profileName,
+            loadingItemId: controller.loadingFeedItemId,
+            reduceMotion: shellController.reduceMotion,
+            feedError: controller.feedActionErrorMessage,
+            onFeedItem: _actionFor,
+            onEdit: () => _openStudio(context, profile),
+            onShare: () => _shareChannel(context, profile),
+            onSignOut: controller.signOut,
+          );
+        },
+      ),
     );
   }
 
@@ -207,6 +212,37 @@ class YouTubeChannelWorkspace extends StatelessWidget {
       }
     }
   }
+}
+
+class _ChannelEntryLoader extends StatefulWidget {
+  const _ChannelEntryLoader({required this.controller, required this.child});
+
+  final YouTubeLibraryController controller;
+  final Widget child;
+
+  @override
+  State<_ChannelEntryLoader> createState() => _ChannelEntryLoaderState();
+}
+
+class _ChannelEntryLoaderState extends State<_ChannelEntryLoader> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.controller.isSignedIn) {
+        return;
+      }
+      if (!kDebugMode &&
+          (widget.controller.channelProfile != null ||
+              widget.controller.channelErrorMessage != null)) {
+        return;
+      }
+      unawaited(widget.controller.loadChannelProfile(forceRefresh: kDebugMode));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _SignedOutChannel extends StatelessWidget {
@@ -364,54 +400,6 @@ class _ChannelContentState extends State<_ChannelContent> {
                 );
               },
             ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-              AppMetrics.workspacePadding,
-              40,
-              AppMetrics.workspacePadding,
-              20,
-            ),
-            sliver: SliverToBoxAdapter(
-              child: Text(
-                l10n.yourRecap,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-            ),
-          ),
-          if (!widget.profile.recapAvailable)
-            const SliverPadding(
-              padding: EdgeInsets.symmetric(
-                horizontal: AppMetrics.workspacePadding,
-              ),
-              sliver: SliverToBoxAdapter(child: _RecapUnavailable()),
-            )
-          else ...<Widget>[
-            if (widget.profile.recapHighlights.isNotEmpty)
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppMetrics.workspacePadding,
-                ),
-                sliver: SliverToBoxAdapter(
-                  child: _RecapHighlights(
-                    items: widget.profile.recapHighlights,
-                  ),
-                ),
-              ),
-            SliverList.builder(
-              itemCount: widget.profile.recapSections.length,
-              itemBuilder: (context, index) {
-                final section = widget.profile.recapSections[index];
-                return YouTubeFeedSectionView(
-                  key: ValueKey<String>('recap:${section.title}:$index'),
-                  section: section,
-                  sectionIndex: widget.profile.channelSections.length + index,
-                  loadingItemId: widget.loadingItemId,
-                  reduceMotion: widget.reduceMotion,
-                  onTap: (item) => widget.onFeedItem(item, section.items),
-                );
-              },
-            ),
-          ],
           const SliverToBoxAdapter(child: SizedBox(height: 40)),
         ],
       ),
@@ -542,9 +530,11 @@ class _ChannelIdentity extends StatelessWidget {
         SizedBox(width: compact ? 16 : 24),
         Expanded(
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
+                key: const Key('youtube-channel-name'),
                 displayName,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -553,6 +543,7 @@ class _ChannelIdentity extends StatelessWidget {
               if (profile.handle != null) ...<Widget>[
                 const SizedBox(height: 8),
                 Text(
+                  key: const Key('youtube-channel-handle'),
                   profile.handle!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -564,6 +555,7 @@ class _ChannelIdentity extends StatelessWidget {
               if (profile.subscriberText != null) ...<Widget>[
                 const SizedBox(height: 4),
                 Text(
+                  key: const Key('youtube-channel-subscriber'),
                   profile.subscriberText!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -668,123 +660,6 @@ class _ChannelContentUnavailable extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _RecapUnavailable extends StatelessWidget {
-  const _RecapUnavailable();
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Material(
-      key: const Key('youtube-channel-recap-unavailable'),
-      color: OtohaColors.surface,
-      borderRadius: const BorderRadius.all(Radius.circular(AppMetrics.radius)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          children: <Widget>[
-            const Icon(Icons.insights_outlined, color: OtohaColors.mutedText),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    l10n.recapUnavailable,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    l10n.recapUnavailableDescription,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RecapHighlights extends StatelessWidget {
-  const _RecapHighlights({required this.items});
-
-  final List<YouTubeRecapHighlight> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1040
-            ? 3
-            : constraints.maxWidth >= 640
-            ? 2
-            : 1;
-        final width = (constraints.maxWidth - (columns - 1) * 16) / columns;
-        return Wrap(
-          key: const Key('youtube-channel-recap-highlights'),
-          spacing: 16,
-          runSpacing: 16,
-          children: <Widget>[
-            for (final item in items)
-              SizedBox(
-                width: width,
-                height: 208,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.all(
-                    Radius.circular(AppMetrics.radius),
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: <Widget>[
-                      _ChannelImage(
-                        path: item.backgroundUrl ?? item.thumbnailUrl,
-                        semanticLabel: item.title,
-                        fallbackIcon: Icons.insights_rounded,
-                      ),
-                      const ColoredBox(color: Color(0x99000000)),
-                      Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: <Widget>[
-                            if (item.strapline != null)
-                              Text(
-                                item.strapline!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            Text(
-                              item.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            if (item.description != null) ...<Widget>[
-                              const SizedBox(height: 6),
-                              Text(
-                                item.description!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
     );
   }
 }

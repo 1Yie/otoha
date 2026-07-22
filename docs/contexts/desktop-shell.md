@@ -59,7 +59,7 @@
 - Search uses signed-in YouTube Music results with server-side type filters. Local mock song, album, and artist grouping remains the signed-out fallback.
 - Search-owned collection and browse details return to the same in-memory query and filter.
 - The title-bar avatar opens My Channel for a signed-in account and the account panel when signed out. Channel participates in normal Back and Forward workspace history.
-- My Channel starts at the workspace top with a responsive profile banner/header. Its official YouTube Music homepage and Recap sections reuse the established feed queue, collection, artist/channel, and podcast detail interactions.
+- My Channel starts at the workspace top with a responsive profile banner/header. Its authenticated YouTube Music channel-home sections preserve private shelf labels and reuse the established feed queue, collection, artist/channel, and podcast detail interactions.
 - Changing online audio quality does not reopen the current stream. `PlayerController` forwards the persisted setting only when the next remote audio or video stream is resolved; local files and downloads are unaffected.
 - YouTube-track like/dislike controls are direct player actions; comments load and submit through the right-side panel without interrupting playback.
 - Explore moods and genres are top tabs that replace the Explore content beneath them; they are not feed cards.
