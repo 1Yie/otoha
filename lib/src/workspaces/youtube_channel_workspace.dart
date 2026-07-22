@@ -263,7 +263,7 @@ class _ChannelLoadError extends StatelessWidget {
   }
 }
 
-class _ChannelContent extends StatelessWidget {
+class _ChannelContent extends StatefulWidget {
   const _ChannelContent({
     required this.profile,
     required this.fallbackName,
@@ -291,24 +291,40 @@ class _ChannelContent extends StatelessWidget {
   final Future<void> Function() onSignOut;
 
   @override
+  State<_ChannelContent> createState() => _ChannelContentState();
+}
+
+class _ChannelContentState extends State<_ChannelContent> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final displayName =
-        profile.displayName ?? fallbackName ?? l10n.youtubeMusic;
+        widget.profile.displayName ?? widget.fallbackName ?? l10n.youtubeMusic;
     return Scrollbar(
+      key: const Key('youtube-channel-scrollbar'),
+      controller: _scrollController,
       child: CustomScrollView(
         key: const Key('youtube-channel-workspace'),
+        controller: _scrollController,
         slivers: <Widget>[
           SliverToBoxAdapter(
             child: _ChannelHeader(
-              profile: profile,
+              profile: widget.profile,
               displayName: displayName,
-              onEdit: onEdit,
-              onShare: onShare,
-              onSignOut: onSignOut,
+              onEdit: widget.onEdit,
+              onShare: widget.onShare,
+              onSignOut: widget.onSignOut,
             ),
           ),
-          if (feedError != null)
+          if (widget.feedError != null)
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(
                 AppMetrics.workspacePadding,
@@ -318,12 +334,12 @@ class _ChannelContent extends StatelessWidget {
               ),
               sliver: SliverToBoxAdapter(
                 child: Text(
-                  localizeYouTubeLibraryError(feedError!, l10n),
+                  localizeYouTubeLibraryError(widget.feedError!, l10n),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
             ),
-          if (profile.channelSections.isEmpty)
+          if (widget.profile.channelSections.isEmpty)
             const SliverPadding(
               padding: EdgeInsets.fromLTRB(
                 AppMetrics.workspacePadding,
@@ -335,16 +351,16 @@ class _ChannelContent extends StatelessWidget {
             )
           else
             SliverList.builder(
-              itemCount: profile.channelSections.length,
+              itemCount: widget.profile.channelSections.length,
               itemBuilder: (context, index) {
-                final section = profile.channelSections[index];
+                final section = widget.profile.channelSections[index];
                 return YouTubeFeedSectionView(
                   key: ValueKey<String>('channel:${section.title}:$index'),
                   section: section,
                   sectionIndex: index,
-                  loadingItemId: loadingItemId,
-                  reduceMotion: reduceMotion,
-                  onTap: (item) => onFeedItem(item, section.items),
+                  loadingItemId: widget.loadingItemId,
+                  reduceMotion: widget.reduceMotion,
+                  onTap: (item) => widget.onFeedItem(item, section.items),
                 );
               },
             ),
@@ -362,7 +378,7 @@ class _ChannelContent extends StatelessWidget {
               ),
             ),
           ),
-          if (!profile.recapAvailable)
+          if (!widget.profile.recapAvailable)
             const SliverPadding(
               padding: EdgeInsets.symmetric(
                 horizontal: AppMetrics.workspacePadding,
@@ -370,26 +386,28 @@ class _ChannelContent extends StatelessWidget {
               sliver: SliverToBoxAdapter(child: _RecapUnavailable()),
             )
           else ...<Widget>[
-            if (profile.recapHighlights.isNotEmpty)
+            if (widget.profile.recapHighlights.isNotEmpty)
               SliverPadding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppMetrics.workspacePadding,
                 ),
                 sliver: SliverToBoxAdapter(
-                  child: _RecapHighlights(items: profile.recapHighlights),
+                  child: _RecapHighlights(
+                    items: widget.profile.recapHighlights,
+                  ),
                 ),
               ),
             SliverList.builder(
-              itemCount: profile.recapSections.length,
+              itemCount: widget.profile.recapSections.length,
               itemBuilder: (context, index) {
-                final section = profile.recapSections[index];
+                final section = widget.profile.recapSections[index];
                 return YouTubeFeedSectionView(
                   key: ValueKey<String>('recap:${section.title}:$index'),
                   section: section,
-                  sectionIndex: profile.channelSections.length + index,
-                  loadingItemId: loadingItemId,
-                  reduceMotion: reduceMotion,
-                  onTap: (item) => onFeedItem(item, section.items),
+                  sectionIndex: widget.profile.channelSections.length + index,
+                  loadingItemId: widget.loadingItemId,
+                  reduceMotion: widget.reduceMotion,
+                  onTap: (item) => widget.onFeedItem(item, section.items),
                 );
               },
             ),
@@ -626,7 +644,8 @@ class _ChannelActions extends StatelessWidget {
 
   ButtonStyle _actionStyle() => OutlinedButton.styleFrom(
     foregroundColor: OtohaColors.text,
-    side: BorderSide(color: OtohaColors.text.withValues(alpha: 0.32)),
+    backgroundColor: OtohaColors.canvas.withValues(alpha: 0.88),
+    side: BorderSide(color: OtohaColors.text.withValues(alpha: 0.48)),
   );
 }
 

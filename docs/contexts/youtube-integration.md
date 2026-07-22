@@ -72,13 +72,19 @@ YouTube Music search surface; the other values are forwarded to
 `Music.search(query, filter)`. Unsupported values fail with
 `INVALID_SEARCH_FILTER`.
 
-`account.channel` loads the selected regular YouTube channel header, the
-authenticated YTMUSIC channel-home browse surface, and YouTube Music Recap as
-three independent requests. One upstream failure does not hide either
-successful result. Official channel-home shelves are returned under
-`content.sections` and rendered through the existing feed models and actions.
-Recap data is only normalized from `Music.getRecap()`; Otoha does not derive or
-estimate listening history. Flutter caches this combined metadata under
+`account.channel` loads the selected regular YouTube channel and the
+authenticated YTMUSIC channel-home browse surface. The regular `YT.Channel` is
+the only source for `profile`, including `bannerUrl`; YTMUSIC response artwork
+is not a profile fallback. When account metadata already contains a `UC...`
+channel ID, those requests remain independent and run in parallel. Real account
+switcher entries commonly expose only an `@handle`; in that case the sidecar
+calls `Innertube.resolveURL()` with the canonical channel URL, accepts only the
+returned `UC...` browse ID, and then starts `Innertube.getChannel(channelId)`
+and the YTMUSIC browse together. The resolved profile is retained in memory.
+Official private channel-home shelves are returned under `content.sections`;
+shelf straplines such as `Private` and `Recent · Private` remain section
+subtitles, and the existing feed models and actions render their playlists,
+songs, and artists. Flutter caches the profile and channel-home metadata under
 `account.channel.v2` and clears it on sign-out or locale invalidation.
 
 ## File Paths

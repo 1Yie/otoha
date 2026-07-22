@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:otoha/l10n/app_localizations.dart';
+import 'package:otoha/src/app/theme.dart';
 import 'package:otoha/src/services/credential_store.dart';
 import 'package:otoha/src/services/youtube_sidecar_client.dart';
 import 'package:otoha/src/state/desktop_shell_controllers.dart';
@@ -102,6 +104,75 @@ void main() {
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('channel actions keep a dark surface over banner artwork', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = YouTubeLibraryController(
+      client: _ChannelSidecarClient(),
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await tester.pumpWidget(_ChannelTestApp(controller: controller));
+    await tester.pumpAndSettle();
+
+    final expectedBackground = OtohaColors.canvas.withValues(alpha: 0.88);
+    for (final key in <Key>[
+      const Key('youtube-channel-edit'),
+      const Key('youtube-channel-share'),
+    ]) {
+      final button = tester.widget<OutlinedButton>(find.byKey(key));
+      expect(
+        button.style?.backgroundColor?.resolve(<WidgetState>{}),
+        expectedBackground,
+      );
+      expect(
+        button.style?.foregroundColor?.resolve(<WidgetState>{}),
+        OtohaColors.text,
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('channel scrollbar shares its desktop scroll controller', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = YouTubeLibraryController(
+      client: _ChannelSidecarClient(),
+      credentialStore: _MemoryCredentialStore(),
+    );
+    addTearDown(controller.dispose);
+    await controller.signInWithCookie('SID=test-cookie');
+
+    await tester.pumpWidget(_ChannelTestApp(controller: controller));
+    await tester.pumpAndSettle();
+
+    final scrollbar = tester.widget<Scrollbar>(
+      find.byKey(const Key('youtube-channel-scrollbar')),
+    );
+    final scrollView = tester.widget<CustomScrollView>(
+      find.byKey(const Key('youtube-channel-workspace')),
+    );
+    expect(scrollbar.controller, isNotNull);
+    expect(scrollbar.controller, same(scrollView.controller));
+    expect(scrollbar.controller!.hasClients, isTrue);
+
+    await tester.drag(
+      find.byKey(const Key('youtube-channel-workspace')),
+      const Offset(0, -320),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('channel failure can retry without affecting account state', (

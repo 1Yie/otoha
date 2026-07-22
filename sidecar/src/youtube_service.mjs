@@ -160,15 +160,35 @@ export class YouTubeService {
       }
     }
 
-    const channelTarget = profile?.channelId ?? profile?.handle;
-    const channelRequest = channelTarget &&
+    const directChannelId = typeof profile?.channelId === 'string' &&
+        profile.channelId
+      ? profile.channelId
+      : null;
+    let resolvedChannelId = directChannelId;
+    if (!resolvedChannelId && typeof this.innertube.resolveURL === 'function') {
+      const channelUrl = accountChannelUrls(null, profile?.handle).channelUrl;
+      if (channelUrl) {
+        try {
+          const endpoint = await this.innertube.resolveURL(channelUrl);
+          const browseId = endpoint?.payload?.browseId;
+          if (typeof browseId === 'string' && browseId.startsWith('UC')) {
+            resolvedChannelId = browseId;
+          }
+        } catch {
+          // The fallback account profile remains usable without channel details.
+        }
+      }
+    }
+
+    const channelRequest = resolvedChannelId &&
         typeof this.innertube.getChannel === 'function'
-      ? this.innertube.getChannel(channelTarget)
+      ? this.innertube.getChannel(resolvedChannelId)
       : Promise.resolve(null);
-    const channelContentRequest = profile?.channelId &&
-        typeof this.innertube.actions?.execute === 'function'
+    const canBrowseChannelContent =
+      typeof this.innertube.actions?.execute === 'function';
+    const channelContentRequest = resolvedChannelId && canBrowseChannelContent
       ? this.innertube.actions.execute('browse', {
-          browseId: profile.channelId,
+          browseId: resolvedChannelId,
           client: 'YTMUSIC',
           parse: true,
         })
@@ -189,7 +209,13 @@ export class YouTubeService {
     const recap = recapResult.status === 'fulfilled'
       ? recapResult.value
       : null;
-    const mappedProfile = mapAccountChannel(channel, profile);
+    const fallbackProfile = resolvedChannelId && profile
+      ? { ...profile, channelId: resolvedChannelId }
+      : profile;
+    const mappedProfile = mapAccountChannel(channel, fallbackProfile);
+    if (mappedProfile) {
+      this.profile = mappedProfile;
+    }
     const mappedRecap = mapAccountRecap(recap);
     let channelSections = [];
     let channelContentParseFailure = null;

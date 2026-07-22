@@ -43,6 +43,8 @@ class WorkspaceFilterTabs<T> extends StatefulWidget {
 }
 
 class _WorkspaceFilterTabsState<T> extends State<WorkspaceFilterTabs<T>> {
+  static const double _scrollActionsTrailingPadding = 80;
+
   late final ScrollController _scrollController;
   final Map<T, GlobalKey> _optionKeys = <T, GlobalKey>{};
   bool _canScrollLeft = false;
@@ -117,8 +119,14 @@ class _WorkspaceFilterTabsState<T> extends State<WorkspaceFilterTabs<T>> {
       return;
     }
     final position = _scrollController.position;
-    final canScrollLeft = position.pixels > 0.5;
-    final canScrollRight = position.pixels < position.maxScrollExtent - 0.5;
+    final actionsVisible = _canScrollLeft || _canScrollRight;
+    final contentOverflows =
+        position.maxScrollExtent -
+            (actionsVisible ? _scrollActionsTrailingPadding : 0) >
+        0.5;
+    final canScrollLeft = contentOverflows && position.pixels > 0.5;
+    final canScrollRight =
+        contentOverflows && position.pixels < position.maxScrollExtent - 0.5;
     if (canScrollLeft == _canScrollLeft && canScrollRight == _canScrollRight) {
       return;
     }
@@ -130,6 +138,7 @@ class _WorkspaceFilterTabsState<T> extends State<WorkspaceFilterTabs<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final showScrollActions = _canScrollLeft || _canScrollRight;
     return SizedBox(
       height: 44,
       child: NotificationListener<ScrollMetricsNotification>(
@@ -154,7 +163,12 @@ class _WorkspaceFilterTabsState<T> extends State<WorkspaceFilterTabs<T>> {
                 child: ListView.separated(
                   controller: _scrollController,
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(2, 0, 80, 0),
+                  padding: EdgeInsets.fromLTRB(
+                    2,
+                    0,
+                    showScrollActions ? _scrollActionsTrailingPadding : 0,
+                    0,
+                  ),
                   itemCount: widget.options.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
@@ -176,30 +190,31 @@ class _WorkspaceFilterTabsState<T> extends State<WorkspaceFilterTabs<T>> {
                 ),
               ),
             ),
-            Positioned(
-              top: 0,
-              right: 0,
-              bottom: 0,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _FilterScrollButton(
-                    key: widget.scrollLeftKey,
-                    tooltip: widget.scrollLeftTooltip,
-                    enabled: _canScrollLeft,
-                    icon: Icons.chevron_left_rounded,
-                    onPressed: () => _scrollBy(-1),
-                  ),
-                  _FilterScrollButton(
-                    key: widget.scrollRightKey,
-                    tooltip: widget.scrollRightTooltip,
-                    enabled: _canScrollRight,
-                    icon: Icons.chevron_right_rounded,
-                    onPressed: () => _scrollBy(1),
-                  ),
-                ],
+            if (showScrollActions)
+              Positioned(
+                top: 0,
+                right: 0,
+                bottom: 0,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    _FilterScrollButton(
+                      key: widget.scrollLeftKey,
+                      tooltip: widget.scrollLeftTooltip,
+                      enabled: _canScrollLeft,
+                      icon: Icons.chevron_left_rounded,
+                      onPressed: () => _scrollBy(-1),
+                    ),
+                    _FilterScrollButton(
+                      key: widget.scrollRightKey,
+                      tooltip: widget.scrollRightTooltip,
+                      enabled: _canScrollRight,
+                      icon: Icons.chevron_right_rounded,
+                      onPressed: () => _scrollBy(1),
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),

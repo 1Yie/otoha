@@ -858,8 +858,10 @@ class _YouTubeFeedSectionViewState extends State<YouTubeFeedSectionView> {
     }
     final position = _scrollController.position;
     final maxScrollOffset = _alignedMaxScrollOffset(position);
-    final canScrollLeft = position.pixels > 0.5;
-    final canScrollRight = position.pixels < maxScrollOffset - 0.5;
+    final hasOverflow = maxScrollOffset > 0.5;
+    final canScrollLeft = hasOverflow && position.pixels > 0.5;
+    final canScrollRight =
+        hasOverflow && position.pixels < maxScrollOffset - 0.5;
     if (canScrollLeft == _canScrollLeft && canScrollRight == _canScrollRight) {
       return;
     }
@@ -971,55 +973,68 @@ class _YouTubeFeedSectionViewState extends State<YouTubeFeedSectionView> {
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.only(right: AppMetrics.workspacePadding),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      if (widget.section.subtitle case final subtitle?
-                          when subtitle.isNotEmpty) ...<Widget>[
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: kMinInteractiveDimension,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        if (widget.section.subtitle case final subtitle?
+                            when subtitle.isNotEmpty) ...<Widget>[
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 4),
+                        ],
                         Text(
-                          subtitle,
+                          widget.section.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: Theme.of(context).textTheme.headlineSmall,
                         ),
-                        const SizedBox(height: 4),
                       ],
-                      Text(
-                        widget.section.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                    ],
-                  ),
-                ),
-                Tooltip(
-                  message: l10n.scrollSectionLeft(widget.section.title),
-                  child: IconButton(
-                    key: Key('youtube-feed-scroll-left-${widget.sectionIndex}'),
-                    color: OtohaColors.text,
-                    disabledColor: OtohaColors.mutedText.withValues(alpha: 0.4),
-                    onPressed: _canScrollLeft ? () => _scrollBy(-1) : null,
-                    icon: const Icon(Icons.chevron_left_rounded),
-                  ),
-                ),
-                Tooltip(
-                  message: l10n.scrollSectionRight(widget.section.title),
-                  child: IconButton(
-                    key: Key(
-                      'youtube-feed-scroll-right-${widget.sectionIndex}',
                     ),
-                    color: OtohaColors.text,
-                    disabledColor: OtohaColors.mutedText.withValues(alpha: 0.4),
-                    onPressed: _canScrollRight ? () => _scrollBy(1) : null,
-                    icon: const Icon(Icons.chevron_right_rounded),
                   ),
-                ),
-              ],
+                  if (_canScrollLeft || _canScrollRight) ...<Widget>[
+                    Tooltip(
+                      message: l10n.scrollSectionLeft(widget.section.title),
+                      child: IconButton(
+                        key: Key(
+                          'youtube-feed-scroll-left-${widget.sectionIndex}',
+                        ),
+                        color: OtohaColors.text,
+                        disabledColor: OtohaColors.mutedText.withValues(
+                          alpha: 0.4,
+                        ),
+                        onPressed: _canScrollLeft ? () => _scrollBy(-1) : null,
+                        icon: const Icon(Icons.chevron_left_rounded),
+                      ),
+                    ),
+                    Tooltip(
+                      message: l10n.scrollSectionRight(widget.section.title),
+                      child: IconButton(
+                        key: Key(
+                          'youtube-feed-scroll-right-${widget.sectionIndex}',
+                        ),
+                        color: OtohaColors.text,
+                        disabledColor: OtohaColors.mutedText.withValues(
+                          alpha: 0.4,
+                        ),
+                        onPressed: _canScrollRight ? () => _scrollBy(1) : null,
+                        icon: const Icon(Icons.chevron_right_rounded),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -1028,56 +1043,65 @@ class _YouTubeFeedSectionViewState extends State<YouTubeFeedSectionView> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final trailingPadding = _trailingPadding(constraints.maxWidth);
-                return ListView.separated(
-                  key: Key('youtube-feed-section-list-${widget.sectionIndex}'),
-                  controller: _scrollController,
-                  scrollDirection: Axis.horizontal,
-                  padding: EdgeInsets.only(right: trailingPadding),
-                  itemCount: usesCompactRows
-                      ? columnCount
-                      : widget.section.items.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 20),
-                  itemBuilder: (context, index) {
-                    if (usesCompactRows) {
-                      final start = index * itemsPerColumn;
-                      final end = (start + itemsPerColumn).clamp(
-                        0,
-                        widget.section.items.length,
-                      );
-                      final items = widget.section.items.sublist(start, end);
-                      return SizedBox(
-                        key: Key(
-                          'youtube-feed-compact-column-'
-                          '${widget.sectionIndex}-$index',
-                        ),
-                        width: _compactColumnWidth,
-                        child: Column(
-                          children: <Widget>[
-                            for (
-                              var rowIndex = 0;
-                              rowIndex < items.length;
-                              rowIndex++
-                            ) ...<Widget>[
-                              _FeedCompactRow(
-                                item: items[rowIndex],
-                                isLoading:
-                                    widget.loadingItemId == items[rowIndex].id,
-                                onTap: widget.onTap(items[rowIndex]),
-                              ),
-                              if (rowIndex < items.length - 1)
-                                const SizedBox(height: _compactRowGap),
-                            ],
-                          ],
-                        ),
-                      );
-                    }
-                    final item = widget.section.items[index];
-                    return YouTubeFeedItemCard(
-                      item: item,
-                      isLoading: widget.loadingItemId == item.id,
-                      onTap: widget.onTap(item),
-                    );
+                return NotificationListener<ScrollMetricsNotification>(
+                  onNotification: (notification) {
+                    _updateScrollActionsAfterLayout();
+                    return false;
                   },
+                  child: ListView.separated(
+                    key: Key(
+                      'youtube-feed-section-list-${widget.sectionIndex}',
+                    ),
+                    controller: _scrollController,
+                    scrollDirection: Axis.horizontal,
+                    padding: EdgeInsets.only(right: trailingPadding),
+                    itemCount: usesCompactRows
+                        ? columnCount
+                        : widget.section.items.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 20),
+                    itemBuilder: (context, index) {
+                      if (usesCompactRows) {
+                        final start = index * itemsPerColumn;
+                        final end = (start + itemsPerColumn).clamp(
+                          0,
+                          widget.section.items.length,
+                        );
+                        final items = widget.section.items.sublist(start, end);
+                        return SizedBox(
+                          key: Key(
+                            'youtube-feed-compact-column-'
+                            '${widget.sectionIndex}-$index',
+                          ),
+                          width: _compactColumnWidth,
+                          child: Column(
+                            children: <Widget>[
+                              for (
+                                var rowIndex = 0;
+                                rowIndex < items.length;
+                                rowIndex++
+                              ) ...<Widget>[
+                                _FeedCompactRow(
+                                  item: items[rowIndex],
+                                  isLoading:
+                                      widget.loadingItemId ==
+                                      items[rowIndex].id,
+                                  onTap: widget.onTap(items[rowIndex]),
+                                ),
+                                if (rowIndex < items.length - 1)
+                                  const SizedBox(height: _compactRowGap),
+                              ],
+                            ],
+                          ),
+                        );
+                      }
+                      final item = widget.section.items[index];
+                      return YouTubeFeedItemCard(
+                        item: item,
+                        isLoading: widget.loadingItemId == item.id,
+                        onTap: widget.onTap(item),
+                      );
+                    },
+                  ),
                 );
               },
             ),

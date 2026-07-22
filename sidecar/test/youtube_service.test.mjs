@@ -419,7 +419,7 @@ test('maps playlist and track parser shapes to the process contract', () => {
   );
 });
 
-test('maps the active account name and avatar from a Cookie session', () => {
+test('maps active account metadata without inventing a channel ID', () => {
   const text = (value) => ({ toString: () => value });
   assert.deepEqual(
     mapAccountProfile([
@@ -431,7 +431,13 @@ test('maps the active account name and avatar from a Cookie session', () => {
       {
         account_name: text('Otoha listener'),
         channel_handle: text('@otoha-listener'),
-        endpoint: { payload: { browseId: 'UCotoha-listener' } },
+        endpoint: {
+          payload: {
+            supportedTokens: [
+              { accountStateToken: { hasChannel: true } },
+            ],
+          },
+        },
         account_photo: [
           { url: 'small-avatar', width: 48 },
           { url: 'large-avatar', width: 256 },
@@ -443,7 +449,7 @@ test('maps the active account name and avatar from a Cookie session', () => {
       displayName: 'Otoha listener',
       avatarUrl: 'large-avatar',
       handle: '@otoha-listener',
-      channelId: 'UCotoha-listener',
+      channelId: null,
     },
   );
 });
@@ -734,6 +740,240 @@ test('loads channel content and recap independently for the selected account', a
     ['recap'],
   ]);
   assert.equal(JSON.stringify(result).includes('SID='), false);
+});
+
+test('loads private channel-home content for the selected account', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.profile = {
+    displayName: 'Fallback name',
+    avatarUrl: 'fallback-avatar',
+    handle: '@otoha-listener',
+    channelId: 'UCotoha-listener',
+  };
+  service.innertube = {
+    getChannel: async (channelId) => {
+      calls.push(['channel', channelId]);
+      return {
+        header: {
+          author: { name: 'Channel name', thumbnails: [] },
+          banner: [{ url: 'youtube-small-banner', width: 640 }],
+          tv_banner: [{ url: 'youtube-large-banner', width: 2120 }],
+          channel_id: 'UCotoha-listener',
+        },
+      };
+    },
+    actions: {
+      execute: async (endpoint, request) => {
+        calls.push(['content', endpoint, request]);
+        return {
+          header: {
+            banner: [{ url: 'ytmusic-banner', width: 4096 }],
+          },
+          contents: {
+            item: () => ({
+              tabs: [
+                {
+                  selected: true,
+                  content: {
+                    contents: [
+                      {
+                        header: {
+                          title: 'Personalized playlists',
+                          strapline: 'Private',
+                        },
+                        num_items_per_column: 4,
+                        contents: [
+                          {
+                            item_type: 'song',
+                            id: 'repeat-song',
+                            title: 'Repeat song',
+                          },
+                        ],
+                      },
+                      {
+                        header: {
+                          title: 'Most listened artists',
+                          strapline: 'Recent · Private',
+                        },
+                        contents: [
+                          {
+                            item_type: 'artist',
+                            id: 'UCartist',
+                            title: 'Repeat artist',
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+          },
+        };
+      },
+    },
+  };
+
+  const result = await service.getAccountChannel();
+
+  assert.equal(result.profile.displayName, 'Channel name');
+  assert.equal(result.profile.avatarUrl, 'fallback-avatar');
+  assert.equal(result.profile.bannerUrl, 'youtube-large-banner');
+  assert.deepEqual(
+    result.content.sections.map((section) => ({
+      title: section.title,
+      subtitle: section.subtitle,
+      itemsPerColumn: section.itemsPerColumn,
+      itemType: section.items[0].itemType,
+    })),
+    [
+      {
+        title: 'Personalized playlists',
+        subtitle: 'Private',
+        itemsPerColumn: 4,
+        itemType: 'song',
+      },
+      {
+        title: 'Most listened artists',
+        subtitle: 'Recent · Private',
+        itemsPerColumn: undefined,
+        itemType: 'artist',
+      },
+    ],
+  );
+  assert.deepEqual(calls, [
+    ['channel', 'UCotoha-listener'],
+    [
+      'content',
+      'browse',
+      {
+        browseId: 'UCotoha-listener',
+        client: 'YTMUSIC',
+        parse: true,
+      },
+    ],
+  ]);
+  assert.equal(JSON.stringify(result).includes('SID='), false);
+});
+
+test('resolves a handle before loading private channel-home content', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.profile = {
+    displayName: 'Fallback name',
+    avatarUrl: 'fallback-avatar',
+    handle: '@otoha-listener',
+    channelId: null,
+  };
+  service.innertube = {
+    resolveURL: async (url) => {
+      calls.push(['resolve', url]);
+      return { payload: { browseId: 'UCresolved-listener' } };
+    },
+    getChannel: async (target) => {
+      calls.push(['channel', target]);
+      return {
+        header: {
+          author: { name: 'Channel name', thumbnails: [] },
+          banner: [{ url: 'resolved-channel-banner', width: 2120 }],
+        },
+        metadata: { external_id: 'UCresolved-listener' },
+      };
+    },
+    actions: {
+      execute: async (endpoint, request) => {
+        calls.push(['content', endpoint, request]);
+        return {
+          contents: {
+            item: () => ({
+              tabs: [
+                {
+                  selected: true,
+                  content: {
+                    contents: [
+                      {
+                        header: {
+                          title: 'Personalized playlists',
+                          strapline: 'Private',
+                        },
+                        contents: [
+                          {
+                            item_type: 'playlist',
+                            id: 'personal-radio',
+                            title: 'Listener radio',
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+          },
+        };
+      },
+    },
+  };
+
+  const result = await service.getAccountChannel();
+
+  assert.equal(result.profile.channelId, 'UCresolved-listener');
+  assert.equal(result.profile.bannerUrl, 'resolved-channel-banner');
+  assert.equal(result.content.sections[0].title, 'Personalized playlists');
+  assert.equal(result.content.sections[0].subtitle, 'Private');
+  assert.equal(result.content.sections[0].items[0].title, 'Listener radio');
+  assert.equal(service.status().profile.channelId, 'UCresolved-listener');
+  assert.deepEqual(calls, [
+    ['resolve', 'https://www.youtube.com/@otoha-listener'],
+    ['channel', 'UCresolved-listener'],
+    [
+      'content',
+      'browse',
+      {
+        browseId: 'UCresolved-listener',
+        client: 'YTMUSIC',
+        parse: true,
+      },
+    ],
+  ]);
+});
+
+test('does not browse a handle when URL resolution is not a channel', async () => {
+  const calls = [];
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.profile = {
+    displayName: 'Fallback name',
+    avatarUrl: 'fallback-avatar',
+    handle: '@otoha-listener',
+    channelId: null,
+  };
+  service.innertube = {
+    resolveURL: async (url) => {
+      calls.push(['resolve', url]);
+      return { payload: { browseId: 'FEwhat_to_watch' } };
+    },
+    getChannel: async (target) => calls.push(['channel', target]),
+    actions: {
+      execute: async (endpoint, request) => {
+        calls.push(['content', endpoint, request]);
+        return null;
+      },
+    },
+  };
+
+  const result = await service.getAccountChannel();
+
+  assert.equal(result.profile.displayName, 'Fallback name');
+  assert.equal(result.profile.channelId, null);
+  assert.equal(result.profile.bannerUrl, null);
+  assert.deepEqual(result.content.sections, []);
+  assert.deepEqual(calls, [
+    ['resolve', 'https://www.youtube.com/@otoha-listener'],
+  ]);
 });
 
 test('keeps official recap when the public channel request fails', async () => {

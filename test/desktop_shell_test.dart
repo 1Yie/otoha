@@ -1270,6 +1270,57 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('feed section scroll actions track desktop width changes', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester, const Size(2200, 720));
+    final libraryController = _signedOutLibraryController(
+      client: _NoopSidecarClient(homeItemCount: 8),
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pumpAndSettle();
+
+    final left = find.byKey(const Key('youtube-feed-scroll-left-0'));
+    final right = find.byKey(const Key('youtube-feed-scroll-right-0'));
+    final sectionTitle = find.text('Listen again');
+    final sectionList = find.byKey(const Key('youtube-feed-section-list-0'));
+    double titleToListDistance() =>
+        tester.getRect(sectionList).top - tester.getRect(sectionTitle).top;
+    final wideTitleToListDistance = titleToListDistance();
+    expect(left, findsNothing);
+    expect(right, findsNothing);
+
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    await tester.pumpAndSettle();
+    expect(left, findsOneWidget);
+    expect(right, findsOneWidget);
+    expect(tester.widget<IconButton>(left).onPressed, isNull);
+    expect(tester.widget<IconButton>(right).onPressed, isNotNull);
+    expect(titleToListDistance(), closeTo(wideTitleToListDistance, 0.1));
+
+    final sectionScrollable = find.descendant(
+      of: sectionList,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(sectionScrollable).position;
+    await tester.tap(right);
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+    expect(tester.widget<IconButton>(left).onPressed, isNotNull);
+
+    await tester.binding.setSurfaceSize(const Size(2200, 720));
+    await tester.pumpAndSettle();
+    expect(position.maxScrollExtent, 0);
+    expect(left, findsNothing);
+    expect(right, findsNothing);
+    expect(titleToListDistance(), closeTo(wideTitleToListDistance, 0.1));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('signed-in Home and Explore use YouTube feed data', (
     tester,
   ) async {
@@ -1298,6 +1349,16 @@ void main() {
     );
     final homeTabsLeft = find.byKey(const Key('youtube-home-tabs-left'));
     final homeTabsRight = find.byKey(const Key('youtube-home-tabs-right'));
+    expect(homeTabsLeft, findsNothing);
+    expect(homeTabsRight, findsNothing);
+    expect(
+      find.descendant(of: homeTabs, matching: find.byType(ShaderMask)),
+      findsOneWidget,
+    );
+    await tester.binding.setSurfaceSize(const Size(1120, 720));
+    await tester.pumpAndSettle();
+    expect(homeTabsLeft, findsOneWidget);
+    expect(homeTabsRight, findsOneWidget);
     expect(tester.getSize(homeTabsLeft), const Size.square(36));
     expect(tester.getSize(homeTabsRight), const Size.square(36));
     expect(
@@ -1305,10 +1366,6 @@ void main() {
       tester.getRect(homeTabsRight).left,
     );
     expect(tester.getRect(homeTabsRight).right, tester.getRect(homeTabs).right);
-    expect(
-      find.descendant(of: homeTabs, matching: find.byType(ShaderMask)),
-      findsOneWidget,
-    );
     expect(
       tester
           .widget<IconButton>(
@@ -1329,21 +1386,28 @@ void main() {
             ),
           )
           .onPressed,
-      isNull,
+      isNotNull,
+    );
+    await tester.binding.setSurfaceSize(const Size(2200, 720));
+    await tester.pumpAndSettle();
+    expect(homeTabsLeft, findsNothing);
+    expect(homeTabsRight, findsNothing);
+    final homeTabsScrollable = find.descendant(
+      of: homeTabs,
+      matching: find.byType(Scrollable),
+    );
+    expect(homeTabsScrollable, findsOneWidget);
+    expect(
+      tester
+          .state<ScrollableState>(homeTabsScrollable)
+          .position
+          .maxScrollExtent,
+      0,
     );
     await tester.binding.setSurfaceSize(const Size(1120, 720));
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<IconButton>(
-            find.descendant(
-              of: homeTabsRight,
-              matching: find.byType(IconButton),
-            ),
-          )
-          .onPressed,
-      isNotNull,
-    );
+    expect(homeTabsLeft, findsOneWidget);
+    expect(homeTabsRight, findsOneWidget);
     expect(find.text('Listen again'), findsOneWidget);
     expect(find.byKey(const Key('youtube-feed-scroll-left-0')), findsOneWidget);
     expect(
@@ -1358,22 +1422,8 @@ void main() {
     );
     expect(tester.widget<IconButton>(firstSectionLeft).onPressed, isNull);
     expect(tester.widget<IconButton>(firstSectionRight).onPressed, isNotNull);
-    expect(
-      tester
-          .widget<IconButton>(
-            find.byKey(const Key('youtube-feed-scroll-left-1')),
-          )
-          .onPressed,
-      isNull,
-    );
-    expect(
-      tester
-          .widget<IconButton>(
-            find.byKey(const Key('youtube-feed-scroll-right-1')),
-          )
-          .onPressed,
-      isNull,
-    );
+    expect(find.byKey(const Key('youtube-feed-scroll-left-1')), findsNothing);
+    expect(find.byKey(const Key('youtube-feed-scroll-right-1')), findsNothing);
     final sectionList = find.byKey(const Key('youtube-feed-section-list-0'));
     final sectionScrollable = find.descendant(
       of: sectionList,
