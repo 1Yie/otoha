@@ -500,6 +500,24 @@ abstract class AppLocalizations {
   /// **'YouTube Cookie header'**
   String get youtubeCookieHeader;
 
+  /// No description provided for @youtubeCookieStep1.
+  ///
+  /// In en, this message translates to:
+  /// **'Open a private window and sign in to music.youtube.com.'**
+  String get youtubeCookieStep1;
+
+  /// No description provided for @youtubeCookieStep2.
+  ///
+  /// In en, this message translates to:
+  /// **'Press F12, open the Network tab, then pick any youtube.com request.'**
+  String get youtubeCookieStep2;
+
+  /// No description provided for @youtubeCookieStep3.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy the Cookie value from Request Headers and paste it below.'**
+  String get youtubeCookieStep3;
+
   /// No description provided for @signIn.
   ///
   /// In en, this message translates to:

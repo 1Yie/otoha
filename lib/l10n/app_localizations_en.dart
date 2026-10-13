@@ -217,6 +217,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get youtubeCookieHeader => 'YouTube Cookie header';
 
   @override
+  String get youtubeCookieStep1 =>
+      'Open a private window and sign in to music.youtube.com.';
+
+  @override
+  String get youtubeCookieStep2 =>
+      'Press F12, open the Network tab, then pick any youtube.com request.';
+
+  @override
+  String get youtubeCookieStep3 =>
+      'Copy the Cookie value from Request Headers and paste it below.';
+
+  @override
   String get signIn => 'Sign in';
 
   @override

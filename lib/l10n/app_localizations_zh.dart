@@ -214,6 +214,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get youtubeCookieHeader => 'YouTube Cookie 请求头';
 
   @override
+  String get youtubeCookieStep1 => '打开无痕窗口，登录 music.youtube.com。';
+
+  @override
+  String get youtubeCookieStep2 =>
+      '按 F12 打开 Network（网络）面板，选中任意 youtube.com 请求。';
+
+  @override
+  String get youtubeCookieStep3 => '复制 Request Headers 中 Cookie 的值并粘贴到下方。';
+
+  @override
   String get signIn => '登录';
 
   @override
