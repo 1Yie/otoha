@@ -1,8 +1,6 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:otoha/l10n/app_localizations.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../app/theme.dart';
 import '../models/catalog.dart';
@@ -13,6 +11,7 @@ import '../state/desktop_shell_controllers.dart';
 import '../state/offline_library_controller.dart';
 import '../state/youtube_library_controller.dart';
 import '../widgets/artwork_image.dart';
+import 'own_license_page.dart';
 import 'offline_library_workspace.dart';
 import 'offline_playlists_workspace.dart';
 import 'search_workspace.dart';
@@ -298,61 +297,10 @@ class SettingsWorkspace extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push<void>(
               MaterialPageRoute<void>(
-                builder: (context) => _DesktopLicensePage(
-                  applicationName: l10n.appTitle,
-                  applicationIcon: Image.asset(
-                    'assets/icon/icon.png',
-                    width: 56,
-                    height: 56,
-                  ),
-                ),
+                builder: (context) =>
+                    OtohaLicensePage(applicationName: l10n.appTitle),
               ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DesktopLicensePage extends StatelessWidget {
-  const _DesktopLicensePage({
-    required this.applicationName,
-    required this.applicationIcon,
-  });
-
-  final String applicationName;
-  final Widget applicationIcon;
-
-  @override
-  Widget build(BuildContext context) {
-    // The app's own page: Flutter's LicensePage runs a fixed 500 ms detail
-    // animation that reduced motion cannot switch off.
-    final page = LicensePage(
-      applicationName: applicationName,
-      applicationIcon: applicationIcon,
-    );
-    const desktopPlatforms = <TargetPlatform>{
-      TargetPlatform.linux,
-      TargetPlatform.macOS,
-      TargetPlatform.windows,
-    };
-    if (kIsWeb || !desktopPlatforms.contains(defaultTargetPlatform)) {
-      return page;
-    }
-    return Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        page,
-        Positioned(
-          top: 0,
-          left: kToolbarHeight,
-          right: 0,
-          height: kToolbarHeight,
-          child: GestureDetector(
-            key: const Key('license-page-drag-area'),
-            behavior: HitTestBehavior.translucent,
-            onPanStart: (_) => windowManager.startDragging(),
           ),
         ),
       ],

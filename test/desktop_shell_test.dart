@@ -29,6 +29,7 @@ import 'package:otoha/src/widgets/artwork_image.dart';
 import 'package:otoha/src/widgets/player_bar.dart';
 import 'package:otoha/src/widgets/right_panel.dart';
 import 'package:otoha/src/widgets/expanded_lyrics.dart';
+import 'package:otoha/src/workspaces/own_license_page.dart';
 import 'package:otoha/src/workspaces/search_workspace.dart';
 import 'package:otoha/src/workspaces/youtube_feed_workspace.dart';
 
@@ -1379,7 +1380,7 @@ void main() {
     await tester.tap(licenses);
     await tester.pumpAndSettle();
 
-    expect(find.byType(LicensePage), findsOneWidget);
+    expect(find.byType(OtohaLicensePage), findsOneWidget);
     final dragArea = find.byKey(const Key('license-page-drag-area'));
     final backButton = find.byType(BackButton);
     expect(dragArea, findsOneWidget);
@@ -1392,7 +1393,7 @@ void main() {
 
     await tester.tap(backButton);
     await tester.pumpAndSettle();
-    expect(find.byType(LicensePage), findsNothing);
+    expect(find.byType(OtohaLicensePage), findsNothing);
     debugDefaultTargetPlatformOverride = null;
   });
 
