@@ -581,8 +581,13 @@ class _DevicesPanel extends StatelessWidget {
                   Radius.circular(AppMetrics.radius),
                 ),
                 child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  // Native device names can wrap onto several lines, so the row
+                  // grows with its label instead of clipping it.
+                  constraints: const BoxConstraints(minHeight: 48),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: selected
                         ? OtohaColors.surfaceRaised
@@ -595,15 +600,23 @@ class _DevicesPanel extends StatelessWidget {
                     children: <Widget>[
                       Icon(
                         Icons.speaker_outlined,
+                        size: 20,
                         color: selected
                             ? OtohaColors.accent
                             : OtohaColors.mutedText,
                       ),
                       const SizedBox(width: 16),
-                      Expanded(child: Text(label)),
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       if (selected)
                         const Icon(
                           Icons.check_rounded,
+                          size: 20,
                           color: OtohaColors.accent,
                         ),
                     ],

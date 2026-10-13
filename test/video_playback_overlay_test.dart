@@ -98,6 +98,51 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('video controls fade instantly when reduced motion is on', (
+    tester,
+  ) async {
+    final shellController = ShellController()
+      ..openExpandedMedia()
+      ..setReduceMotion(true);
+    addTearDown(shellController.dispose);
+    const track = Track(
+      id: 'youtube:reduced-video',
+      title: 'Reduced motion',
+      artist: 'Channel',
+      album: 'YouTube Music',
+      artworkAsset: '',
+      durationSeconds: 240,
+      lyrics: <String>[],
+      youtubeVideoId: 'reduced-video',
+      isVideo: true,
+    );
+    final playerController = PlayerController(const <Track>[track]);
+    addTearDown(playerController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocaleController.supportedLocales,
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: VideoPlaybackOverlay(
+          track: track,
+          playerController: playerController,
+          shellController: shellController,
+        ),
+      ),
+    );
+
+    final fade = tester.widget<AnimatedOpacity>(
+      find.byType(AnimatedOpacity).first,
+    );
+    expect(fade.duration, Duration.zero);
+  });
+
   testWidgets('video overlay uses video-specific playback errors', (
     tester,
   ) async {

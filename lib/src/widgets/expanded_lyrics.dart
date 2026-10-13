@@ -12,7 +12,9 @@ import '../models/catalog.dart';
 import '../models/youtube_library.dart';
 import '../state/desktop_shell_controllers.dart';
 import '../state/youtube_library_controller.dart';
+import '../workspaces/workspace_views.dart';
 import 'artwork_image.dart';
+import 'player_bar.dart';
 
 class ExpandedLyricsOverlay extends StatefulWidget {
   const ExpandedLyricsOverlay({
@@ -33,6 +35,12 @@ class ExpandedLyricsOverlay extends StatefulWidget {
 }
 
 class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
+  // Shared across rebuilds so the blur layer is not invalidated every tick.
+  static final ImageFilter _backgroundBlur = ImageFilter.blur(
+    sigmaX: 34,
+    sigmaY: 34,
+  );
+
   final ScrollController _scrollController = ScrollController();
   late String _trackId;
   late List<GlobalKey> _lineKeys;
@@ -94,7 +102,7 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
             child: Transform.scale(
               scale: 1.16,
               child: ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 34, sigmaY: 34),
+                imageFilter: _backgroundBlur,
                 child: ArtworkImage(
                   assetPath: track.artworkAsset,
                   semanticLabel: l10n.backgroundArtwork(track.title),
@@ -175,6 +183,7 @@ class _ExpandedLyricsOverlayState extends State<ExpandedLyricsOverlay> {
             bottom: 28,
             child: _ExpandedPlaybackControls(
               playerController: widget.playerController,
+              youtubeLibraryController: widget.youtubeLibraryController,
               positionSeconds: _positionSeconds,
             ),
           ),
@@ -436,10 +445,12 @@ class _TrackSummary extends StatelessWidget {
 class _ExpandedPlaybackControls extends StatelessWidget {
   const _ExpandedPlaybackControls({
     required this.playerController,
+    required this.youtubeLibraryController,
     required this.positionSeconds,
   });
 
   final PlayerController playerController;
+  final YouTubeLibraryController youtubeLibraryController;
   final int positionSeconds;
 
   @override
@@ -449,6 +460,11 @@ class _ExpandedPlaybackControls extends StatelessWidget {
     final progress = track.durationSeconds <= 0
         ? 0.0
         : (positionSeconds / track.durationSeconds).clamp(0.0, 1.0).toDouble();
+    final videoId = track.youtubeVideoId;
+    final canRate = videoId != null && youtubeLibraryController.isSignedIn;
+    final duration = track.durationSeconds <= 0
+        ? l10n.unknownDuration
+        : formatDuration(track.durationSeconds);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -457,48 +473,81 @@ class _ExpandedPlaybackControls extends StatelessWidget {
           progress: progress,
         ),
         const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Tooltip(
-              message: l10n.previousTrack,
-              child: IconButton(
-                key: const Key('expanded-lyrics-previous'),
-                onPressed: playerController.previous,
-                icon: const Icon(Icons.skip_previous_rounded),
-                iconSize: 30,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Material(
-              color: OtohaColors.accent,
-              shape: const CircleBorder(),
-              child: Tooltip(
-                message: playerController.isPlaying ? l10n.pause : l10n.play,
-                child: IconButton(
-                  key: const Key('expanded-lyrics-toggle-playing'),
-                  onPressed: playerController.togglePlaying,
-                  color: const Color(0xFF1A210F),
-                  icon: Icon(
-                    playerController.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
+        // One row: time on the left, the transport centred, rating on the right.
+        // A stack keeps the transport on the page centre whatever the sides hold.
+        SizedBox(
+          height: 48,
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${formatDuration(positionSeconds)} / $duration',
+                  key: const Key('expanded-lyrics-time'),
+                  style: const TextStyle(
+                    color: OtohaColors.mutedText,
+                    fontSize: 16,
+                    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
                   ),
-                  iconSize: 32,
                 ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Tooltip(
-              message: l10n.nextTrack,
-              child: IconButton(
-                key: const Key('expanded-lyrics-next'),
-                onPressed: playerController.next,
-                icon: const Icon(Icons.skip_next_rounded),
-                iconSize: 30,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Tooltip(
+                    message: l10n.previousTrack,
+                    child: IconButton(
+                      key: const Key('expanded-lyrics-previous'),
+                      onPressed: playerController.previous,
+                      icon: const Icon(Icons.skip_previous_rounded),
+                      iconSize: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Material(
+                    color: OtohaColors.accent,
+                    shape: const CircleBorder(),
+                    child: Tooltip(
+                      message: playerController.isPlaying
+                          ? l10n.pause
+                          : l10n.play,
+                      child: IconButton(
+                        key: const Key('expanded-lyrics-toggle-playing'),
+                        onPressed: playerController.togglePlaying,
+                        color: const Color(0xFF1A210F),
+                        icon: Icon(
+                          playerController.isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                        ),
+                        iconSize: 32,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Tooltip(
+                    message: l10n.nextTrack,
+                    child: IconButton(
+                      key: const Key('expanded-lyrics-next'),
+                      onPressed: playerController.next,
+                      icon: const Icon(Icons.skip_next_rounded),
+                      iconSize: 30,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+              if (canRate)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: YouTubeRatingButtons(
+                    videoId: videoId,
+                    controller: youtubeLibraryController,
+                    keyPrefix: 'expanded-lyrics',
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );

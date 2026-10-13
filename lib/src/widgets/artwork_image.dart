@@ -18,7 +18,7 @@ class ArtworkImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget errorBuilder(BuildContext context, Object error, StackTrace? _) {
+    Widget placeholder() {
       return const ColoredBox(
         color: OtohaColors.surfaceRaised,
         child: Center(
@@ -26,6 +26,9 @@ class ArtworkImage extends StatelessWidget {
         ),
       );
     }
+
+    Widget errorBuilder(BuildContext context, Object error, StackTrace? _) =>
+        placeholder();
 
     if (assetPath.startsWith('http://') || assetPath.startsWith('https://')) {
       return CachedNetworkImage(
@@ -56,13 +59,8 @@ class ArtworkImage extends StatelessWidget {
         errorBuilder: errorBuilder,
       );
     }
-    return Image.asset(
-      assetPath,
-      fit: BoxFit.cover,
-      filterQuality: FilterQuality.high,
-      gaplessPlayback: true,
-      semanticLabel: semanticLabel,
-      errorBuilder: errorBuilder,
-    );
+    // Every real cover is a remote URL or a downloaded file; anything else
+    // has no artwork yet.
+    return placeholder();
   }
 }

@@ -478,6 +478,89 @@ String _playbackErrorLabel(
         AudioPlaybackFailure.startFailed => l10n.unableToStartAudioPlayback,
       };
 
+/// Like and dislike for a YouTube track. Shared by the bottom bar and the
+/// expanded lyrics page so both use one write path and cooldown check.
+class YouTubeRatingButtons extends StatelessWidget {
+  const YouTubeRatingButtons({
+    required this.videoId,
+    required this.controller,
+    required this.keyPrefix,
+    super.key,
+  });
+
+  final String videoId;
+  final YouTubeLibraryController controller;
+  final String keyPrefix;
+
+  @override
+  Widget build(BuildContext context) {
+    // Listen to the controller itself: a rating change must repaint these
+    // icons even when the page hosting them has nothing else to rebuild.
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) => _buildRow(context),
+    );
+  }
+
+  Widget _buildRow(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final rating = controller.ratingFor(videoId);
+    final canRate =
+        !controller.isRating && !controller.isAccountWriteCoolingDown;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Tooltip(
+          message: rating == YouTubeRating.liked ? l10n.removeLike : l10n.like,
+          child: IconButton(
+            key: Key('$keyPrefix-like'),
+            color: rating == YouTubeRating.liked ? OtohaColors.accent : null,
+            onPressed: canRate
+                ? () => unawaited(
+                    controller.rateVideo(
+                      videoId,
+                      rating == YouTubeRating.liked
+                          ? YouTubeRating.none
+                          : YouTubeRating.liked,
+                    ),
+                  )
+                : null,
+            icon: Icon(
+              rating == YouTubeRating.liked
+                  ? Icons.thumb_up_rounded
+                  : Icons.thumb_up_outlined,
+            ),
+          ),
+        ),
+        Tooltip(
+          message: rating == YouTubeRating.disliked
+              ? l10n.removeDislike
+              : l10n.dislike,
+          child: IconButton(
+            key: Key('$keyPrefix-dislike'),
+            color: rating == YouTubeRating.disliked ? OtohaColors.accent : null,
+            onPressed: canRate
+                ? () => unawaited(
+                    controller.rateVideo(
+                      videoId,
+                      rating == YouTubeRating.disliked
+                          ? YouTubeRating.none
+                          : YouTubeRating.disliked,
+                    ),
+                  )
+                : null,
+            icon: Icon(
+              rating == YouTubeRating.disliked
+                  ? Icons.thumb_down_rounded
+                  : Icons.thumb_down_outlined,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _TrackActions extends StatelessWidget {
   const _TrackActions({
     required this.playerController,
@@ -527,16 +610,6 @@ class _TrackActions extends StatelessWidget {
         (videoId: currentVideoId, controller: controller),
       _ => null,
     };
-    final rating = switch (interaction) {
-      (videoId: final currentVideoId, controller: final controller) =>
-        controller.ratingFor(currentVideoId),
-      _ => YouTubeRating.none,
-    };
-    final canRate = switch (interaction) {
-      (videoId: _, controller: final controller) =>
-        !controller.isRating && !controller.isAccountWriteCoolingDown,
-      _ => false,
-    };
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -558,55 +631,10 @@ class _TrackActions extends StatelessWidget {
           videoId: final currentVideoId,
           controller: final controller,
         )) ...<Widget>[
-          Tooltip(
-            message: rating == YouTubeRating.liked
-                ? l10n.removeLike
-                : l10n.like,
-            child: IconButton(
-              key: const Key('player-like'),
-              color: rating == YouTubeRating.liked ? OtohaColors.accent : null,
-              onPressed: canRate
-                  ? () => unawaited(
-                      controller.rateVideo(
-                        currentVideoId,
-                        rating == YouTubeRating.liked
-                            ? YouTubeRating.none
-                            : YouTubeRating.liked,
-                      ),
-                    )
-                  : null,
-              icon: Icon(
-                rating == YouTubeRating.liked
-                    ? Icons.thumb_up_rounded
-                    : Icons.thumb_up_outlined,
-              ),
-            ),
-          ),
-          Tooltip(
-            message: rating == YouTubeRating.disliked
-                ? l10n.removeDislike
-                : l10n.dislike,
-            child: IconButton(
-              key: const Key('player-dislike'),
-              color: rating == YouTubeRating.disliked
-                  ? OtohaColors.accent
-                  : null,
-              onPressed: canRate
-                  ? () => unawaited(
-                      controller.rateVideo(
-                        currentVideoId,
-                        rating == YouTubeRating.disliked
-                            ? YouTubeRating.none
-                            : YouTubeRating.disliked,
-                      ),
-                    )
-                  : null,
-              icon: Icon(
-                rating == YouTubeRating.disliked
-                    ? Icons.thumb_down_rounded
-                    : Icons.thumb_down_outlined,
-              ),
-            ),
+          YouTubeRatingButtons(
+            videoId: currentVideoId,
+            controller: controller,
+            keyPrefix: 'player',
           ),
           Tooltip(
             message: l10n.comments,

@@ -213,7 +213,9 @@ class _OtohaVideoControlsState extends State<_OtohaVideoControls>
                     ),
                   AnimatedOpacity(
                     opacity: _isVisible ? 1 : 0,
-                    duration: const Duration(milliseconds: 180),
+                    duration: widget.shellController.reduceMotion
+                        ? Duration.zero
+                        : const Duration(milliseconds: 180),
                     child: IgnorePointer(
                       ignoring: !_isVisible,
                       child: Column(

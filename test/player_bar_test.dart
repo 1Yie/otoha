@@ -272,7 +272,7 @@ Track _youtubeTrack({
     title: 'Buffering track',
     artist: 'Artist',
     album: 'Album',
-    artworkAsset: 'assets/artwork/cover_01.png',
+    artworkAsset: 'https://example.com/cover.jpg',
     durationSeconds: durationSeconds,
     lyrics: const <String>[],
     youtubeVideoId: 'buffering-track',
