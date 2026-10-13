@@ -1,9 +1,14 @@
 icons_launcher:
-  image_path: assets/icon/icon.png
+  # Platform icons use the padded art: macOS expects the squircle to occupy
+  # 824 of 1024 px, and a full-bleed icon looks oversized in docks and
+  # taskbars. assets/icon/icon.png stays full-bleed for in-app and tray use.
+  image_path: assets/icon/icon-padded.png
   platforms:
     linux:
       enable: true
     macos:
       enable: true
+    # Windows icons conventionally fill the canvas.
     windows:
       enable: true
+      image_path: assets/icon/icon.png

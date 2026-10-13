@@ -13,4 +13,10 @@ void registerBundledLicenses() {
     );
     yield LicenseEntryWithLineBreaks(const <String>['MiSans'], license);
   });
+  LicenseRegistry.addLicense(() async* {
+    final license = await rootBundle.loadString(
+      'assets/licenses/YouTube.js_LICENSE',
+    );
+    yield LicenseEntryWithLineBreaks(const <String>['YouTube.js'], license);
+  });
 }
