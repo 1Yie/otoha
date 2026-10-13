@@ -25,6 +25,40 @@ lines.on('line', (line) => {
     );
     return;
   }
+  if (request.method === 'fail-rating') {
+    process.stdout.write(
+      `${JSON.stringify({
+        event: 'request.failure',
+        data: {
+          method: 'interaction.rate',
+          code: 'RATING_UPDATE_FAILED',
+          errorType: 'Error',
+          diagnosticStage: 'rating.update',
+          fallbackErrorType: 'TypeError',
+          firstAttemptMessage: 'TV action rejected: api_url missing',
+          diagnosticMessage: 'Expected an api_url, but none was found.',
+        },
+      })}\n`,
+    );
+    process.stdout.write(
+      `${JSON.stringify({
+        id: request.id,
+        ok: false,
+        error: {
+          code: 'RATING_UPDATE_FAILED',
+          message: 'Unable to update this track rating.',
+          details: {
+            errorType: 'Error',
+            diagnosticStage: 'rating.update',
+            fallbackErrorType: 'TypeError',
+            firstAttemptMessage: 'TV action rejected: api_url missing',
+            diagnosticMessage: 'Expected an api_url, but none was found.',
+          },
+        },
+      })}\n`,
+    );
+    return;
+  }
   if (request.method === 'fail') {
     process.stdout.write(
       `${JSON.stringify({

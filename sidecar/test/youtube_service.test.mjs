@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
+  diagnosticMessageFor,
   mapBrowseFeedSections,
   mapAccountChannel,
   mapAccountProfile,
   mapCommentThread,
   mapFeedSections,
+  redactDiagnosticMessage,
   mapRawArtistDetail,
   mapRawPodcastShowDetail,
   mapSearchItems,
@@ -2962,6 +2964,31 @@ test('loads feed playlist and album tracks through the music session', async () 
   );
 });
 
+test('stops when a playlist continuation repeats the same page', async () => {
+  const repeatedPage = {
+    items: [
+      {
+        item_type: 'song',
+        id: 'same-track',
+        title: 'Same track',
+        artists: [],
+        duration: { seconds: 60 },
+      },
+    ],
+    has_continuation: true,
+  };
+  repeatedPage.getContinuation = async () => repeatedPage;
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    music: { getPlaylist: async () => repeatedPage },
+  };
+
+  const result = await service.getFeedCollection('playlist', 'PL1');
+
+  assert.equal(result.tracks.length, 1);
+});
+
 test('updates album library through the cached official audio playlist target', async () => {
   const calls = [];
   let now = 0;
@@ -3674,6 +3701,40 @@ test('reports an audio stream timeout without retaining a partial download', asy
   }
 });
 
+test('reports a write failure as a download error instead of crashing the sidecar', async () => {
+  // A symlink at the .part path that points to /dev/full makes every write
+  // fail with ENOSPC. Before the pipeline fix the writer error had no listener
+  // and escaped as an uncaught exception, which exits the whole sidecar.
+  const fullDevice = '/dev/full';
+  if (!(await stat(fullDevice).then(() => true, () => false))) return;
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'otoha-download-enospc-'));
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    getBasicInfo: async () => ({
+      chooseFormat: () => ({ mime_type: 'audio/webm; codecs="opus"' }),
+      download: async () =>
+        new ReadableStream({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(8 * 1024));
+          },
+        }),
+    }),
+  };
+  await symlink(fullDevice, path.join(directory, 'video-id.webm.part'));
+
+  try {
+    await assert.rejects(
+      () => service.downloadAudio('video-id', directory),
+      (error) =>
+        error.code === 'DOWNLOAD_FAILED' &&
+        error.details?.diagnosticStage === 'download.write',
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, { timeout: 5000 });
+
 test('falls back to unsynchronized YouTube Music lyrics', async () => {
   const service = new YouTubeService();
   service.innertube = {
@@ -3758,7 +3819,9 @@ test('uses a timed LRCLIB search result when the exact lookup times out', async 
       }
       return {
         ok: true,
-        json: async () => [{ syncedLyrics: '[00:10.00] Fallback line' }],
+        json: async () => [
+          { syncedLyrics: '[00:10.00] Fallback line', duration: 213 },
+        ],
       };
     },
   });
@@ -3814,6 +3877,79 @@ test('uses LRCLIB exact retrieval when cached and search lookups miss', async ()
   );
 });
 
+test('rejects a timed LRCLIB search result whose duration does not match the track', async () => {
+  const service = new YouTubeService({
+    fetchImpl: async (url) => {
+      const request = new URL(url);
+      if (request.pathname === '/api/get-cached') return { ok: false };
+      return {
+        ok: true,
+        json: async () => [
+          // A live or remix version: same title, a very different length.
+          { syncedLyrics: '[00:10.00] Live line', duration: 340 },
+        ],
+      };
+    },
+  });
+
+  const lyrics = await service.getLyrics('dQw4w9WgXcQ', {
+    title: 'Track title',
+    artist: 'Artist',
+    album: 'YouTube Music',
+    durationSeconds: 213,
+  });
+
+  // Mismatched timing must not be shown, so the lyrics fall back to plain text.
+  assert.notEqual(lyrics.source, 'lrclib');
+});
+
+test('accepts a timed LRCLIB search result within three seconds of the track duration', async () => {
+  const service = new YouTubeService({
+    fetchImpl: async (url) => {
+      const request = new URL(url);
+      if (request.pathname === '/api/get-cached') return { ok: false };
+      return {
+        ok: true,
+        json: async () => [
+          { syncedLyrics: '[00:10.00] Off by two', duration: 215 },
+        ],
+      };
+    },
+  });
+
+  assert.deepEqual(
+    await service.getLyrics('dQw4w9WgXcQ', {
+      title: 'Track title',
+      artist: 'Artist',
+      album: 'YouTube Music',
+      durationSeconds: 213,
+    }),
+    { source: 'lrclib', lines: [{ text: 'Off by two', startSeconds: 10 }] },
+  );
+});
+
+test('skips a timed search result that lacks a duration when the track duration is known', async () => {
+  const service = new YouTubeService({
+    fetchImpl: async (url) => {
+      const request = new URL(url);
+      if (request.pathname === '/api/get-cached') return { ok: false };
+      return {
+        ok: true,
+        json: async () => [{ syncedLyrics: '[00:10.00] Unverified line' }],
+      };
+    },
+  });
+
+  const lyrics = await service.getLyrics('dQw4w9WgXcQ', {
+    title: 'Track title',
+    artist: 'Artist',
+    album: 'YouTube Music',
+    durationSeconds: 213,
+  });
+
+  assert.notEqual(lyrics.source, 'lrclib');
+});
+
 test('searches LRCLIB for timed lyrics after an exact lookup misses', async () => {
   const requests = [];
   const service = new YouTubeService({
@@ -3826,8 +3962,8 @@ test('searches LRCLIB for timed lyrics after an exact lookup misses', async () =
       return {
         ok: true,
         json: async () => [
-          { syncedLyrics: '[00:10.00] Timed line' },
-          { syncedLyrics: null },
+          { syncedLyrics: '[00:10.00] Timed line', duration: 213 },
+          { syncedLyrics: null, duration: 213 },
         ],
       };
     },
@@ -4301,6 +4437,90 @@ test('falls back to web video controls when generic rating actions are unavailab
     ['getInfo', 'video-id', 'WEB'],
     ['like', 'video-id'],
   ]);
+});
+
+test('reports both rating attempts when the TV and WEB paths fail', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    interact: {
+      like: async () => {
+        throw new TypeError('TV actions unavailable');
+      },
+    },
+    getInfo: async () => ({
+      like: async () => {
+        throw new Error('Like button not found');
+      },
+    }),
+  };
+
+  await assert.rejects(
+    () => service.rateVideo('video-id', 'like'),
+    (error) => {
+      assert.equal(error.code, 'RATING_UPDATE_FAILED');
+      // The first failure is the one that tells the TV path apart from the
+      // WEB path; it must survive the fallback rather than be overwritten.
+      assert.equal(error.details.fallbackErrorType, 'TypeError');
+      assert.equal(error.details.errorType, 'Error');
+      return true;
+    },
+  );
+});
+
+test('serializes the fallback error type of a failed rating into the diagnostics', async () => {
+  const service = new YouTubeService();
+  service.authMode = 'cookie';
+  service.innertube = {
+    interact: {
+      like: async () => {
+        throw new TypeError('TV actions unavailable');
+      },
+    },
+    getInfo: async () => ({
+      like: async () => {
+        throw new Error('Like button not found');
+      },
+    }),
+  };
+
+  const failure = await service.rateVideo('video-id', 'like').then(
+    () => assert.fail('rating should have failed'),
+    (error) => serializeError(error),
+  );
+
+  assert.equal(failure.code, 'RATING_UPDATE_FAILED');
+  assert.equal(failure.details.fallbackErrorType, 'TypeError');
+  // The final error's own type is the WEB path's failure, kept distinct from the
+  // TV one so the log shows both attempts.
+  assert.equal(failure.details.errorType, 'Error');
+  assert.equal(failure.details.diagnosticStage, 'rating.update');
+  // The message itself must not reach the diagnostics.
+  assert.equal(JSON.stringify(failure.details).includes('TV actions'), false);
+});
+
+test('redacts an upstream message before it is written to local diagnostics', () => {
+  const message =
+    'Failed https://www.youtube.com/youtubei/v1/like?key=AIzaSECRET&SID=abc123 ' +
+    'cookie: SID=secretvalue; HSID=x videoId=aHsUI_FD8Gc 1234567890123456';
+  const redacted = redactDiagnosticMessage(message);
+
+  assert.equal(redacted.includes('AIzaSECRET'), false);
+  assert.equal(redacted.includes('secretvalue'), false);
+  assert.equal(redacted.includes('abc123'), false);
+  assert.equal(redacted.includes('1234567890123456'), false);
+  assert.equal(redacted.includes('youtube.com'), false);
+  assert.match(redacted, /Failed/);
+});
+
+test('omits upstream messages from diagnostics unless local diagnostics are enabled', () => {
+  assert.equal(diagnosticMessageFor(new Error('secret detail'), {}), undefined);
+  assert.equal(
+    diagnosticMessageFor(new Error('Expected an api_url'), {
+      OTOHA_SIDECAR_LOCAL_DIAGNOSTICS: '1',
+    }),
+    'Expected an api_url',
+  );
 });
 
 test('updates artist, episode, and podcast-show account state', async () => {
@@ -4788,29 +5008,122 @@ test('throttles rapid authenticated account writes', async () => {
   );
 });
 
-test('stops when a playlist continuation repeats the same page', async () => {
-  const repeatedPage = {
-    items: [
-      {
-        item_type: 'song',
-        id: 'same-track',
-        title: 'Same track',
-        artists: [],
-        duration: { seconds: 60 },
-      },
-    ],
-    has_continuation: true,
+const collectionTrack = (id) => ({
+  item_type: 'song',
+  id,
+  title: `Track ${id}`,
+  artists: [],
+  duration: { seconds: 60 },
+});
+
+const collectionPage = (ids, next = null) => {
+  const page = {
+    items: ids.map(collectionTrack),
+    has_continuation: next !== null,
   };
-  repeatedPage.getContinuation = async () => repeatedPage;
+  if (next !== null) page.getContinuation = async () => next();
+  return page;
+};
+
+const collectionService = (firstPage) => {
   const service = new YouTubeService();
   service.authMode = 'cookie';
+  service.innertube = { music: { getPlaylist: async () => firstPage } };
+  return service;
+};
+
+test('warms an anonymous session once and skips when one exists', async () => {
+  let created = 0;
+  const service = new YouTubeService({
+    createInnertube: async () => {
+      created += 1;
+      return { session: { player: null }, music: {} };
+    },
+  });
+
+  assert.deepEqual(await service.warmup(), { warmed: true });
+  assert.equal(created, 1);
+  assert.deepEqual(await service.warmup(), { warmed: false });
+  assert.equal(created, 1);
+});
+
+test('does not let a warmup overwrite a concurrent authenticated session', async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let created = 0;
+  const service = new YouTubeService({
+    createInnertube: async (cookie) => {
+      created += 1;
+      const instance = {
+        tag: cookie ?? 'anonymous',
+        session: { player: null },
+        account: { getInfo: async () => ({}) },
+        music: { getLibrary: async () => ({}) },
+      };
+      if (created === 1) await gate;
+      return instance;
+    },
+  });
+
+  const warm = service.warmup();
+  await Promise.resolve();
+  const restore = service.restore({ kind: 'cookie', value: 'SID=test' });
+  release();
+  await Promise.all([warm, restore]);
+
+  // The authenticated session must survive the warming that started first.
+  assert.equal(service.innertube?.tag, 'SID=test');
+  assert.equal(service.status().authenticated, true);
+  assert.deepEqual(await service.warmup(), { warmed: false });
+  assert.equal(created, 2);
+});
+
+test('rebuilds the session once when the cached player is stale', async () => {
+  let decipherCalls = 0;
+  const player = {
+    decipher: async () => {
+      decipherCalls += 1;
+      if (decipherCalls === 1) {
+        throw new Error('Got invalid result from player script evaluation.');
+      }
+      return 'https://stream.test/audio';
+    },
+  };
+  let created = 0;
+  const service = new YouTubeService({
+    createInnertube: async () => {
+      created += 1;
+      return { session: { player }, music: {} };
+    },
+  });
+  service.cookie = 'SID=test';
+  service.authMode = 'cookie';
+  const format = {
+    mime_type: 'audio/webm; codecs="opus"',
+    bitrate: 128000,
+    approx_duration_ms: 180000,
+    has_audio: true,
+    has_video: false,
+    url: null,
+    decipher: () => player.decipher(),
+  };
   service.innertube = {
-    music: { getPlaylist: async () => repeatedPage },
+    session: { player },
+    getBasicInfo: async () => ({
+      streaming_data: { adaptive_formats: [format] },
+      basic_info: { duration: 180 },
+    }),
   };
 
-  const result = await service.getFeedCollection('playlist', 'PL1');
+  const result = await service.getPlaybackStream('video-id', 'audio', 'normal');
 
-  assert.equal(result.tracks.length, 1);
+  assert.equal(result.stream.url, 'https://stream.test/audio');
+  assert.equal(decipherCalls, 2);
+  assert.equal(created, 1);
+  // The credential survives the rebuild.
+  assert.equal(service.cookie, 'SID=test');
 });
 
 function expectEqual(actual, expected) {

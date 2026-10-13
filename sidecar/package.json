@@ -11,6 +11,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "youtubei.js": "17.2.0"
+    "youtubei.js": "18.1.0"
   }
 }

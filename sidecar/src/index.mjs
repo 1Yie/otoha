@@ -12,6 +12,8 @@ const methods = {
     service.restore(credential, locale),
   'session.status': () => service.status(),
   'session.setLocale': ({ locale } = {}) => service.setLocale(locale),
+  'session.warmup': () => service.warmup(),
+  'session.refresh': () => service.refresh(),
   'auth.cookie.signIn': ({ cookie, locale } = {}) =>
     service.signInWithCookie(cookie, locale),
   'auth.signOut': () => service.signOut(),

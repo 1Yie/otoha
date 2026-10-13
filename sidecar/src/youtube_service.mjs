@@ -8,12 +8,11 @@ import {
   YTNodes,
   YTMusic,
 } from 'youtubei.js';
-import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { finished } from 'node:stream/promises';
+import { pipeline } from 'node:stream/promises';
 
 Platform.shim.eval = async (data) => Function(data.output)();
 
@@ -67,12 +66,14 @@ export class YouTubeService {
     this.artistSubscriptionButtons = new Map();
     this.albumLibraryTargets = new Map();
     this.nextAccountWriteAt = 0;
+    this.sessionChain = Promise.resolve();
+    this.sessionRefresh = null;
   }
 
   async restore(credential, locale) {
     this.locale = normalizeLocale(locale);
     if (!credential) {
-      await this.#createSession();
+      await this.#queueSession(() => this.#createSession());
       return { authenticated: false };
     }
 
@@ -91,7 +92,7 @@ export class YouTubeService {
     this.locale = normalizeLocale(locale ?? this.locale);
     let diagnosticStage = 'auth.session';
     try {
-      await this.#createSession(value);
+      await this.#queueSession(() => this.#createSession(value));
       diagnosticStage = 'auth.profile';
       try {
         // Cookie authentication belongs to the web client. The default
@@ -133,7 +134,7 @@ export class YouTubeService {
 
   async signOut() {
     this.cookie = null;
-    await this.#createSession();
+    await this.#queueSession(() => this.#createSession());
     this.authMode = null;
     this.profile = null;
     return { authenticated: false };
@@ -145,6 +146,31 @@ export class YouTubeService {
       mode: this.authMode,
       profile: this.profile,
     };
+  }
+
+  // Builds the session ahead of the first user action. Retrieving and parsing
+  // the player script takes several seconds on a cold cache, so doing it during
+  // sign-in or the first playback would stall that interaction.
+  async warmup() {
+    return this.#queueSession(async () => {
+      if (this.innertube) {
+        return { warmed: false };
+      }
+      await this.#createSession();
+      return { warmed: true };
+    });
+  }
+
+  // Rebuilds the session in place, preserving the current credential. Used when
+  // YouTube ships a new player script and the cached one is stale.
+  async refresh() {
+    return this.#queueSession(async () => {
+      await this.#createSession(this.cookie);
+      return {
+        authenticated: this.authMode === 'cookie',
+        playerId: this.innertube?.session?.player?.player_id ?? null,
+      };
+    });
   }
 
   async getAccountChannel() {
@@ -252,7 +278,7 @@ export class YouTubeService {
       return { locale: this.locale };
     }
     this.locale = nextLocale;
-    await this.#createSession(this.cookie);
+    await this.#queueSession(() => this.#createSession(this.cookie));
     return { locale: this.locale };
   }
 
@@ -556,12 +582,29 @@ export class YouTubeService {
       await this.#writeRating(videoId, rating);
       return { rating };
     } catch (error) {
-      throw feedFailure(
+      const failure = feedFailure(
         'RATING_UPDATE_FAILED',
         'Unable to update this track rating.',
         'rating.update',
         error,
       );
+      // Only the type name of the first (TV) attempt is kept; its message can
+      // carry request detail and never reaches the diagnostics.
+      const diagnosticMessage = diagnosticMessageFor(error?.cause ?? error);
+      const firstAttemptMessage = error?.firstAttemptMessage;
+      if (error?.fallbackErrorType || diagnosticMessage) {
+        failure.details = {
+          ...failure.details,
+          ...(error?.fallbackErrorType
+            ? { fallbackErrorType: error.fallbackErrorType }
+            : {}),
+          ...(firstAttemptMessage
+            ? { firstAttemptMessage }
+            : {}),
+          ...(diagnosticMessage ? { diagnosticMessage } : {}),
+        };
+      }
+      throw failure;
     }
   }
 
@@ -926,9 +969,13 @@ export class YouTubeService {
       for (let index = 0; index < MAX_PLAYLIST_PAGES && page; index += 1) {
         const pageTracks = listOf(page.items).map(mapTrack).filter(Boolean);
         if (!appendUniquePage(tracks, pageTracks, seenPages)) break;
-        page = page.has_continuation && typeof page.getContinuation === 'function'
-          ? await page.getContinuation()
-          : null;
+        if (
+          !page.has_continuation ||
+          typeof page.getContinuation !== 'function'
+        ) {
+          break;
+        }
+        page = await page.getContinuation();
       }
     } catch (error) {
       throw feedFailure(
@@ -1028,8 +1075,8 @@ export class YouTubeService {
             continue;
           }
           const [videoUrl, audioUrl] = await Promise.all([
-            formats.video.decipher(this.innertube.session?.player),
-            formats.audio.decipher(this.innertube.session?.player),
+            this.#decipherWithRefresh(formats.video),
+            this.#decipherWithRefresh(formats.audio),
           ]);
           if (!videoUrl || !audioUrl) {
             lastFailure = new Error('Adaptive stream URL was empty');
@@ -1063,7 +1110,7 @@ export class YouTubeService {
             continue;
           }
           const url = format.url ||
-            await format.decipher(this.innertube.session?.player);
+            await this.#decipherWithRefresh(format);
           if (!url) {
             lastFailure = new Error('Audio stream URL was empty');
             continue;
@@ -1183,15 +1230,15 @@ export class YouTubeService {
       let receivedBytes = 0;
       writer = createWriteStream(temporaryPath);
       diagnosticStage = 'download.write';
-      for await (const chunk of Readable.fromWeb(audioStream)) {
+      const source = Readable.fromWeb(audioStream);
+      source.on('data', (chunk) => {
         receivedBytes += chunk.length;
-        if (!writer.write(chunk)) {
-          await once(writer, 'drain');
-        }
         this.emit('download.progress', { videoId, receivedBytes, totalBytes });
-      }
-      writer.end();
-      await finished(writer);
+      });
+      // pipeline surfaces ENOSPC and other write errors to this try/catch.
+      // A bare writer 'error' with no listener is an uncaught exception that
+      // terminates the sidecar and every in-flight request.
+      await pipeline(source, writer);
       if (totalBytes !== null && receivedBytes !== totalBytes) {
         throw new Error('The audio stream ended before the download completed.');
       }
@@ -1766,6 +1813,41 @@ export class YouTubeService {
     return tab?.content?.as(YTNodes.SectionList).continuation ?? null;
   }
 
+  // Serializes session creation so a warmup cannot overwrite the authenticated
+  // session that a concurrent restore just built.
+  #queueSession(operation) {
+    const run = this.sessionChain.then(operation, operation);
+    this.sessionChain = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  }
+
+  // Coalesces concurrent stale-player recoveries into one rebuild.
+  #refreshSessionOnce() {
+    this.sessionRefresh ??= this.#queueSession(async () => {
+      try {
+        await this.#createSession(this.cookie);
+      } finally {
+        this.sessionRefresh = null;
+      }
+    });
+    return this.sessionRefresh;
+  }
+
+  // A stale cached player script surfaces as an evaluation failure inside
+  // decipher. Rebuild the session once and retry the same format.
+  async #decipherWithRefresh(format) {
+    try {
+      return await format.decipher(this.innertube.session?.player);
+    } catch (error) {
+      if (!isPlayerFailure(error)) throw error;
+      await this.#refreshSessionOnce();
+      return format.decipher(this.innertube.session?.player);
+    }
+  }
+
   #requireAuthentication() {
     if (this.authMode !== 'cookie') {
       throw new SidecarError('AUTH_REQUIRED', 'Sign in before loading your library.');
@@ -1784,21 +1866,31 @@ export class YouTubeService {
   }
 
   async #writeRating(videoId, rating) {
+    let genericError;
     try {
       return await this.#writeGenericRating(videoId, rating);
-    } catch {
-      // The generic InteractionManager uses the TV client. Some Cookie
-      // sessions only expose the action endpoints embedded in a web watch
-      // response, so retry once through the video's own control metadata.
+    } catch (error) {
+      genericError = error;
+    }
+    const firstAttemptMessage = diagnosticMessageFor(genericError);
+    // The generic InteractionManager uses the TV client. Some Cookie sessions
+    // only expose the action endpoints embedded in a web watch response, so
+    // retry once through the video's own control metadata. If that also fails,
+    // keep the TV failure's type: it is the only clue to which path broke.
+    try {
       const info = await this.innertube.getInfo(videoId, { client: 'WEB' });
       switch (rating) {
         case 'like':
-          return info.like();
+          return await info.like();
         case 'dislike':
-          return info.dislike();
+          return await info.dislike();
         case 'none':
-          return info.removeRating();
+          return await info.removeRating();
       }
+    } catch (fallbackError) {
+      fallbackError.fallbackErrorType = errorTypeName(genericError);
+      fallbackError.firstAttemptMessage = firstAttemptMessage;
+      throw fallbackError;
     }
   }
 
@@ -1901,13 +1993,28 @@ export class YouTubeService {
 async function createDefaultInnertube(cookie, locale) {
   return Innertube.create({
     cookie,
-    cache: new UniversalCache(false),
+    cache: createSessionCache(),
     lang: normalizeLocale(locale),
     device_category: 'DESKTOP',
     generate_session_locally: true,
     retrieve_player: true,
     retrieve_innertube_config: false,
   });
+}
+
+// The default UniversalCache(false) writes to the shared OS temp directory,
+// where cached session data is world readable and can be deleted by temp
+// cleanup, which forces a cold player download on the next run. Prefer the
+// private application directory the host passes in.
+function createSessionCache() {
+  const directory =
+    typeof process.env.OTOHA_SIDECAR_CACHE_DIR === 'string'
+      ? process.env.OTOHA_SIDECAR_CACHE_DIR.trim()
+      : '';
+  if (directory) {
+    return new UniversalCache(true, directory);
+  }
+  return new UniversalCache(false);
 }
 
 function normalizeLocale(locale) {
@@ -3148,6 +3255,10 @@ async function getLrcLibLyrics(fetchImpl, metadata) {
       const records = await response.json();
       if (!Array.isArray(records)) return [];
       for (const record of records) {
+        // A search returns any version of the title. Only accept timing from a
+        // record whose length matches this track, so a live or remixed version
+        // cannot shift the highlight.
+        if (!lrcLibDurationMatches(record?.duration, durationSeconds)) continue;
         const lines = timedLyricsLines(record?.syncedLyrics);
         if (lines.length) return lines;
       }
@@ -3203,6 +3314,20 @@ function fetchLrcLib(fetchImpl, url, timeoutMs = 3000) {
     headers: { 'User-Agent': 'Otoha/0.1 (desktop music player)' },
     signal: AbortSignal.timeout(timeoutMs),
   });
+}
+
+// LRCLIB reports each record's length in whole seconds. A track with no known
+// length cannot be verified, so its search results are not trusted for timing.
+const LRCLIB_DURATION_TOLERANCE_SECONDS = 3;
+
+function lrcLibDurationMatches(recordDuration, trackDuration) {
+  if (!Number.isFinite(recordDuration) || !Number.isInteger(trackDuration)) {
+    return false;
+  }
+  if (trackDuration <= 0) return false;
+  return (
+    Math.abs(recordDuration - trackDuration) <= LRCLIB_DURATION_TOLERANCE_SECONDS
+  );
 }
 
 function timedLyricsLines(value) {
@@ -3518,6 +3643,12 @@ function isContinuationExhausted(error) {
   );
 }
 
+// The library reports a player/decipher failure only through its message.
+function isPlayerFailure(error) {
+  const message = typeof error?.message === 'string' ? error.message : '';
+  return /player script evaluation|player data|player id|nsig/i.test(message);
+}
+
 function feedFailure(code, message, diagnosticStage, error) {
   return new SidecarError(code, message, {
     diagnosticStage,
@@ -3589,7 +3720,28 @@ export function serializeError(error) {
   };
 }
 
-export function describeUpstreamError(error) {
+// Local-only diagnostics: the upstream message is useful while debugging a
+// rejected action, but it can carry URLs, cookies, and request identifiers.
+// It is written only when the host explicitly enables it, and always redacted.
+export function diagnosticMessageFor(error, env = process.env) {
+  if (env.OTOHA_SIDECAR_LOCAL_DIAGNOSTICS !== '1') return undefined;
+  const message = typeof error?.message === 'string' ? error.message : '';
+  if (!message) return undefined;
+  return redactDiagnosticMessage(message).slice(0, 160);
+}
+
+export function redactDiagnosticMessage(message) {
+  return message
+    .replace(/https?:\/\/\S+/gi, '<url>')
+    .replace(/\b(SID|HSID|SSID|APISID|SAPISID|cookie|key|token|auth\w*)\s*[=:]\s*[^\s;&,]+/gi, '$1=<redacted>')
+    .replace(/\b\d{12,}\b/g, '<number>');
+}
+
+function errorTypeName(error) {
+  return safeDiagnosticValue(error?.name) ?? 'Error';
+}
+
+function describeUpstreamError(error) {
   const details = error?.details;
   const isSidecarError = error instanceof SidecarError;
   const diagnosticStage = safeDiagnosticValue(details?.diagnosticStage);
@@ -3611,8 +3763,10 @@ export function describeUpstreamError(error) {
     safeDiagnosticValue(details?.errorType) ??
     safeDiagnosticValue(error?.name) ??
     'Error';
+  const fallbackErrorType = safeDiagnosticValue(details?.fallbackErrorType);
   return {
     errorType,
+    ...(fallbackErrorType == null ? {} : { fallbackErrorType }),
     ...(diagnosticStage == null ? {} : { diagnosticStage }),
     ...(statusCode == null ? {} : { statusCode }),
     ...(sourceLocation == null ? {} : { sourceLocation }),
