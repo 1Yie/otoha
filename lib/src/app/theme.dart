@@ -93,6 +93,27 @@ ThemeData buildOtohaTheme() {
       ),
       contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     ),
+    // The default Material 3 switch derives its hover colours from a scheme that
+    // this dark theme does not set, so hover washed the thumb into the surface.
+    // Thumb and track follow the same accent and neutral tokens as the sliders,
+    // and hover only ever brightens the thumb.
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return OtohaColors.canvas;
+        }
+        return states.contains(WidgetState.hovered)
+            ? OtohaColors.text
+            : OtohaColors.mutedText;
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        return states.contains(WidgetState.selected)
+            ? OtohaColors.accent
+            : OtohaColors.border;
+      }),
+      trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+      overlayColor: WidgetStateProperty.all(const Color(0x1FB6F26D)),
+    ),
     sliderTheme: const SliderThemeData(
       activeTrackColor: OtohaColors.accent,
       inactiveTrackColor: OtohaColors.border,
