@@ -23,6 +23,7 @@ const String _moodAndGenreRootBrowseId = 'FEmusic_moods_and_genres';
 class YouTubeFeedWorkspace extends StatelessWidget {
   const YouTubeFeedWorkspace({
     required this.kind,
+    required this.workspaceController,
     required this.playerController,
     required this.shellController,
     required this.youtubeLibraryController,
@@ -30,12 +31,63 @@ class YouTubeFeedWorkspace extends StatelessWidget {
   });
 
   final YouTubeFeedKind kind;
+  final WorkspaceController workspaceController;
   final PlayerController playerController;
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
 
   @override
   Widget build(BuildContext context) {
+    // Opening a detail slides it in from the right and closing slides back out.
+    // The key tells the switcher which view is current, so a new detail, or the
+    // list returning, always runs the transition.
+    final controller = youtubeLibraryController;
+    final reduceMotion = shellController.reduceMotion;
+    return AnimatedSwitcher(
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: <Widget>[...previous, ?current],
+      ),
+      transitionBuilder: (child, animation) {
+        if (reduceMotion) {
+          return child;
+        }
+        final slide = Tween<Offset>(
+          begin: const Offset(0.06, 0),
+          end: Offset.zero,
+        ).animate(animation);
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(position: slide, child: child),
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey<String>(_viewKey(controller)),
+        child: _buildCurrentView(context),
+      ),
+    );
+  }
+
+  void _goBack() =>
+      goBackInHistory(workspaceController, youtubeLibraryController);
+
+  // A stable identity for whichever view is open: list, album, podcast, or browse.
+  String _viewKey(YouTubeLibraryController controller) {
+    final collection = controller.selectedFeedCollection;
+    if (collection?.source == kind.name) return 'collection:${collection!.id}';
+    final podcast = controller.selectedPodcastShow;
+    if (podcast?.source == kind.name) return 'podcast:${podcast!.id}';
+    final browse = controller.selectedFeedBrowse;
+    if (browse?.source == kind.name) return 'browse:${browse!.id}';
+    return 'list';
+  }
+
+  Widget _buildCurrentView(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final title = kind == YouTubeFeedKind.home ? l10n.home : l10n.explore;
     final eyebrow = kind == YouTubeFeedKind.home
@@ -76,7 +128,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
             !controller.isAccountWriteCoolingDown,
         onToggleLibrary: () =>
             unawaited(controller.toggleAlbumLibrary(collection)),
-        onBack: controller.closeFeedDetail,
+        onBack: _goBack,
       );
     }
     final podcast = controller.selectedPodcastShow;
@@ -90,7 +142,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
         canToggleLibrary:
             controller.podcastLibraryWriteId == null &&
             !controller.isAccountWriteCoolingDown,
-        onBack: controller.closeFeedDetail,
+        onBack: _goBack,
         onLoadMore: controller.loadMorePodcastShow,
         onToggleLibrary: () =>
             unawaited(controller.togglePodcastLibrary(podcast)),
@@ -105,7 +157,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
         youtubeLibraryController: controller,
         loadingItemId: controller.loadingFeedItemId,
         reduceMotion: shellController.reduceMotion,
-        onBack: controller.closeFeedDetail,
+        onBack: _goBack,
         onTap: _actionFor,
       );
     }
@@ -204,7 +256,9 @@ class YouTubeFeedWorkspace extends StatelessWidget {
       child: _FeedPaginationScroll(
         youtubeLibraryController: controller,
         isHome: isHome,
-        scrollKey: Key('youtube-${kind.name}-feed'),
+        // A PageStorageKey lets PageStorage keep this list's scroll offset while a
+        // detail is open, so returning resumes where the user left off.
+        scrollKey: PageStorageKey<String>('youtube-${kind.name}-feed'),
         slivers: <Widget>[
           if (filterOptions.isNotEmpty)
             SliverPadding(
@@ -362,7 +416,7 @@ class YouTubeFeedWorkspace extends StatelessWidget {
     );
     if (tracks.length == 1 && item.itemType != 'album') {
       playerController.playTracks(<Track>[
-        asSimulatedYouTubeTrack(
+        asPlayableYouTubeTrack(
           tracks[0],
           artworkFallback: item.thumbnailUrl,
           albumFallback: item.title,
@@ -413,7 +467,7 @@ Future<void> playYouTubeFeedQueue({
   );
   final tracks = <Track>[
     for (var index = 0; index < playableItems.length; index += 1)
-      asSimulatedYouTubeTrack(
+      asPlayableYouTubeTrack(
         index == selectedIndex
             ? selectedTrack
             : _youtubeTrackFromFeedItem(playableItems[index]),
@@ -477,7 +531,7 @@ class _FeedPaginationScroll extends StatefulWidget {
 
   final YouTubeLibraryController youtubeLibraryController;
   final bool isHome;
-  final Key scrollKey;
+  final PageStorageKey<String> scrollKey;
   final List<Widget> slivers;
 
   @override
@@ -580,10 +634,15 @@ class _FeedPaginationScrollState extends State<_FeedPaginationScroll> {
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
-      key: widget.scrollKey,
-      controller: _scrollController,
-      slivers: widget.slivers,
+    // The PageStorageKey keeps the offset across detail views; the outer Key
+    // keeps the feed addressable by widget tests.
+    return KeyedSubtree(
+      key: Key(widget.scrollKey.value),
+      child: CustomScrollView(
+        key: widget.scrollKey,
+        controller: _scrollController,
+        slivers: widget.slivers,
+      ),
     );
   }
 }
@@ -1376,7 +1435,7 @@ class YouTubeFeedCollectionDetailView extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final tracks = detail.tracks
         .map(
-          (track) => asSimulatedYouTubeTrack(
+          (track) => asPlayableYouTubeTrack(
             track,
             artworkFallback: detail.thumbnailUrl,
             albumFallback: detail.title,
@@ -1597,7 +1656,7 @@ class YouTubeFeedBrowseDetailView extends StatelessWidget {
     for (final item in items) {
       final track = await youtubeLibraryController.resolveFeedTrack(item);
       tracks.add(
-        asSimulatedYouTubeTrack(
+        asPlayableYouTubeTrack(
           track,
           artworkFallback: detail.thumbnailUrl,
           albumFallback: detail.title,
@@ -2134,7 +2193,7 @@ class _FeedSkeleton extends StatelessWidget {
   }
 }
 
-Track asSimulatedYouTubeTrack(
+Track asPlayableYouTubeTrack(
   YouTubeTrack track, {
   String? artworkFallback,
   String? albumFallback,

@@ -349,6 +349,7 @@ class _ChannelTestAppState extends State<_ChannelTestApp> {
   late final PlayerController _playerController =
       widget.playerController ?? PlayerController(const []);
   late final ShellController _shellController = ShellController();
+  final WorkspaceController _workspaceController = WorkspaceController();
 
   @override
   void dispose() {
@@ -356,6 +357,7 @@ class _ChannelTestAppState extends State<_ChannelTestApp> {
       _playerController.dispose();
     }
     _shellController.dispose();
+    _workspaceController.dispose();
     super.dispose();
   }
 
@@ -367,6 +369,7 @@ class _ChannelTestAppState extends State<_ChannelTestApp> {
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: YouTubeChannelWorkspace(
+          workspaceController: _workspaceController,
           controller: widget.controller,
           playerController: _playerController,
           shellController: _shellController,
@@ -508,11 +511,11 @@ Map<String, Object?> _channelResponse({
 }) => <String, Object?>{
   'profile': <String, Object?>{
     'displayName': 'Test listener',
-    'avatarUrl': 'assets/artwork/cover_01.png',
+    'avatarUrl': 'https://example.com/cover.jpg',
     'handle': '@test-listener',
     'channelId': 'UC_TEST',
     'subscriberText': '12 subscribers',
-    if (includeBanner) 'bannerUrl': 'assets/artwork/cover_02.png',
+    if (includeBanner) 'bannerUrl': 'https://example.com/cover.jpg',
     'channelUrl': 'https://www.youtube.com/channel/UC_TEST',
     'studioUrl': 'https://studio.youtube.com/channel/UC_TEST/editing',
   },
@@ -529,7 +532,7 @@ Map<String, Object?> _channelResponse({
               'title': 'Official collection',
               'artists': <String>['Channel artist'],
               'durationSeconds': 0,
-              'thumbnailUrl': 'assets/artwork/cover_05.png',
+              'thumbnailUrl': 'https://example.com/cover.jpg',
             },
           ],
         },
@@ -547,7 +550,7 @@ Map<String, Object?> _channelResponse({
               'artists': <String>['Channel artist'],
               'album': 'Channel album',
               'durationSeconds': 213,
-              'thumbnailUrl': 'assets/artwork/cover_04.png',
+              'thumbnailUrl': 'https://example.com/cover.jpg',
             },
           ],
         },
@@ -562,7 +565,7 @@ Map<String, Object?> _channelResponse({
               'title': 'Channel artist',
               'artists': <String>[],
               'durationSeconds': 0,
-              'thumbnailUrl': 'assets/artwork/cover_06.png',
+              'thumbnailUrl': 'https://example.com/cover.jpg',
             },
           ],
         },

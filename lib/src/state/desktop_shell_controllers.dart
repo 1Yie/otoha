@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../models/catalog.dart';
 import '../services/audio_playback_engine.dart';
 import '../services/player_session_store.dart';
+import 'youtube_library_controller.dart';
 
 enum WorkspacePage {
   home,
@@ -38,23 +39,61 @@ enum SidePanel { queue, devices, comments, account }
 
 enum PlaybackRepeatMode { off, all, one }
 
+// Identifies an open YouTube detail without holding its loaded content.
+// [reopen] reloads it for forward navigation. Equality uses kind and id only.
+class DetailMarker {
+  const DetailMarker({
+    required this.kind,
+    required this.id,
+    required this.reopen,
+  });
+
+  final String kind;
+  final String id;
+  final Future<void> Function() reopen;
+
+  @override
+  bool operator ==(Object other) =>
+      other is DetailMarker && other.kind == kind && other.id == id;
+
+  @override
+  int get hashCode => Object.hash(kind, id);
+}
+
+class _HistoryEntry {
+  const _HistoryEntry(this.page, [this.detail]);
+
+  final WorkspacePage page;
+  final DetailMarker? detail;
+}
+
 class WorkspaceController extends ChangeNotifier {
-  final List<WorkspacePage> _history = <WorkspacePage>[WorkspacePage.home];
+  final List<_HistoryEntry> _history = <_HistoryEntry>[
+    const _HistoryEntry(WorkspacePage.home),
+  ];
   int _historyIndex = 0;
 
-  WorkspacePage get current => _history[_historyIndex];
+  WorkspacePage get current => _history[_historyIndex].page;
+  DetailMarker? get currentDetail => _history[_historyIndex].detail;
   bool get canGoBack => _historyIndex > 0;
   bool get canGoForward => _historyIndex < _history.length - 1;
 
   void navigateTo(WorkspacePage page) {
-    if (page == current) {
+    if (page == current && currentDetail == null) {
       return;
     }
 
-    _history.removeRange(_historyIndex + 1, _history.length);
-    _history.add(page);
-    _historyIndex = _history.length - 1;
-    notifyListeners();
+    _push(_HistoryEntry(page));
+  }
+
+  // Records a detail opening on the current workspace page. Re-opening the
+  // same detail is a no-op so history does not grow on repeated taps.
+  void openDetail(DetailMarker detail) {
+    if (currentDetail == detail) {
+      return;
+    }
+
+    _push(_HistoryEntry(current, detail));
   }
 
   void goBack() {
@@ -74,6 +113,13 @@ class WorkspaceController extends ChangeNotifier {
     _historyIndex += 1;
     notifyListeners();
   }
+
+  void _push(_HistoryEntry entry) {
+    _history.removeRange(_historyIndex + 1, _history.length);
+    _history.add(entry);
+    _historyIndex = _history.length - 1;
+    notifyListeners();
+  }
 }
 
 class PlayerController extends ChangeNotifier {
@@ -81,12 +127,14 @@ class PlayerController extends ChangeNotifier {
     List<Track> catalog, {
     PlayerSessionStore? sessionStore,
     AudioPlaybackEngine? audioPlaybackEngine,
-  }) : this._(catalog, sessionStore, audioPlaybackEngine);
+    Duration seekPersistDelay = const Duration(milliseconds: 400),
+  }) : this._(catalog, sessionStore, audioPlaybackEngine, seekPersistDelay);
 
   PlayerController._(
     List<Track> catalog,
     this._sessionStore,
     this._audioPlaybackEngine,
+    this._seekPersistDelay,
   ) : _catalog = List<Track>.unmodifiable(catalog),
       _playOrder = List<Track>.of(catalog),
       _currentTrack = catalog.isEmpty ? null : catalog.first {
@@ -103,7 +151,8 @@ class PlayerController extends ChangeNotifier {
   Track? _currentTrack;
   final PlayerSessionStore? _sessionStore;
   final AudioPlaybackEngine? _audioPlaybackEngine;
-  Timer? _clock;
+  final Duration _seekPersistDelay;
+  Timer? _seekPersistTimer;
   StreamSubscription<AudioPlaybackSnapshot>? _audioStates;
   StreamSubscription<AudioOutputState>? _audioOutputStates;
   Future<void> _writeChain = Future<void>.value();
@@ -197,12 +246,15 @@ class PlayerController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      // Only tracks backed by a remote video or a downloaded file can play, so
+      // a session that predates real sources restores nothing.
       final catalog = (catalogValue as List<Object?>)
           .map(
             (item) => Track.fromJson(
               (item! as Map<Object?, Object?>).cast<String, Object?>(),
             ),
           )
+          .where((track) => track.hasPlaybackSource)
           .toList(growable: false);
       if (catalog.isEmpty) {
         notifyListeners();
@@ -234,7 +286,6 @@ class PlayerController extends ChangeNotifier {
         _isPlaying = false;
         unawaited(_audioPlaybackEngine!.setVolume(_volume));
       }
-      _syncClock();
       notifyListeners();
     } on Object {
       try {
@@ -273,7 +324,6 @@ class PlayerController extends ChangeNotifier {
       return;
     }
     _isPlaying = !_isPlaying;
-    _syncClock();
     _persistSession();
     notifyListeners();
   }
@@ -357,7 +407,6 @@ class PlayerController extends ChangeNotifier {
         _repeatMode != PlaybackRepeatMode.all) {
       _positionSeconds = currentTrack.durationSeconds;
       _isPlaying = false;
-      _syncClock();
       _persistSession();
       notifyListeners();
       return;
@@ -384,7 +433,12 @@ class PlayerController extends ChangeNotifier {
         _audioPlaybackEngine!.seek(Duration(seconds: _positionSeconds)),
       );
     }
-    _persistSession();
+    // Scrubbing sends a seek per pointer event, and every persist serializes
+    // the whole queue into the OS credential store. Persist once it settles.
+    if (_sessionStore != null) {
+      _seekPersistTimer?.cancel();
+      _seekPersistTimer = Timer(_seekPersistDelay, _persistSession);
+    }
     notifyListeners();
   }
 
@@ -462,33 +516,9 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _syncClock() {
-    _clock?.cancel();
-    final currentTrack = _currentTrack;
-    if (_usesAudioPlayback ||
-        !_isPlaying ||
-        currentTrack == null ||
-        currentTrack.durationSeconds <= 0) {
-      return;
-    }
-
-    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_positionSeconds >= currentTrack.durationSeconds) {
-        next();
-        return;
-      }
-      _positionSeconds += 1;
-      if (_positionSeconds.remainder(5) == 0) {
-        _persistSession();
-      }
-      notifyListeners();
-    });
-  }
-
   bool get _usesAudioPlayback =>
       _audioPlaybackEngine != null &&
-      (_currentTrack?.youtubeVideoId != null ||
-          _currentTrack?.localFilePath != null);
+      (_currentTrack?.hasPlaybackSource ?? false);
 
   void _activateCurrentTrack({
     bool isRetry = false,
@@ -504,7 +534,6 @@ class PlayerController extends ChangeNotifier {
         _audioResolveAttempts = 0;
       }
       _hasActiveAudio = false;
-      _clock?.cancel();
       _isPlaying = playWhenReady;
       _isBuffering = true;
       final initialPosition = Duration(seconds: _positionSeconds);
@@ -538,7 +567,6 @@ class PlayerController extends ChangeNotifier {
     if (_audioPlaybackEngine != null) {
       unawaited(_audioPlaybackEngine.stop());
     }
-    _syncClock();
   }
 
   void _handleAudioState(AudioPlaybackSnapshot state) {
@@ -550,6 +578,15 @@ class PlayerController extends ChangeNotifier {
       next();
       return;
     }
+    // mpv reports position 10-30 times per second while the UI shows whole
+    // seconds, so only notify when something a listener can read changed.
+    final before = (
+      _positionSeconds,
+      _isBuffering,
+      _playbackError,
+      _isPlaying,
+      _currentTrack,
+    );
     _isBuffering = state.error == null && state.isBuffering;
     _playbackError = state.error;
     if (state.error != null && _audioResolveAttempts < 1) {
@@ -594,7 +631,16 @@ class PlayerController extends ChangeNotifier {
     } else if (acceptsPosition && _positionSeconds.remainder(5) == 0) {
       _persistSession(deduplicateAudioCheckpoint: true);
     }
-    notifyListeners();
+    final after = (
+      _positionSeconds,
+      _isBuffering,
+      _playbackError,
+      _isPlaying,
+      _currentTrack,
+    );
+    if (after != before) {
+      notifyListeners();
+    }
   }
 
   bool _replaceTrackDuration(String trackId, int durationSeconds) {
@@ -632,6 +678,9 @@ class PlayerController extends ChangeNotifier {
   }
 
   void _persistSession({bool deduplicateAudioCheckpoint = false}) {
+    // Any write carries the latest position, so a pending seek write is moot.
+    _seekPersistTimer?.cancel();
+    _seekPersistTimer = null;
     final store = _sessionStore;
     final currentTrack = _currentTrack;
     if (store == null) {
@@ -675,7 +724,9 @@ class PlayerController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
-    _clock?.cancel();
+    if (_seekPersistTimer != null) {
+      _persistSession();
+    }
     unawaited(_audioStates?.cancel() ?? Future<void>.value());
     unawaited(_audioOutputStates?.cancel() ?? Future<void>.value());
     if (_audioPlaybackEngine != null) {
@@ -749,5 +800,40 @@ class ShellController extends ChangeNotifier {
 
     _reduceMotion = value;
     notifyListeners();
+  }
+}
+
+// Every back gesture (title bar, Alt+Left, detail back arrows) goes through
+// here so the workspace history stays the single source of truth.
+void goBackInHistory(
+  WorkspaceController workspaceController,
+  YouTubeLibraryController youtubeLibraryController,
+) {
+  workspaceController.goBack();
+  if (workspaceController.currentDetail == null) {
+    youtubeLibraryController.closeAllDetails();
+  }
+}
+
+// Forward mirrors back: a detail entry reloads its detail before it is shown.
+// If the reload fails, history steps back so the user never lands on a blank
+// detail.
+Future<void> goForwardInHistory(
+  WorkspaceController workspaceController,
+  YouTubeLibraryController youtubeLibraryController,
+) async {
+  if (!workspaceController.canGoForward) {
+    return;
+  }
+  workspaceController.goForward();
+  final detail = workspaceController.currentDetail;
+  if (detail == null) {
+    youtubeLibraryController.closeAllDetails();
+    return;
+  }
+  await youtubeLibraryController.reopenDetail(detail.reopen);
+  if (!youtubeLibraryController.hasOpenDetail) {
+    workspaceController.goBack();
+    youtubeLibraryController.closeAllDetails();
   }
 }

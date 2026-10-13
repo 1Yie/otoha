@@ -16,15 +16,19 @@ import 'youtube_feed_workspace.dart';
 
 class YouTubeLibraryWorkspace extends StatelessWidget {
   const YouTubeLibraryWorkspace({
+    required this.workspaceController,
     required this.controller,
     required this.playerController,
     required this.shellController,
     super.key,
   });
 
+  final WorkspaceController workspaceController;
   final YouTubeLibraryController controller;
   final PlayerController playerController;
   final ShellController shellController;
+
+  void _goBack() => goBackInHistory(workspaceController, controller);
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +58,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
                 !controller.isAccountWriteCoolingDown,
             onToggleLibrary: () =>
                 unawaited(controller.toggleAlbumLibrary(detail)),
-            onBack: controller.closeFeedDetail,
+            onBack: _goBack,
           );
         }
         if (controller.selectedPodcastShow case final detail?
@@ -68,7 +72,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
             canToggleLibrary:
                 controller.podcastLibraryWriteId == null &&
                 !controller.isAccountWriteCoolingDown,
-            onBack: controller.closeFeedDetail,
+            onBack: _goBack,
             onLoadMore: controller.loadMorePodcastShow,
             onToggleLibrary: () =>
                 unawaited(controller.togglePodcastLibrary(detail)),
@@ -83,7 +87,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
             youtubeLibraryController: controller,
             loadingItemId: controller.loadingFeedItemId,
             reduceMotion: shellController.reduceMotion,
-            onBack: controller.closeFeedDetail,
+            onBack: _goBack,
             onTap: _actionFor,
           );
         }
@@ -92,7 +96,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
             detail: detail,
             isLoading: controller.isLoadingPlaylist,
             isLoadingMore: controller.isLoadingMorePlaylist,
-            onBack: controller.closePlaylist,
+            onBack: _goBack,
             onLoadMore: controller.loadMorePlaylist,
             playerController: playerController,
           );
@@ -139,7 +143,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
       return;
     }
     playerController.playTracks(<Track>[
-      _asSimulatedTrack(
+      _asPlayableTrack(
         tracks.single,
         artworkFallback: item.thumbnailUrl,
         albumFallback: item.title,
@@ -150,7 +154,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
   Future<void> _playFeedItem(YouTubeFeedItem item) async {
     final track = await controller.resolveFeedTrack(item);
     playerController.playTracks(<Track>[
-      _asSimulatedTrack(
+      _asPlayableTrack(
         track,
         artworkFallback: item.thumbnailUrl,
         albumFallback: item.album,
@@ -589,7 +593,7 @@ class _PlaylistDetailScroll extends _PlaylistDetailView {
     final l10n = AppLocalizations.of(context)!;
     final playbackTracks = detail.tracks
         .map(
-          (track) => _asSimulatedTrack(
+          (track) => _asPlayableTrack(
             track,
             artworkFallback: detail.playlist.thumbnailUrl,
             albumFallback: detail.playlist.title,
@@ -737,7 +741,7 @@ class _PlaylistDetailScroll extends _PlaylistDetailView {
   }
 }
 
-Track _asSimulatedTrack(
+Track _asPlayableTrack(
   YouTubeTrack track, {
   String? artworkFallback,
   String? albumFallback,

@@ -32,6 +32,10 @@ class Track {
 
   bool get canPlayVideo => videoAvailable || isVideo;
 
+  /// Whether the native engine has something to open: a remote video or a
+  /// downloaded file. Tracks without one have no real media behind them.
+  bool get hasPlaybackSource => youtubeVideoId != null || localFilePath != null;
+
   Track withVideoMode(bool enabled) {
     return Track(
       id: id,

@@ -19,6 +19,12 @@ class DesktopTitleBar extends StatelessWidget {
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
 
+  void _goForward() =>
+      goForwardInHistory(workspaceController, youtubeLibraryController);
+
+  void _goBack() =>
+      goBackInHistory(workspaceController, youtubeLibraryController);
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -40,7 +46,7 @@ class DesktopTitleBar extends StatelessWidget {
                 animation: workspaceController,
                 builder: (context, _) {
                   return Padding(
-                    padding: const EdgeInsets.only(left: 24),
+                    padding: EdgeInsets.only(left: _brandLeftInset()),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
@@ -90,7 +96,10 @@ class DesktopTitleBar extends StatelessWidget {
             Align(
               alignment: Alignment.centerRight,
               child: AnimatedBuilder(
-                animation: workspaceController,
+                animation: Listenable.merge(<Listenable>[
+                  workspaceController,
+                  youtubeLibraryController,
+                ]),
                 builder: (context, _) {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -102,7 +111,7 @@ class DesktopTitleBar extends StatelessWidget {
                           child: IconButton(
                             key: const Key('history-back'),
                             onPressed: workspaceController.canGoBack
-                                ? workspaceController.goBack
+                                ? _goBack
                                 : null,
                             icon: const Icon(Icons.arrow_back_rounded),
                           ),
@@ -111,10 +120,20 @@ class DesktopTitleBar extends StatelessWidget {
                           message: l10n.forward,
                           child: IconButton(
                             key: const Key('history-forward'),
-                            onPressed: workspaceController.canGoForward
-                                ? workspaceController.goForward
+                            onPressed:
+                                workspaceController.canGoForward &&
+                                    !youtubeLibraryController.isRestoringDetail
+                                ? _goForward
                                 : null,
-                            icon: const Icon(Icons.arrow_forward_rounded),
+                            icon: youtubeLibraryController.isRestoringDetail
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      key: Key('history-forward-loading'),
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.arrow_forward_rounded),
                           ),
                         ),
                         Tooltip(
@@ -177,7 +196,7 @@ class DesktopTitleBar extends StatelessWidget {
                             );
                           },
                         ),
-                        if (_isDesktopPlatform()) const _WindowControls(),
+                        if (_showsWindowControls()) const _WindowControls(),
                       ],
                     ),
                   );
@@ -254,9 +273,12 @@ class _SearchTrigger extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Text(
-                  'Ctrl K',
-                  style: TextStyle(color: OtohaColors.mutedText, fontSize: 12),
+                Text(
+                  _searchShortcutLabel(),
+                  style: const TextStyle(
+                    color: OtohaColors.mutedText,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
@@ -306,6 +328,20 @@ class _WindowControls extends StatelessWidget {
     );
   }
 }
+
+// macOS keeps its native traffic lights at the top left even with the title bar
+// hidden, so the brand group starts after them and no Windows-style buttons
+// are drawn on the right.
+bool _isMacOS() {
+  return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+}
+
+bool _showsWindowControls() => _isDesktopPlatform() && !_isMacOS();
+
+double _brandLeftInset() => _isMacOS() ? 80 : 24;
+
+// The shortcut bound in DesktopShell is Cmd+K on macOS and Ctrl+K elsewhere.
+String _searchShortcutLabel() => _isMacOS() ? 'Cmd K' : 'Ctrl K';
 
 bool _isDesktopPlatform() {
   return !kIsWeb &&

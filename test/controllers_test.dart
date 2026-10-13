@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:otoha/src/data/mock_catalog.dart';
 import 'package:otoha/src/models/catalog.dart';
 import 'package:otoha/src/services/audio_playback_engine.dart';
 import 'package:otoha/src/services/player_session_store.dart';
@@ -33,19 +32,27 @@ void main() {
 
   group('PlayerController', () {
     test('changes tracks and retains local playback state', () {
-      final controller = PlayerController(MockCatalog.tracks);
+      final tracks = <Track>[
+        _youtubeTrack('first'),
+        _youtubeTrack('second'),
+        _youtubeTrack('third'),
+      ];
+      final engine = _FakeAudioPlaybackEngine();
+      final controller = PlayerController(tracks, audioPlaybackEngine: engine);
       addTearDown(controller.dispose);
 
-      controller.selectTrack(MockCatalog.tracks[1]);
+      controller.selectTrack(tracks[1]);
 
-      expect(controller.currentTrack, MockCatalog.tracks[1]);
+      expect(controller.currentTrack, tracks[1]);
       expect(controller.positionSeconds, 0);
       expect(controller.isPlaying, isTrue);
+      expect(engine.openedVideoIds, <String>['second']);
 
       controller.next();
 
-      expect(controller.currentTrack, MockCatalog.tracks[2]);
+      expect(controller.currentTrack, tracks[2]);
       expect(controller.positionSeconds, 0);
+      expect(engine.openedVideoIds, <String>['second', 'third']);
 
       controller.toggleShuffle();
 
@@ -57,34 +64,117 @@ void main() {
       expect(controller.repeatMode, PlaybackRepeatMode.all);
     });
 
-    test('restores a simulated playlist session after restart', () async {
+    test('restores a persisted playlist session after restart', () async {
       final store = _MemoryPlayerSessionStore();
-      final source = PlayerController(MockCatalog.tracks, sessionStore: store);
+      final tracks = <Track>[
+        _youtubeTrack('first'),
+        _youtubeTrack('second'),
+        _youtubeTrack('third'),
+      ];
+      final source = PlayerController(
+        tracks,
+        sessionStore: store,
+        audioPlaybackEngine: _FakeAudioPlaybackEngine(),
+        seekPersistDelay: Duration.zero,
+      );
       addTearDown(source.dispose);
-      source.playTracks(MockCatalog.tracks.take(3).toList(growable: false));
-      source.selectTrack(MockCatalog.tracks[1]);
+      source.playTracks(tracks);
+      source.selectTrack(tracks[1]);
       source.seekTo(73);
       source.setVolume(0.4);
       source.cycleRepeatMode();
       await Future<void>.delayed(Duration.zero);
       store.value!.remove('audioQuality');
 
-      final restored = PlayerController(const <Track>[], sessionStore: store);
+      final restored = PlayerController(
+        const <Track>[],
+        sessionStore: store,
+        audioPlaybackEngine: _FakeAudioPlaybackEngine(),
+      );
       addTearDown(restored.dispose);
       await restored.restoreSession();
 
       expect(restored.queue.map((track) => track.id), <String>[
-        'soft-signal',
-        'after-image',
-        'room-for-light',
+        'youtube:first',
+        'youtube:second',
+        'youtube:third',
       ]);
-      expect(restored.currentTrack?.id, 'after-image');
+      expect(restored.currentTrack?.id, 'youtube:second');
       expect(restored.positionSeconds, 73);
       expect(restored.volume, 0.4);
       expect(restored.repeatMode, PlaybackRepeatMode.all);
       expect(restored.audioQuality, AudioQuality.high);
-      expect(restored.isPlaying, isTrue);
+      // A restored real session waits for an explicit play instead of
+      // starting audio on launch.
+      expect(restored.isPlaying, isFalse);
     });
+
+    test('drops persisted tracks that have no real playback source', () async {
+      final store = _MemoryPlayerSessionStore()
+        ..value = <String, Object?>{
+          'catalog': <Object?>[
+            const Track(
+              id: 'legacy-placeholder',
+              title: 'Legacy placeholder',
+              artist: 'Nobody',
+              album: 'Nothing',
+              artworkAsset: '',
+              durationSeconds: 200,
+              lyrics: <String>[],
+            ).toJson(),
+            _youtubeTrack('real').toJson(),
+          ],
+          'playOrderIds': <Object?>['legacy-placeholder', 'youtube:real'],
+          'currentTrackId': 'legacy-placeholder',
+          'positionSeconds': 40,
+        };
+      final controller = PlayerController(
+        const <Track>[],
+        sessionStore: store,
+        audioPlaybackEngine: _FakeAudioPlaybackEngine(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.restoreSession();
+
+      expect(controller.queue.map((track) => track.id), <String>[
+        'youtube:real',
+      ]);
+      expect(controller.currentTrack?.id, 'youtube:real');
+    });
+
+    test(
+      'a session of only sourceless tracks restores an empty player',
+      () async {
+        final store = _MemoryPlayerSessionStore()
+          ..value = <String, Object?>{
+            'catalog': <Object?>[
+              const Track(
+                id: 'legacy-placeholder',
+                title: 'Legacy placeholder',
+                artist: 'Nobody',
+                album: 'Nothing',
+                artworkAsset: '',
+                durationSeconds: 200,
+                lyrics: <String>[],
+              ).toJson(),
+            ],
+            'playOrderIds': <Object?>['legacy-placeholder'],
+            'currentTrackId': 'legacy-placeholder',
+          };
+        final controller = PlayerController(
+          const <Track>[],
+          sessionStore: store,
+          audioPlaybackEngine: _FakeAudioPlaybackEngine(),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.restoreSession();
+
+        expect(controller.currentTrack, isNull);
+        expect(controller.queue, isEmpty);
+      },
+    );
 
     test(
       'persists quality without a queue and restores it after restart',
@@ -236,6 +326,97 @@ void main() {
       expect(controller.currentTrack, same(third));
       expect(engine.openedVideoIds, <String>['second', 'third']);
     });
+
+    test('persists a scrub once after it settles', () async {
+      final store = _MemoryPlayerSessionStore();
+      final controller = PlayerController(
+        <Track>[_youtubeTrack('scrub')],
+        sessionStore: store,
+        audioPlaybackEngine: _FakeAudioPlaybackEngine(),
+        seekPersistDelay: const Duration(milliseconds: 60),
+      );
+      addTearDown(controller.dispose);
+      controller.selectTrack(controller.queue.first);
+      await Future<void>.delayed(Duration.zero);
+      final writesBeforeScrub = store.writeCount;
+
+      for (var tick = 0; tick < 40; tick += 1) {
+        controller.seekTo(30 + tick ~/ 4);
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(store.writeCount, writesBeforeScrub);
+
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(store.writeCount, writesBeforeScrub + 1);
+      expect(store.value!['positionSeconds'], 39);
+    });
+
+    test('flushes a pending scrub position when disposed', () async {
+      final store = _MemoryPlayerSessionStore();
+      final controller = PlayerController(
+        <Track>[_youtubeTrack('dispose')],
+        sessionStore: store,
+        audioPlaybackEngine: _FakeAudioPlaybackEngine(),
+        seekPersistDelay: const Duration(minutes: 5),
+      );
+      controller.selectTrack(controller.queue.first);
+      await Future<void>.delayed(Duration.zero);
+
+      controller.seekTo(77);
+      controller.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(store.value!['positionSeconds'], 77);
+    });
+
+    test(
+      'notifies only when an engine snapshot changes visible state',
+      () async {
+        final engine = _FakeAudioPlaybackEngine();
+        final controller = PlayerController(<Track>[
+          _youtubeTrack('quiet'),
+        ], audioPlaybackEngine: engine);
+        addTearDown(controller.dispose);
+        controller.selectTrack(controller.queue.first);
+        var notifications = 0;
+        controller.addListener(() => notifications += 1);
+
+        AudioPlaybackSnapshot at(int milliseconds) => AudioPlaybackSnapshot(
+          position: Duration(milliseconds: milliseconds),
+          duration: const Duration(seconds: 180),
+          isPlaying: true,
+        );
+
+        Future<void> deliver(AudioPlaybackSnapshot snapshot) async {
+          engine.emit(snapshot);
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // The first snapshot flips buffering off and reaches second zero.
+        await deliver(at(100));
+        final afterFirst = notifications;
+        for (final milliseconds in <int>[300, 650, 990]) {
+          await deliver(at(milliseconds));
+        }
+        expect(notifications, afterFirst);
+        expect(controller.positionSeconds, 0);
+
+        await deliver(at(1010));
+        expect(notifications, afterFirst + 1);
+        expect(controller.positionSeconds, 1);
+
+        await deliver(
+          const AudioPlaybackSnapshot(
+            position: Duration(seconds: 1, milliseconds: 500),
+            duration: Duration(seconds: 180),
+            isPlaying: true,
+            isBuffering: true,
+          ),
+        );
+        expect(notifications, afterFirst + 2);
+        expect(controller.isBuffering, isTrue);
+      },
+    );
 
     test('corrects queue durations without losing current identity', () async {
       final engine = _FakeAudioPlaybackEngine();
@@ -417,6 +598,7 @@ void main() {
         <Track>[track],
         sessionStore: store,
         audioPlaybackEngine: sourceEngine,
+        seekPersistDelay: Duration.zero,
       );
       addTearDown(source.dispose);
       source
@@ -472,7 +654,7 @@ void main() {
         title: 'Downloaded track',
         artist: 'Artist',
         album: 'Album',
-        artworkAsset: 'assets/artwork/cover_01.png',
+        artworkAsset: 'https://example.com/cover.jpg',
         durationSeconds: 180,
         lyrics: const <String>[],
         youtubeVideoId: 'video-id',
@@ -522,7 +704,7 @@ Track _youtubeTrack(
     title: 'Track $videoId',
     artist: 'Artist',
     album: 'Album',
-    artworkAsset: 'assets/artwork/cover_01.png',
+    artworkAsset: 'https://example.com/cover.jpg',
     durationSeconds: 180,
     lyrics: const <String>[],
     youtubeVideoId: videoId,

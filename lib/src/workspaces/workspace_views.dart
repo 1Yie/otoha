@@ -48,6 +48,7 @@ class WorkspaceView extends StatelessWidget {
     return switch (page) {
       WorkspacePage.home => YouTubeFeedWorkspace(
         kind: YouTubeFeedKind.home,
+        workspaceController: workspaceController,
         playerController: playerController,
         shellController: shellController,
         youtubeLibraryController: youtubeLibraryController,
@@ -60,11 +61,13 @@ class WorkspaceView extends StatelessWidget {
       ),
       WorkspacePage.explore => YouTubeFeedWorkspace(
         kind: YouTubeFeedKind.explore,
+        workspaceController: workspaceController,
         playerController: playerController,
         shellController: shellController,
         youtubeLibraryController: youtubeLibraryController,
       ),
       WorkspacePage.library => LibraryWorkspace(
+        workspaceController: workspaceController,
         playerController: playerController,
         shellController: shellController,
         youtubeLibraryController: youtubeLibraryController,
@@ -83,6 +86,7 @@ class WorkspaceView extends StatelessWidget {
         playerController: playerController,
       ),
       WorkspacePage.channel => YouTubeChannelWorkspace(
+        workspaceController: workspaceController,
         controller: youtubeLibraryController,
         playerController: playerController,
         shellController: shellController,
@@ -100,12 +104,14 @@ class WorkspaceView extends StatelessWidget {
 
 class LibraryWorkspace extends StatelessWidget {
   const LibraryWorkspace({
+    required this.workspaceController,
     required this.playerController,
     required this.shellController,
     required this.youtubeLibraryController,
     super.key,
   });
 
+  final WorkspaceController workspaceController;
   final PlayerController playerController;
   final ShellController shellController;
   final YouTubeLibraryController youtubeLibraryController;
@@ -113,6 +119,7 @@ class LibraryWorkspace extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return YouTubeLibraryWorkspace(
+      workspaceController: workspaceController,
       controller: youtubeLibraryController,
       playerController: playerController,
       shellController: shellController,
@@ -319,6 +326,8 @@ class _DesktopLicensePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The app's own page: Flutter's LicensePage runs a fixed 500 ms detail
+    // animation that reduced motion cannot switch off.
     final page = LicensePage(
       applicationName: applicationName,
       applicationIcon: applicationIcon,

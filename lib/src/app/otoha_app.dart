@@ -113,6 +113,10 @@ class _OtohaAppState extends State<OtohaApp> {
           lyricCache: FileLyricCache(),
           locale: _localeController.youtubeLanguage,
         );
+    _youtubeLibraryController.onDetailOpened = (event) =>
+        _workspaceController.openDetail(
+          DetailMarker(kind: event.kind, id: event.id, reopen: event.reopen),
+        );
     _ownsOfflineLibraryController = widget.offlineLibraryController == null;
     _offlineLibraryController =
         widget.offlineLibraryController ??

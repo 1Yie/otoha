@@ -47,10 +47,10 @@ class DesktopShell extends StatelessWidget {
         const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _openSearch,
         const SingleActivator(LogicalKeyboardKey.escape):
             shellController.closeTopmostOverlay,
-        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
-            workspaceController.goBack,
-        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
-            workspaceController.goForward,
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () =>
+            goBackInHistory(workspaceController, youtubeLibraryController),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () =>
+            goForwardInHistory(workspaceController, youtubeLibraryController),
       },
       child: Focus(
         focusNode: focusNode,
@@ -91,8 +91,7 @@ class DesktopShell extends StatelessWidget {
                               offlineLibraryController:
                                   offlineLibraryController,
                               localeController: localeController,
-                              diagnosticLogController:
-                                  diagnosticLogController,
+                              diagnosticLogController: diagnosticLogController,
                             ),
                           ),
                         ),
@@ -339,12 +338,14 @@ class _ExpandedMediaTransitionState extends State<_ExpandedMediaTransition>
           key: const Key('expanded-media-slide'),
           position: _position,
           child: track.isVideo
-              ? VideoPlaybackOverlay(
-                  key: const ValueKey<String>('expanded-video'),
-                  track: track,
-                  playerController: widget.playerController,
-                  shellController: widget.shellController,
-                  videoController: widget.playerController.videoController,
+              ? RepaintBoundary(
+                  child: VideoPlaybackOverlay(
+                    key: const ValueKey<String>('expanded-video'),
+                    track: track,
+                    playerController: widget.playerController,
+                    shellController: widget.shellController,
+                    videoController: widget.playerController.videoController,
+                  ),
                 )
               : ExpandedLyricsOverlay(
                   key: const ValueKey<String>('expanded-lyrics'),
@@ -358,7 +359,7 @@ class _ExpandedMediaTransitionState extends State<_ExpandedMediaTransition>
   }
 }
 
-class _WorkspaceRegion extends StatelessWidget {
+class _WorkspaceRegion extends StatefulWidget {
   const _WorkspaceRegion({
     required this.workspaceController,
     required this.playerController,
@@ -378,18 +379,32 @@ class _WorkspaceRegion extends StatelessWidget {
   final DiagnosticLogController diagnosticLogController;
 
   @override
+  State<_WorkspaceRegion> createState() => _WorkspaceRegionState();
+}
+
+class _WorkspaceRegionState extends State<_WorkspaceRegion> {
+  // Lives as long as the shell, so a list keeps its scroll offset across detail
+  // opens and closes, and across switching workspaces and back.
+  final PageStorageBucket _storage = PageStorageBucket();
+
+  @override
   Widget build(BuildContext context) {
+    final region = _buildRegion(context);
+    return PageStorage(bucket: _storage, child: region);
+  }
+
+  Widget _buildRegion(BuildContext context) {
     return AnimatedBuilder(
       animation: Listenable.merge(<Listenable>[
-        workspaceController,
-        shellController,
-        youtubeLibraryController,
-        offlineLibraryController,
-        localeController,
-        diagnosticLogController,
+        widget.workspaceController,
+        widget.shellController,
+        widget.youtubeLibraryController,
+        widget.offlineLibraryController,
+        widget.localeController,
+        widget.diagnosticLogController,
       ]),
       builder: (context, _) {
-        final duration = shellController.reduceMotion
+        final duration = widget.shellController.reduceMotion
             ? Duration.zero
             : const Duration(milliseconds: 200);
         return AnimatedSwitcher(
@@ -409,16 +424,16 @@ class _WorkspaceRegion extends StatelessWidget {
             );
           },
           child: KeyedSubtree(
-            key: ValueKey<WorkspacePage>(workspaceController.current),
+            key: ValueKey<WorkspacePage>(widget.workspaceController.current),
             child: WorkspaceView(
-              page: workspaceController.current,
-              workspaceController: workspaceController,
-              playerController: playerController,
-              shellController: shellController,
-              youtubeLibraryController: youtubeLibraryController,
-              offlineLibraryController: offlineLibraryController,
-              localeController: localeController,
-              diagnosticLogController: diagnosticLogController,
+              page: widget.workspaceController.current,
+              workspaceController: widget.workspaceController,
+              playerController: widget.playerController,
+              shellController: widget.shellController,
+              youtubeLibraryController: widget.youtubeLibraryController,
+              offlineLibraryController: widget.offlineLibraryController,
+              localeController: widget.localeController,
+              diagnosticLogController: widget.diagnosticLogController,
             ),
           ),
         );

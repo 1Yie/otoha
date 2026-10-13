@@ -11,21 +11,23 @@ import 'package:otoha/l10n/app_localizations.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:otoha/src/app/otoha_app.dart';
 import 'package:otoha/src/app/theme.dart';
-import 'package:otoha/src/data/mock_catalog.dart';
 import 'package:otoha/src/models/catalog.dart';
 import 'package:otoha/src/models/offline_library.dart';
 import 'package:otoha/src/models/youtube_library.dart';
 import 'package:otoha/src/services/credential_store.dart';
+import 'package:otoha/src/services/diagnostic_log_store.dart';
 import 'package:otoha/src/services/audio_playback_engine.dart';
 import 'package:otoha/src/services/offline_library_store.dart';
 import 'package:otoha/src/services/player_session_store.dart';
 import 'package:otoha/src/services/youtube_sidecar_client.dart';
 import 'package:otoha/src/state/app_locale_controller.dart';
 import 'package:otoha/src/state/desktop_shell_controllers.dart';
+import 'package:otoha/src/state/diagnostic_log_controller.dart';
 import 'package:otoha/src/state/offline_library_controller.dart';
 import 'package:otoha/src/state/youtube_library_controller.dart';
 import 'package:otoha/src/widgets/artwork_image.dart';
 import 'package:otoha/src/widgets/player_bar.dart';
+import 'package:otoha/src/widgets/right_panel.dart';
 import 'package:otoha/src/widgets/expanded_lyrics.dart';
 import 'package:otoha/src/workspaces/search_workspace.dart';
 import 'package:otoha/src/workspaces/youtube_feed_workspace.dart';
@@ -151,9 +153,10 @@ void main() {
   testWidgets('artwork image reads absolute offline cover paths', (
     tester,
   ) async {
-    final artwork = File(
-      '${Directory.current.path}/assets/artwork/cover_01.png',
-    );
+    final directory = Directory.systemTemp.createTempSync('otoha-cover');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final artwork = File('${directory.path}/cover.png')
+      ..writeAsBytesSync(const <int>[0]);
 
     await tester.pumpWidget(
       Directionality(
@@ -169,7 +172,7 @@ void main() {
     expect(image.image, isA<FileImage>());
   });
 
-  testWidgets('production startup does not expose mock player data', (
+  testWidgets('production startup does not expose placeholder player data', (
     tester,
   ) async {
     await _setDesktopSurface(tester);
@@ -190,7 +193,7 @@ void main() {
     await tester.pump();
 
     expect(offlineController.isInitialized, isTrue);
-    expect(find.text('Soft Signal'), findsNothing);
+    expect(find.text('First Song'), findsNothing);
     expect(find.text('No track selected'), findsOneWidget);
     await tester.tap(find.byKey(const Key('player-queue')));
     await tester.pumpAndSettle();
@@ -205,7 +208,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('player-queue')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('After Image').first);
+    await tester.tap(find.text('Second Song').first);
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('sidebar-explore')));
@@ -213,7 +216,7 @@ void main() {
 
     expect(find.text('Explore'), findsWidgets);
     expect(find.byKey(const Key('player-track')), findsOneWidget);
-    expect(find.text('After Image'), findsWidgets);
+    expect(find.text('Second Song'), findsWidgets);
   });
 
   testWidgets('desktop playback shortcuts control the current queue', (
@@ -232,11 +235,11 @@ void main() {
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
-    expect(find.text('After Image'), findsWidgets);
+    expect(find.text('Second Song'), findsWidgets);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pump();
-    expect(find.text('Soft Signal'), findsWidgets);
+    expect(find.text('First Song'), findsWidgets);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.slash);
     await tester.pump();
@@ -264,7 +267,7 @@ void main() {
     await tester.pump();
 
     expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
-    expect(find.text('Soft Signal'), findsWidgets);
+    expect(find.text('First Song'), findsWidgets);
     expect(find.byTooltip('Repeat off (/)'), findsOneWidget);
   });
 
@@ -361,7 +364,7 @@ void main() {
       title: 'Downloaded track',
       artist: 'Artist',
       album: 'Album',
-      artworkAsset: 'assets/artwork/cover_01.png',
+      artworkAsset: 'https://example.com/cover.jpg',
       durationSeconds: 180,
       filePath: '/tmp/download-video.webm',
       mimeType: 'audio/webm',
@@ -466,7 +469,7 @@ void main() {
         title: 'First download',
         artist: 'First artist',
         album: 'First album',
-        artworkAsset: 'assets/artwork/cover_01.png',
+        artworkAsset: 'https://example.com/cover.jpg',
         durationSeconds: 180,
         filePath: '${Directory.systemTemp.path}/missing-first.webm',
         mimeType: 'audio/webm',
@@ -477,7 +480,7 @@ void main() {
         title: 'Second download',
         artist: 'Second artist',
         album: 'Second album',
-        artworkAsset: 'assets/artwork/cover_02.png',
+        artworkAsset: 'https://example.com/cover-2.jpg',
         durationSeconds: 200,
         filePath: '${Directory.systemTemp.path}/missing-second.webm',
         mimeType: 'audio/webm',
@@ -603,7 +606,7 @@ void main() {
         title: 'First track',
         artist: 'Artist one',
         album: 'First album',
-        artworkAsset: 'assets/artwork/cover_01.png',
+        artworkAsset: 'https://example.com/cover.jpg',
         durationSeconds: 180,
         filePath: '/tmp/first-video.webm',
         mimeType: 'audio/webm',
@@ -614,7 +617,7 @@ void main() {
         title: 'Second track',
         artist: 'Artist two',
         album: 'Second album',
-        artworkAsset: 'assets/artwork/cover_02.png',
+        artworkAsset: 'https://example.com/cover-2.jpg',
         durationSeconds: 200,
         filePath: '/tmp/second-video.webm',
         mimeType: 'audio/webm',
@@ -788,50 +791,68 @@ void main() {
     expect(store.snapshot.playlists.single.name, 'Created playlist');
   });
 
-  testWidgets(
-    'search workspace searches the local catalog and selects a track',
-    (tester) async {
-      await _setDesktopSurface(tester);
-      await _pumpSignedOutApp(tester);
+  testWidgets('signed-out search offers sign-in instead of local results', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    await _pumpSignedOutApp(tester);
 
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-      await tester.pump(const Duration(milliseconds: 250));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump(const Duration(milliseconds: 250));
 
-      await tester.enterText(find.byKey(const Key('search-field')), 'room');
-      await tester.pump();
-      final resultRow = find.byKey(
-        const Key('search-result-track-room-for-light'),
-      );
-      _expectForegroundInkCoversArtwork(
-        tester,
-        surface: resultRow,
-        artwork: find.descendant(
-          of: resultRow,
-          matching: find.byType(ArtworkImage),
-        ),
-      );
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.pump(const Duration(milliseconds: 250));
+    // The queue is never searched: a track already queued must not surface.
+    await tester.enterText(find.byKey(const Key('search-field')), 'First');
+    await tester.pump();
+    expect(
+      find.byKey(const Key('search-result-track-youtube:first')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('search-result-local-album-album-first')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('search-empty')), findsOneWidget);
 
-      expect(find.byKey(const Key('search-field')), findsOneWidget);
-      expect(find.text('Room for Light'), findsWidgets);
-    },
-  );
+    await tester.tap(find.byKey(const Key('search-sign-in')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('panel-account')), findsOneWidget);
+  });
 
   testWidgets('search workspace rows support scaled desktop text', (
     tester,
   ) async {
     await _setDesktopSurface(tester);
     final workspaceController = WorkspaceController();
-    final playerController = PlayerController(MockCatalog.tracks);
+    final playerController = PlayerController(const <Track>[]);
     final shellController = ShellController();
-    final libraryController = _signedOutLibraryController();
+    final libraryController = YouTubeLibraryController(
+      client: _NoopSidecarClient(
+        searchResponse: Future<Map<String, Object?>>.value(<String, Object?>{
+          'items': <Object?>[
+            _feedItem(
+              id: 'scaled-one',
+              title: 'Scaled result one',
+              itemType: 'song',
+              videoId: 'scaled-one',
+            ),
+            _feedItem(
+              id: 'scaled-two',
+              title: 'Scaled result two',
+              itemType: 'song',
+              videoId: 'scaled-two',
+            ),
+          ],
+        }),
+      ),
+      credentialStore: _EmptyCredentialStore(),
+    );
     addTearDown(workspaceController.dispose);
     addTearDown(playerController.dispose);
     addTearDown(shellController.dispose);
     addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
 
     await tester.pumpWidget(
       MaterialApp(
@@ -860,13 +881,16 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 250));
+    await tester.enterText(find.byKey(const Key('search-field')), 'scaled');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
     final firstResult = find.byKey(
-      const Key('search-result-track-soft-signal'),
+      const Key('search-result-youtube-song-scaled-one'),
     );
     final secondResult = find.byKey(
-      const Key('search-result-track-after-image'),
+      const Key('search-result-youtube-song-scaled-two'),
     );
     expect(
       tester.getTopLeft(firstResult).dy,
@@ -887,41 +911,6 @@ void main() {
     expect(
       tester.getTopLeft(secondResult).dy,
       greaterThan(tester.getTopLeft(firstResult).dy),
-    );
-  });
-
-  testWidgets('search workspace classifies local albums and artists', (
-    tester,
-  ) async {
-    await _setDesktopSurface(tester);
-    await _pumpSignedOutApp(tester);
-
-    await tester.tap(find.byKey(const Key('search-trigger')));
-    await tester.pump(const Duration(milliseconds: 250));
-    await tester.tap(find.byKey(const Key('search-filter-album')));
-    await tester.pump();
-    await tester.enterText(find.byKey(const Key('search-field')), 'static');
-    await tester.pump();
-
-    expect(
-      find.byKey(const Key('search-result-local-album-static-bloom')),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.byKey(const Key('search-filter-artist')));
-    await tester.pump();
-    await tester.enterText(find.byKey(const Key('search-field')), 'eloise');
-    await tester.pump();
-    final artist = find.byKey(
-      const Key('search-result-local-artist-eloise-park'),
-    );
-    expect(artist, findsOneWidget);
-
-    await tester.tap(artist);
-    await tester.pump();
-    expect(
-      tester.widget<Text>(find.byKey(const Key('player-track'))).data,
-      'Room for Light',
     );
   });
 
@@ -953,7 +942,7 @@ void main() {
             title: 'A track with constrained queue metadata',
             artist: longArtist,
             album: 'Queue regression',
-            artworkAsset: 'assets/artwork/cover_01.png',
+            artworkAsset: 'https://example.com/cover.jpg',
             durationSeconds: 180,
             lyrics: <String>[],
           ),
@@ -983,6 +972,70 @@ void main() {
 
     expect(find.byKey(const Key('player-volume-popup')), findsOneWidget);
     expect(find.byKey(const Key('player-volume-slider')), findsOneWidget);
+  });
+
+  testWidgets('output device names wrap without clipping their last line', (
+    tester,
+  ) async {
+    const longName =
+        'HDA Intel PCH, ALC274 Analog/7.1 Surround output to Front, Center, '
+        'Side, Rear and Woofer speakers';
+    final engine = _LongDeviceNameEngine(longName);
+    final player = PlayerController(
+      const <Track>[],
+      audioPlaybackEngine: engine,
+    );
+    final shell = ShellController();
+    final library = _signedOutLibraryController();
+    addTearDown(player.dispose);
+    addTearDown(shell.dispose);
+    addTearDown(library.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildOtohaTheme(),
+        locale: const Locale('zh'),
+        supportedLocales: AppLocaleController.supportedLocales,
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.centerRight,
+            child: RightPanelHost(
+              activePanel: SidePanel.devices,
+              playerController: player,
+              shellController: shell,
+              youtubeLibraryController: library,
+              reduceMotion: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final label = find.text(longName);
+    expect(label, findsOneWidget);
+    final row = find.ancestor(of: label, matching: find.byType(Container));
+    final textHeight = tester.getSize(label).height;
+    final rowHeight = tester.getSize(row.first).height;
+    // The label spans several lines, so the row must grow past its 48 px
+    // minimum and keep the whole label inside its own padding.
+    expect(textHeight, greaterThan(40));
+    expect(rowHeight, greaterThanOrEqualTo(textHeight + 16));
+    expect(tester.takeException(), isNull);
+
+    // List-row icons match the sidebar's 20 px, not the 24 px default.
+    final speakerIcons = tester.widgetList<Icon>(
+      find.byIcon(Icons.speaker_outlined),
+    );
+    expect(speakerIcons, isNotEmpty);
+    expect(speakerIcons.map((icon) => icon.size), everyElement(20));
+    expect(tester.widget<Icon>(find.byIcon(Icons.check_rounded)).size, 20);
   });
 
   testWidgets('output device control is directly available in the player bar', (
@@ -1022,6 +1075,8 @@ void main() {
     );
     expect(submit.onPressed, isNotNull);
 
+    await tester.ensureVisible(find.byKey(const Key('youtube-cookie-submit')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('youtube-cookie-submit')));
     await tester.pumpAndSettle();
 
@@ -1202,6 +1257,37 @@ void main() {
     expect(sessionStore.value, <String, Object?>{'audioQuality': 'normal'});
   });
 
+  testWidgets('Settings toggles diagnostic request logging', (tester) async {
+    await _setDesktopSurface(tester);
+    final store = _MemoryDiagnosticLogStore();
+    final diagnosticLogController = DiagnosticLogController(store: store);
+    addTearDown(diagnosticLogController.dispose);
+    final libraryController = _signedOutLibraryController();
+    addTearDown(libraryController.dispose);
+    await tester.pumpWidget(
+      OtohaApp(
+        youtubeLibraryController: libraryController,
+        diagnosticLogController: diagnosticLogController,
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('open-settings')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('diagnostic-log-switch')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(diagnosticLogController.enabled, isFalse);
+    await tester.tap(find.byKey(const Key('diagnostic-log-switch')));
+    await tester.pumpAndSettle();
+
+    expect(diagnosticLogController.enabled, isTrue);
+    expect(store.savedValue, isTrue);
+  });
+
   testWidgets('Settings displays the app icon and package version', (
     tester,
   ) async {
@@ -1223,6 +1309,11 @@ void main() {
     await tester.tap(find.byKey(const Key('open-settings')));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('settings-about')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.byKey(const Key('settings-about')), findsOneWidget);
     expect(find.byKey(const Key('settings-about-icon')), findsOneWidget);
     final aboutCard = find.byKey(const Key('settings-about'));
@@ -1240,7 +1331,9 @@ void main() {
     );
   });
 
-  testWidgets('Settings opens licenses and registers MiSans', (tester) async {
+  testWidgets('Settings opens licenses and registers bundled notices', (
+    tester,
+  ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await _setDesktopSurface(tester);
@@ -1272,6 +1365,16 @@ void main() {
         .join('\n');
     expect(miSansLicense, contains('Xiaomi Inc.'));
     expect(miSansLicense, contains('non-transferable, non-exclusive'));
+
+    final youtubeLicenses = await LicenseRegistry.licenses
+        .where((entry) => entry.packages.contains('YouTube.js'))
+        .toList();
+    expect(youtubeLicenses, hasLength(1));
+    final youtubeLicense = youtubeLicenses.single.paragraphs
+        .map((paragraph) => paragraph.text)
+        .join('\n');
+    expect(youtubeLicense, contains('MIT License'));
+    expect(youtubeLicense, contains('Copyright (c) 2021 LuanRT'));
 
     await tester.tap(licenses);
     await tester.pumpAndSettle();
@@ -2430,6 +2533,272 @@ void main() {
     expect(find.byKey(const Key('panel-comment-input')), findsOneWidget);
   });
 
+  testWidgets('expanded lyrics page shows time and rating controls', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final sidecarClient = _NoopSidecarClient();
+    final libraryController = _signedOutLibraryController(
+      client: sidecarClient,
+      accountWriteCooldown: Duration.zero,
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('youtube-feed-song-feed-home-item')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('player-now-playing')));
+    await tester.pumpAndSettle();
+
+    final expanded = find.byKey(const Key('expanded-lyrics-overlay'));
+    expect(expanded, findsOneWidget);
+    expect(
+      find.descendant(
+        of: expanded,
+        matching: find.byKey(const Key('expanded-lyrics-time')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: expanded,
+        matching: find.byKey(const Key('expanded-lyrics-like')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: expanded,
+        matching: find.byKey(const Key('expanded-lyrics-dislike')),
+      ),
+      findsOneWidget,
+    );
+
+    // The elapsed time is read at a glance, so it is not set in caption size.
+    final timeStyle = tester
+        .widget<Text>(find.byKey(const Key('expanded-lyrics-time')))
+        .style;
+    expect(timeStyle?.fontSize, greaterThanOrEqualTo(16));
+
+    // Time sits on the left and rating on the right of one row, with the
+    // transport centred between them, not stacked in separate rows.
+    final timeRect = tester.getRect(
+      find.byKey(const Key('expanded-lyrics-time')),
+    );
+    final likeRect = tester.getRect(
+      find.byKey(const Key('expanded-lyrics-like')),
+    );
+    final dislikeRect = tester.getRect(
+      find.byKey(const Key('expanded-lyrics-dislike')),
+    );
+    final playRect = tester.getRect(
+      find.byKey(const Key('expanded-lyrics-toggle-playing')),
+    );
+    expect(timeRect.left, lessThan(playRect.left));
+    expect(likeRect.left, greaterThan(playRect.right));
+    expect(dislikeRect.left, greaterThan(playRect.right));
+    expect(timeRect.center.dy, closeTo(likeRect.center.dy, 2));
+    expect(timeRect.center.dy, closeTo(playRect.center.dy, 2));
+
+    // The transport stays centred on the page.
+    final progress = tester.getRect(
+      find.byKey(const Key('expanded-lyrics-playback-progress')),
+    );
+    final playButton = tester.getCenter(
+      find.byKey(const Key('expanded-lyrics-toggle-playing')),
+    );
+    expect(playButton.dx, closeTo(progress.center.dx, 1));
+
+    await tester.tap(find.byKey(const Key('expanded-lyrics-like')));
+    await tester.pumpAndSettle();
+    expect(sidecarClient.methods, contains('interaction.rate'));
+    // The icon must reflect the new rating straight away, without the page
+    // being closed and reopened.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('expanded-lyrics-like')),
+        matching: find.byIcon(Icons.thumb_up_rounded),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'macOS title bar hides Windows controls and leaves room for traffic lights',
+    (tester) async {
+      await _setDesktopSurface(tester);
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      await _pumpSignedOutApp(tester);
+      await tester.pump();
+
+      expect(find.byIcon(Icons.minimize_rounded), findsNothing);
+      expect(find.byIcon(Icons.crop_square_rounded), findsNothing);
+      expect(find.byIcon(Icons.close_rounded), findsNothing);
+
+      // The brand group must start clear of the native traffic lights.
+      final brand = tester.getTopLeft(find.byIcon(Icons.graphic_eq_rounded));
+      expect(brand.dx, greaterThanOrEqualTo(72));
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets('opening an album detail slides in instead of snapping', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController(
+      client: _NoopSidecarClient(),
+      accountWriteCooldown: Duration.zero,
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('sidebar-explore')));
+    await tester.pump();
+    final albumCard = find.byWidgetPredicate(
+      (widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith(
+            'youtube-feed-album-',
+          ),
+    );
+    expect(albumCard, findsWidgets);
+    await tester.tap(albumCard.first);
+    // Bounded pumps only: the loading spinner never settles.
+    await tester.pump();
+    // Early enough that the 280 ms slide is still well short of its end.
+    await tester.pump(const Duration(milliseconds: 40));
+
+    final detail = find.byKey(const Key('youtube-feed-collection-detail'));
+    expect(detail, findsOneWidget);
+    // Only the feed switcher's own transition counts: other panels also slide.
+    final switcher = find
+        .ancestor(of: detail, matching: find.byType(AnimatedSwitcher))
+        .first;
+    final slide = find
+        .descendant(of: switcher, matching: find.byType(SlideTransition))
+        .first;
+    final midOffset = tester.widget<SlideTransition>(slide).position.value;
+    // The slide is horizontal: the detail enters from the right edge.
+    expect(midOffset.dx, greaterThan(0), reason: 'detail is not sliding in');
+    expect(midOffset.dx, lessThan(0.06));
+    expect(midOffset.dy, 0);
+  });
+
+  testWidgets('album detail appears at once when reduced motion is on', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final libraryController = _signedOutLibraryController(
+      client: _NoopSidecarClient(),
+      accountWriteCooldown: Duration.zero,
+    );
+    final shellController = ShellController()..setReduceMotion(true);
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('sidebar-explore')));
+    await tester.pump();
+    await tester.tap(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget.key is ValueKey<String> &&
+                (widget.key! as ValueKey<String>).value.startsWith(
+                  'youtube-feed-album-',
+                ),
+          )
+          .first,
+    );
+    await tester.pump();
+
+    final detail = find.byKey(const Key('youtube-feed-collection-detail'));
+    final slide = find
+        .ancestor(of: detail, matching: find.byType(SlideTransition))
+        .first;
+    expect(tester.widget<SlideTransition>(slide).position.value.dy, 0);
+    shellController.dispose();
+  });
+
+  testWidgets('switch thumb stays visible against the surface on hover', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    await _pumpSignedOutApp(tester);
+    await tester.tap(find.byKey(const Key('open-settings')));
+    await tester.pumpAndSettle();
+
+    final toggle = find.byKey(const Key('reduce-motion-switch'));
+    await tester.scrollUntilVisible(
+      toggle,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(toggle));
+    await tester.pumpAndSettle();
+
+    // Hovered and idle switches must both stand apart from the surface they sit
+    // on, so the thumb is never lost in the background.
+    final surface = OtohaColors.surface;
+    for (final states in <Set<WidgetState>>[
+      {WidgetState.hovered},
+      {WidgetState.hovered, WidgetState.selected},
+      <WidgetState>{},
+    ]) {
+      expect(
+        _appSwitchThumb(states),
+        isNot(surface),
+        reason: 'thumb blends into the surface in $states',
+      );
+    }
+  });
+
+  testWidgets('title bar keeps Windows controls on Linux and Windows', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    await _pumpSignedOutApp(tester);
+    await tester.pump();
+
+    expect(find.byIcon(Icons.minimize_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.close_rounded), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('search shortcut hint uses Cmd on macOS and Ctrl elsewhere', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    await _pumpSignedOutApp(tester);
+    await tester.pump();
+    expect(find.text('Cmd K'), findsOneWidget);
+    expect(find.text('Ctrl K'), findsNothing);
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    await _pumpSignedOutApp(tester);
+    await tester.pump();
+    expect(find.text('Ctrl K'), findsOneWidget);
+    expect(find.text('Cmd K'), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('Library playlist details use the shared music track rows', (
     tester,
   ) async {
@@ -3147,6 +3516,87 @@ void main() {
     expect(overlay, findsNothing);
   });
 
+  testWidgets('album detail forward shows loading until it restores', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final restoreCompleter = Completer<Map<String, Object?>>();
+    final client = _NoopSidecarClient(
+      searchResponse: Future<Map<String, Object?>>.value(<String, Object?>{
+        'items': <Object?>[
+          _feedItem(
+            id: 'search-album',
+            title: 'Fresh album',
+            itemType: 'album',
+          ),
+        ],
+      }),
+    );
+    final libraryController = YouTubeLibraryController(
+      client: client,
+      credentialStore: _EmptyCredentialStore(),
+    );
+    addTearDown(libraryController.dispose);
+    await libraryController.signInWithCookie('SID=test-cookie');
+    await tester.pumpWidget(
+      OtohaApp(youtubeLibraryController: libraryController),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('search-trigger')));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.enterText(find.byKey(const Key('search-field')), 'fresh');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const Key('search-result-youtube-album-search-album')),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      find.byKey(const Key('youtube-feed-collection-detail')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('history-back')));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      find.byKey(const Key('youtube-feed-collection-detail')),
+      findsNothing,
+    );
+
+    // Hold only the restore request so the first open uses the default data.
+    client.queuedCollectionResponses.add(restoreCompleter.future);
+    await tester.tap(find.byKey(const Key('history-forward')));
+    await tester.pump();
+    expect(find.byKey(const Key('history-forward-loading')), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('history-forward')))
+          .onPressed,
+      isNull,
+    );
+
+    restoreCompleter.complete(<String, Object?>{
+      'tracks': <Object?>[
+        <String, Object?>{
+          'videoId': 'restored-video',
+          'title': 'Restored track',
+          'artists': <String>['Album artist'],
+          'durationSeconds': 180,
+          'itemType': 'song',
+        },
+      ],
+      'hasMore': false,
+    });
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('history-forward-loading')), findsNothing);
+    expect(
+      find.byKey(const Key('youtube-feed-collection-detail')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('search details return to the same query and filter', (
     tester,
   ) async {
@@ -3579,6 +4029,69 @@ void main() {
     );
   });
 
+  testWidgets('untimed lyrics do not highlight a line from playback progress', (
+    tester,
+  ) async {
+    await _setDesktopSurface(tester);
+    final playerController = PlayerController(<Track>[
+      const Track(
+        id: 'dQw4w9WgXcQ',
+        title: 'Untimed title',
+        artist: 'Artist',
+        album: 'Album',
+        artworkAsset: '',
+        durationSeconds: 200,
+        lyrics: <String>[],
+      ),
+    ]);
+    final shellController = ShellController();
+    final youtubeLibraryController = YouTubeLibraryController(
+      client: _UntimedLyricsSidecarClient(),
+      credentialStore: _EmptyCredentialStore(),
+    );
+    addTearDown(playerController.dispose);
+    addTearDown(shellController.dispose);
+    addTearDown(youtubeLibraryController.dispose);
+    await youtubeLibraryController.signInWithCookie('SID=test-cookie');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildOtohaTheme(),
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ExpandedLyricsOverlay(
+            playerController: playerController,
+            shellController: shellController,
+            youtubeLibraryController: youtubeLibraryController,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Untimed one'), findsOneWidget);
+
+    // Remote lyrics are always treated as timed, so an untimed line never
+    // lights up at any point. The proportional guess only applies to local
+    // lyrics with no timing and is not reached here.
+    for (final seconds in <int>[0, 60, 120, 199]) {
+      playerController.seekTo(seconds);
+      await tester.pump();
+      for (final line in <String>['Untimed one', 'Untimed two']) {
+        expect(
+          _lyricStyle(tester, line).color,
+          isNot(OtohaColors.accent),
+          reason: '"$line" highlighted at $seconds s',
+        );
+      }
+    }
+  });
+
   testWidgets('expanded lyrics read timed text from an offline bundle', (
     tester,
   ) async {
@@ -3590,7 +4103,7 @@ void main() {
         title: 'Offline lyrics track',
         artist: 'Offline artist',
         album: 'Offline album',
-        artworkAsset: 'assets/artwork/cover_01.png',
+        artworkAsset: 'https://example.com/cover.jpg',
         durationSeconds: 213,
         lyrics: <String>[],
         youtubeVideoId: 'dQw4w9WgXcQ',
@@ -3808,6 +4321,14 @@ void _expectForegroundInkCoversArtwork(
   expect(identical(interactionStack.children.last, positioned), isTrue);
 }
 
+/// The thumb colour the app's switch theme resolves for [states].
+Color _appSwitchThumb(Set<WidgetState> states) {
+  final theme = buildOtohaTheme();
+  final resolved = theme.switchTheme.thumbColor?.resolve(states);
+  assert(resolved != null, 'the app must define a switch thumb colour');
+  return resolved!;
+}
+
 TextStyle _lyricStyle(WidgetTester tester, String text) {
   return tester
       .widget<AnimatedDefaultTextStyle>(
@@ -3857,13 +4378,30 @@ YouTubeLibraryController _signedOutLibraryController({
   );
 }
 
+Track _queueTrack(String videoId, {String? title, String? artist}) {
+  return Track(
+    id: 'youtube:$videoId',
+    title: title ?? 'Track $videoId',
+    artist: artist ?? 'Artist $videoId',
+    album: 'Album $videoId',
+    artworkAsset: 'https://example.com/$videoId.jpg',
+    durationSeconds: 180,
+    lyrics: const <String>[],
+    youtubeVideoId: videoId,
+  );
+}
+
 Future<void> _pumpSignedOutApp(WidgetTester tester) async {
   final controller = _signedOutLibraryController();
   addTearDown(controller.dispose);
   await tester.pumpWidget(
     OtohaApp(
       youtubeLibraryController: controller,
-      initialTracks: MockCatalog.tracks,
+      initialTracks: <Track>[
+        _queueTrack('first', title: 'First Song'),
+        _queueTrack('second', title: 'Second Song'),
+        _queueTrack('third', title: 'Third Song'),
+      ],
     ),
   );
 }
@@ -3878,6 +4416,7 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     this.trackResponses = const <String, Map<String, Object?>>{},
     this.searchResponse,
     this.collectionResponse,
+    List<Future<Map<String, Object?>>>? queuedCollectionResponses,
     this.playlistResponse,
     this.signInError,
     this.homeItemCount = 1,
@@ -3891,6 +4430,9 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
     this.followedArtistCount = 1,
   }) : historyResponses = List<Future<Map<String, Object?>>>.of(
          historyResponses ?? const <Future<Map<String, Object?>>>[],
+       ),
+       queuedCollectionResponses = List<Future<Map<String, Object?>>>.of(
+         queuedCollectionResponses ?? const <Future<Map<String, Object?>>>[],
        );
 
   final Future<Map<String, Object?>>? browseResponse;
@@ -3901,6 +4443,8 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
   final Map<String, Map<String, Object?>> trackResponses;
   final Future<Map<String, Object?>>? searchResponse;
   final Future<Map<String, Object?>>? collectionResponse;
+  // Consumed in call order before [collectionResponse], one per request.
+  final List<Future<Map<String, Object?>>> queuedCollectionResponses;
   final Future<Map<String, Object?>>? playlistResponse;
   final SidecarException? signInError;
   final int homeItemCount;
@@ -3979,6 +4523,9 @@ class _NoopSidecarClient extends YouTubeSidecarClient {
       if (trackResponse != null) {
         return await trackResponse!;
       }
+    }
+    if (method == 'feed.collection' && queuedCollectionResponses.isNotEmpty) {
+      return await queuedCollectionResponses.removeAt(0);
     }
     if (method == 'feed.collection' && collectionResponse != null) {
       return await collectionResponse!;
@@ -4595,4 +5142,112 @@ Future<void> _pumpVideoCapableApp(
     ),
   );
   await tester.pump();
+}
+
+class _LongDeviceNameEngine implements AudioPlaybackEngine {
+  _LongDeviceNameEngine(String description)
+    : outputState = AudioOutputState(
+        devices: <AudioOutputDevice>[
+          const AudioOutputDevice.systemDefault(),
+          AudioOutputDevice(id: 'alsa/long', description: description),
+        ],
+        selectedDevice: const AudioOutputDevice.systemDefault(),
+      );
+
+  @override
+  final AudioOutputState outputState;
+
+  @override
+  Stream<AudioPlaybackSnapshot> get states =>
+      const Stream<AudioPlaybackSnapshot>.empty();
+
+  @override
+  Stream<AudioOutputState> get outputStates =>
+      const Stream<AudioOutputState>.empty();
+
+  @override
+  get videoController => null;
+
+  @override
+  Future<void> open(
+    String videoId, {
+    Duration initialPosition = Duration.zero,
+    bool isVideo = false,
+    bool autoplay = true,
+    AudioQuality audioQuality = AudioQuality.high,
+  }) async {}
+
+  @override
+  Future<void> openLocalFile(
+    String path, {
+    Duration initialPosition = Duration.zero,
+  }) async {}
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> seek(Duration position) async {}
+
+  @override
+  Future<void> setVolume(double value) async {}
+
+  @override
+  Future<void> setOutputDevice(AudioOutputDevice device) async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {}
+}
+
+/// Serves plain lyrics with no start times, the shape YouTube Music returns.
+class _UntimedLyricsSidecarClient extends YouTubeSidecarClient {
+  _UntimedLyricsSidecarClient() : super(entryPath: 'unused');
+
+  @override
+  Stream<SidecarEvent> get events => const Stream<SidecarEvent>.empty();
+
+  @override
+  Future<Map<String, Object?>> call(
+    String method, [
+    Map<String, Object?> params = const <String, Object?>{},
+  ]) async {
+    switch (method) {
+      case 'session.restore':
+      case 'auth.cookie.signIn':
+        return <String, Object?>{
+          'authenticated': true,
+          'mode': 'cookie',
+          'profile': <String, Object?>{'displayName': 'Listener'},
+        };
+      case 'lyrics.get':
+        return <String, Object?>{
+          'source': 'youtube_music',
+          'lines': <Object?>[
+            <String, Object?>{'text': 'Untimed one'},
+            <String, Object?>{'text': 'Untimed two'},
+          ],
+        };
+      default:
+        return <String, Object?>{};
+    }
+  }
+}
+
+class _MemoryDiagnosticLogStore extends DiagnosticLogStore {
+  bool? savedValue;
+
+  @override
+  Future<bool> readEnabled() async => savedValue ?? false;
+
+  @override
+  Future<void> writeEnabled(bool enabled) async => savedValue = enabled;
+
+  @override
+  Future<void> append(String message) async {}
 }

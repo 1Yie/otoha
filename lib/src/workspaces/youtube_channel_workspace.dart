@@ -19,6 +19,7 @@ typedef ChannelTextCopier = Future<void> Function(String text);
 
 class YouTubeChannelWorkspace extends StatelessWidget {
   const YouTubeChannelWorkspace({
+    required this.workspaceController,
     required this.controller,
     required this.playerController,
     required this.shellController,
@@ -27,11 +28,14 @@ class YouTubeChannelWorkspace extends StatelessWidget {
     super.key,
   });
 
+  final WorkspaceController workspaceController;
   final YouTubeLibraryController controller;
   final PlayerController playerController;
   final ShellController shellController;
   final ChannelUrlLauncher? launchExternalUrl;
   final ChannelTextCopier? copyText;
+
+  void _goBack() => goBackInHistory(workspaceController, controller);
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +62,7 @@ class YouTubeChannelWorkspace extends StatelessWidget {
                   !controller.isAccountWriteCoolingDown,
               onToggleLibrary: () =>
                   unawaited(controller.toggleAlbumLibrary(collection)),
-              onBack: controller.closeFeedDetail,
+              onBack: _goBack,
             );
           }
           final podcast = controller.selectedPodcastShow;
@@ -72,7 +76,7 @@ class YouTubeChannelWorkspace extends StatelessWidget {
               canToggleLibrary:
                   controller.podcastLibraryWriteId == null &&
                   !controller.isAccountWriteCoolingDown,
-              onBack: controller.closeFeedDetail,
+              onBack: _goBack,
               onLoadMore: controller.loadMorePodcastShow,
               onToggleLibrary: () =>
                   unawaited(controller.togglePodcastLibrary(podcast)),
@@ -87,7 +91,7 @@ class YouTubeChannelWorkspace extends StatelessWidget {
               youtubeLibraryController: controller,
               loadingItemId: controller.loadingFeedItemId,
               reduceMotion: shellController.reduceMotion,
-              onBack: controller.closeFeedDetail,
+              onBack: _goBack,
               onTap: _actionFor,
             );
           }
@@ -158,7 +162,7 @@ class YouTubeChannelWorkspace extends StatelessWidget {
     final tracks = await controller.openFeedCollection(item, source: 'channel');
     if (tracks.length == 1 && item.itemType != 'album') {
       playerController.playTracks([
-        asSimulatedYouTubeTrack(
+        asPlayableYouTubeTrack(
           tracks.single,
           artworkFallback: item.thumbnailUrl,
           albumFallback: item.title,

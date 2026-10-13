@@ -6,7 +6,6 @@ import 'package:otoha/l10n/app_localizations.dart';
 
 import '../app/theme.dart';
 import '../app/youtube_library_error_localizations.dart';
-import '../data/mock_catalog.dart';
 import '../models/catalog.dart';
 import '../models/youtube_library.dart';
 import '../state/desktop_shell_controllers.dart';
@@ -68,6 +67,11 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
     super.dispose();
   }
 
+  void _goBack() => goBackInHistory(
+    widget.workspaceController,
+    widget.youtubeLibraryController,
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -84,7 +88,7 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
             !controller.isAccountWriteCoolingDown,
         onToggleLibrary: () =>
             unawaited(controller.toggleAlbumLibrary(collection)),
-        onBack: controller.closeFeedDetail,
+        onBack: _goBack,
       );
     }
     final podcast = controller.selectedPodcastShow;
@@ -98,7 +102,7 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
         canToggleLibrary:
             controller.podcastLibraryWriteId == null &&
             !controller.isAccountWriteCoolingDown,
-        onBack: controller.closeFeedDetail,
+        onBack: _goBack,
         onLoadMore: controller.loadMorePodcastShow,
         onToggleLibrary: () =>
             unawaited(controller.togglePodcastLibrary(podcast)),
@@ -113,7 +117,7 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
         youtubeLibraryController: controller,
         loadingItemId: controller.loadingFeedItemId,
         reduceMotion: widget.shellController.reduceMotion,
-        onBack: controller.closeFeedDetail,
+        onBack: _goBack,
         onTap: _actionFor,
       );
     }
@@ -241,17 +245,24 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
     double horizontalPadding,
   ) {
     if (items.isEmpty) {
+      final isSignedIn = widget.youtubeLibraryController.isSignedIn;
       return <Widget>[
         SliverFillRemaining(
           hasScrollBody: false,
           child: Center(
             key: const Key('search-empty'),
-            child: Text(
-              widget.youtubeLibraryController.isSignedIn
-                  ? l10n.noYouTubeMusicMatches
-                  : l10n.noLocalMatches,
-              style: const TextStyle(color: OtohaColors.mutedText),
-            ),
+            child: isSignedIn
+                ? Text(
+                    l10n.noYouTubeMusicMatches,
+                    style: const TextStyle(color: OtohaColors.mutedText),
+                  )
+                : FilledButton.icon(
+                    key: const Key('search-sign-in'),
+                    onPressed: () =>
+                        widget.shellController.togglePanel(SidePanel.account),
+                    icon: const Icon(Icons.login_rounded),
+                    label: Text(l10n.signInToYouTubeMusic),
+                  ),
           ),
         ),
       ];
@@ -319,13 +330,14 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
     final query = _queryController.text.trim();
     final controller = widget.youtubeLibraryController;
     final filter = controller.searchFilter;
-    final musicItems = controller.isSignedIn
-        ? controller.searchQuery == query && controller.searchFilter == filter
-              ? controller.searchResults
-                    .map((item) => _SearchItem.youtube(item, l10n))
-                    .toList(growable: false)
-              : const <_SearchItem>[]
-        : _localItems(query, filter, l10n);
+    final musicItems =
+        controller.isSignedIn &&
+            controller.searchQuery == query &&
+            controller.searchFilter == filter
+        ? controller.searchResults
+              .map((item) => _SearchItem.youtube(item, l10n))
+              .toList(growable: false)
+        : const <_SearchItem>[];
     if (filter != YouTubeMusicSearchFilter.all) {
       return musicItems;
     }
@@ -343,70 +355,6 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
         .map((page) => _SearchItem.workspace(page, l10n))
         .toList(growable: false);
     return <_SearchItem>[...musicItems, ...workspaces];
-  }
-
-  List<_SearchItem> _localItems(
-    String query,
-    YouTubeMusicSearchFilter filter,
-    AppLocalizations l10n,
-  ) {
-    if (filter == YouTubeMusicSearchFilter.all ||
-        filter == YouTubeMusicSearchFilter.song) {
-      return MockCatalog.search(
-        query,
-      ).map((track) => _SearchItem.track(track, l10n)).toList(growable: false);
-    }
-    final normalizedQuery = query.toLowerCase();
-    if (filter == YouTubeMusicSearchFilter.album) {
-      return _groupTracks((track) => track.album).entries
-          .where((entry) {
-            final artists = entry.value.map((track) => track.artist).join(' ');
-            return normalizedQuery.isEmpty ||
-                '${entry.key} $artists'.toLowerCase().contains(normalizedQuery);
-          })
-          .map(
-            (entry) => _SearchItem.localGroup(
-              id: 'local-album-${_slug(entry.key)}',
-              title: entry.key,
-              subtitle: entry.value
-                  .map((track) => track.artist)
-                  .toSet()
-                  .join(', '),
-              kind: l10n.album,
-              icon: Icons.album_rounded,
-              tracks: entry.value,
-            ),
-          )
-          .toList(growable: false);
-    }
-    if (filter == YouTubeMusicSearchFilter.artist) {
-      return _groupTracks((track) => track.artist).entries
-          .where((entry) {
-            final albums = entry.value.map((track) => track.album).join(' ');
-            return normalizedQuery.isEmpty ||
-                '${entry.key} $albums'.toLowerCase().contains(normalizedQuery);
-          })
-          .map(
-            (entry) => _SearchItem.localGroup(
-              id: 'local-artist-${_slug(entry.key)}',
-              title: entry.key,
-              subtitle: l10n.tracksCount(entry.value.length),
-              kind: l10n.artist,
-              icon: Icons.person_rounded,
-              tracks: entry.value,
-            ),
-          )
-          .toList(growable: false);
-    }
-    return const <_SearchItem>[];
-  }
-
-  Map<String, List<Track>> _groupTracks(String Function(Track track) keyFor) {
-    final groups = <String, List<Track>>{};
-    for (final track in MockCatalog.tracks) {
-      groups.putIfAbsent(keyFor(track), () => <Track>[]).add(track);
-    }
-    return groups;
   }
 
   void _moveSelection(int offset) {
@@ -477,10 +425,6 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
   }
 
   Future<void> _activateItem(_SearchItem item) async {
-    if (item.localTracks != null) {
-      widget.playerController.playTracks(item.localTracks!);
-      return;
-    }
     if (item.workspace != null) {
       widget.workspaceController.navigateTo(item.workspace!);
       return;
@@ -515,14 +459,14 @@ class _SearchWorkspaceState extends State<SearchWorkspace> {
     );
     if (tracks.length == 1 && item.itemType != 'album') {
       widget.playerController.playTracks(<Track>[
-        _asSimulatedTrack(tracks.first, item),
+        _asPlayableTrack(tracks.first, item),
       ]);
     }
   }
 
   Future<void> _playFeedItem(YouTubeFeedItem item) async {
     final track = await widget.youtubeLibraryController.resolveFeedTrack(item);
-    widget.playerController.playTracks(<Track>[_asSimulatedTrack(track, item)]);
+    widget.playerController.playTracks(<Track>[_asPlayableTrack(track, item)]);
   }
 }
 
@@ -604,39 +548,9 @@ class _SearchItem {
     required this.subtitle,
     required this.kind,
     required this.icon,
-    this.localTracks,
     this.workspace,
     this.youtubeItem,
   });
-
-  factory _SearchItem.track(Track track, AppLocalizations l10n) {
-    return _SearchItem._(
-      id: 'track-${track.id}',
-      title: track.title,
-      subtitle: '${track.artist} - ${track.album}',
-      kind: l10n.song,
-      icon: Icons.music_note_rounded,
-      localTracks: <Track>[track],
-    );
-  }
-
-  factory _SearchItem.localGroup({
-    required String id,
-    required String title,
-    required String subtitle,
-    required String kind,
-    required IconData icon,
-    required List<Track> tracks,
-  }) {
-    return _SearchItem._(
-      id: id,
-      title: title,
-      subtitle: subtitle,
-      kind: kind,
-      icon: icon,
-      localTracks: List<Track>.unmodifiable(tracks),
-    );
-  }
 
   factory _SearchItem.workspace(WorkspacePage page, AppLocalizations l10n) {
     return _SearchItem._(
@@ -677,16 +591,14 @@ class _SearchItem {
   final String subtitle;
   final String kind;
   final IconData icon;
-  final List<Track>? localTracks;
   final WorkspacePage? workspace;
   final YouTubeFeedItem? youtubeItem;
 
-  String? get artworkPath =>
-      localTracks?.first.artworkAsset ?? youtubeItem?.thumbnailUrl;
+  String? get artworkPath => youtubeItem?.thumbnailUrl;
   bool get isProfile => youtubeItem?.isProfile ?? false;
 }
 
-Track _asSimulatedTrack(YouTubeTrack track, YouTubeFeedItem source) {
+Track _asPlayableTrack(YouTubeTrack track, YouTubeFeedItem source) {
   final artists = track.artists.isNotEmpty ? track.artists : source.artists;
   return Track(
     id: track.videoId,
@@ -747,9 +659,3 @@ IconData _youtubeIcon(String itemType) => switch (itemType) {
   'video' => Icons.videocam_rounded,
   _ => Icons.music_note_rounded,
 };
-
-String _slug(String value) => value
-    .trim()
-    .toLowerCase()
-    .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-    .replaceAll(RegExp(r'^-|-$'), '');
