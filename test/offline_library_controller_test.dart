@@ -118,6 +118,69 @@ void main() {
     expect(snapshot.downloadDirectory, customPath);
   });
 
+  test('keeps intact records when one download entry is damaged', () async {
+    final root = await Directory.systemTemp.createTemp('otoha-damaged-');
+    addTearDown(() => root.delete(recursive: true));
+    final libraryDirectory = Directory('${root.path}/offline-library');
+    await libraryDirectory.create(recursive: true);
+    Map<String, Object?> record(String videoId) => <String, Object?>{
+      'videoId': videoId,
+      'title': 'Title $videoId',
+      'artist': 'Artist',
+      'album': 'Album',
+      'artworkAsset': '/art.jpg',
+      'durationSeconds': 120,
+      'filePath': '/$videoId.m4a',
+      'mimeType': 'audio/mp4',
+      'downloadedAt': '2026-01-01T00:00:00.000Z',
+    };
+    final damaged = record('damaged')..remove('album');
+    await File('${libraryDirectory.path}/library.json').writeAsString(
+      jsonEncode(<String, Object?>{
+        'downloadDirectory': '/music',
+        'downloads': <Object?>[record('first'), damaged, record('second')],
+        'playlists': <Object?>[],
+      }),
+    );
+    final store = FileOfflineLibraryStore(
+      homeDirectory: root,
+      applicationSupportDirectory: root,
+    );
+
+    final snapshot = await store.read();
+
+    expect(snapshot.downloads.map((track) => track.videoId), <String>[
+      'first',
+      'second',
+    ]);
+    expect(snapshot.downloadDirectory, '/music');
+  });
+
+  test(
+    'preserves an unreadable library file instead of overwriting it',
+    () async {
+      final root = await Directory.systemTemp.createTemp('otoha-unreadable-');
+      addTearDown(() => root.delete(recursive: true));
+      final libraryDirectory = Directory('${root.path}/offline-library');
+      await libraryDirectory.create(recursive: true);
+      final libraryFile = File('${libraryDirectory.path}/library.json');
+      await libraryFile.writeAsString('{not valid json');
+      final store = FileOfflineLibraryStore(
+        homeDirectory: root,
+        applicationSupportDirectory: root,
+      );
+
+      final snapshot = await store.read();
+
+      expect(snapshot.downloads, isEmpty);
+      expect(await libraryFile.exists(), isFalse);
+      expect(
+        await File('${libraryFile.path}.corrupt').readAsString(),
+        '{not valid json',
+      );
+    },
+  );
+
   test(
     'records a user-initiated download and removes its local file',
     () async {
@@ -142,7 +205,7 @@ void main() {
         title: 'Offline track',
         artist: 'Artist',
         album: 'Album',
-        artworkAsset: 'assets/artwork/cover_01.png',
+        artworkAsset: 'https://example.com/cover.jpg',
         durationSeconds: 180,
         lyrics: <String>[],
         youtubeVideoId: 'video-id',
@@ -236,7 +299,7 @@ void main() {
         title: 'Offline track',
         artist: 'Artist',
         album: 'Album',
-        artworkAsset: 'assets/artwork/cover_01.png',
+        artworkAsset: 'https://example.com/cover.jpg',
         durationSeconds: 180,
         filePath: '${Directory.systemTemp.path}/missing-audio.webm',
         mimeType: 'audio/webm',
@@ -283,6 +346,42 @@ void main() {
       expect(store.snapshot.playlists.single.artworkVideoId, isNull);
     },
   );
+
+  test('serializes overlapping library writes in order', () async {
+    final store = _SlowWriteOfflineLibraryStore(Directory.systemTemp.path);
+    final youtube = YouTubeLibraryController(
+      client: _DownloadSidecarClient(),
+      credentialStore: _MemoryCredentialStore(),
+    );
+    final offline = OfflineLibraryController(
+      store: store,
+      youtubeLibraryController: youtube,
+    );
+    addTearDown(youtube.dispose);
+    addTearDown(offline.dispose);
+    await offline.initialize();
+
+    final first = offline.createPlaylist('First');
+    final second = offline.createPlaylist('Second');
+    await Future<void>.delayed(Duration.zero);
+
+    // The second write must not start while the first is still in flight.
+    expect(store.events, <String>['write 1 start']);
+
+    store.releaseFirstWrite!.complete();
+    await Future.wait(<Future<void>>[first, second]);
+
+    expect(store.events, <String>[
+      'write 1 start',
+      'write 1 end',
+      'write 2 start',
+      'write 2 end',
+    ]);
+    expect(store.snapshot.playlists.map((playlist) => playlist.name), <String>[
+      'Second',
+      'First',
+    ]);
+  });
 
   test('coalesces concurrent persisted library initialization', () async {
     final readCompleter = Completer<OfflineLibrarySnapshot>();
@@ -377,7 +476,7 @@ DownloadedTrack _downloadedTrack(String videoId, String directory) {
     title: 'Track $videoId',
     artist: 'Artist',
     album: 'Album',
-    artworkAsset: 'assets/artwork/cover_01.png',
+    artworkAsset: 'https://example.com/cover.jpg',
     durationSeconds: 180,
     filePath: '$directory${Platform.pathSeparator}$videoId.webm',
     mimeType: 'audio/webm',
@@ -407,6 +506,25 @@ class _MemoryOfflineLibraryStore implements OfflineLibraryStore {
   Future<void> write(OfflineLibrarySnapshot snapshot) async {
     this.snapshot = snapshot;
     writeCount += 1;
+  }
+}
+
+class _SlowWriteOfflineLibraryStore extends _MemoryOfflineLibraryStore {
+  _SlowWriteOfflineLibraryStore(super.defaultDirectory);
+
+  final List<String> events = <String>[];
+  Completer<void>? releaseFirstWrite;
+
+  @override
+  Future<void> write(OfflineLibrarySnapshot snapshot) async {
+    final label = 'write ${writeCount + 1}';
+    events.add('$label start');
+    if (writeCount == 0) {
+      releaseFirstWrite = Completer<void>();
+      await releaseFirstWrite!.future;
+    }
+    await super.write(snapshot);
+    events.add('$label end');
   }
 }
 

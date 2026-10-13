@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/offline_library.dart';
+import 'atomic_file.dart';
 
 @immutable
 class OfflineLibrarySnapshot {
@@ -23,11 +24,17 @@ class OfflineLibrarySnapshot {
       downloadDirectory: json['downloadDirectory'] as String?,
       downloads: (json['downloads'] as List<Object?>? ?? const <Object?>[])
           .whereType<Map<Object?, Object?>>()
-          .map((item) => DownloadedTrack.fromJson(item.cast<String, Object?>()))
+          .map(
+            (item) => DownloadedTrack.tryFromJson(item.cast<String, Object?>()),
+          )
+          .nonNulls
           .toList(growable: false),
       playlists: (json['playlists'] as List<Object?>? ?? const <Object?>[])
           .whereType<Map<Object?, Object?>>()
-          .map((item) => OfflinePlaylist.fromJson(item.cast<String, Object?>()))
+          .map(
+            (item) => OfflinePlaylist.tryFromJson(item.cast<String, Object?>()),
+          )
+          .nonNulls
           .toList(growable: false),
     );
   }
@@ -77,6 +84,8 @@ class FileOfflineLibraryStore implements OfflineLibraryStore {
       );
       return await _migrateLegacyDefaultDirectory(snapshot);
     } on Object {
+      // Keep the unreadable file aside so the next write cannot overwrite it.
+      await _preserveUnreadableFile();
       return const OfflineLibrarySnapshot();
     }
   }
@@ -84,19 +93,28 @@ class FileOfflineLibraryStore implements OfflineLibraryStore {
   @override
   Future<void> write(OfflineLibrarySnapshot snapshot) async {
     final file = await _file();
-    final temporary = File('${file.path}.part');
-    await temporary.writeAsString(jsonEncode(snapshot.toJson()), flush: true);
-    if (await file.exists()) {
-      await file.delete();
-    }
-    await temporary.rename(file.path);
+    await writeFileAtomically(file, jsonEncode(snapshot.toJson()));
   }
 
   @override
   Future<String> defaultDownloadDirectory() async {
-    final home = _homeDirectory();
-    final musicDirectory = await _musicDirectory(home);
-    return '${musicDirectory.path}${Platform.pathSeparator}otoha${Platform.pathSeparator}yt_music_download';
+    final musicDirectory = await musicDirectoryPath();
+    return '$musicDirectory${Platform.pathSeparator}otoha${Platform.pathSeparator}yt_music_download';
+  }
+
+  /// The user's Music folder, honouring XDG on Linux.
+  Future<String> musicDirectoryPath() async =>
+      (await _musicDirectory(_homeDirectory())).path;
+
+  Future<void> _preserveUnreadableFile() async {
+    try {
+      final file = await _file();
+      if (await file.exists()) {
+        await file.rename('${file.path}.corrupt');
+      }
+    } on Object {
+      // Preservation is best effort; a failure here must not block startup.
+    }
   }
 
   Future<File> _file() async {

@@ -22,7 +22,28 @@ void main() {
     await controller.initialize();
 
     expect(controller.status, YouTubeAccountStatus.signedOut);
-    expect(client.methods, isEmpty);
+    // Signed out, the sidecar is warmed in the background so the first sign-in
+    // does not have to retrieve and parse the player script.
+    expect(client.methods, <String>['session.warmup']);
+  });
+
+  test('does not warm a session when an account is restored', () async {
+    final client = _FakeSidecarClient();
+    final store = _MemoryCredentialStore()
+      ..value = jsonEncode(<String, Object?>{
+        'kind': 'cookie',
+        'value': 'SID=test-cookie',
+      });
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: store,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+
+    expect(controller.status, YouTubeAccountStatus.signedIn);
+    expect(client.methods, isNot(contains('session.warmup')));
   });
 
   test('clears legacy OAuth credentials', () async {
@@ -42,7 +63,7 @@ void main() {
 
     expect(controller.status, YouTubeAccountStatus.signedOut);
     expect(store.value, isNull);
-    expect(client.methods, isEmpty);
+    expect(client.methods, <String>['session.warmup']);
   });
 
   test(
@@ -1103,7 +1124,7 @@ void main() {
     },
   );
 
-  test('loads a feed album as a simulated playback collection', () async {
+  test('loads a feed album as a playback collection', () async {
     final client = _FakeSidecarClient();
     final controller = YouTubeLibraryController(
       client: client,
@@ -1561,6 +1582,40 @@ void main() {
         'comments.get',
       ]),
     );
+  });
+
+  test('discards a library response that lands after sign-out', () async {
+    final client = _GatedLibrarySidecarClient();
+    final cache = _MemoryMetadataCache();
+    final store = _MemoryCredentialStore()
+      ..value = jsonEncode(<String, Object?>{
+        'kind': 'cookie',
+        'value': 'SID=test-cookie',
+      });
+    final controller = YouTubeLibraryController(
+      client: client,
+      credentialStore: store,
+      metadataCache: cache,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    expect(controller.playlists, isNotEmpty);
+
+    client.gate = Completer<void>();
+    final inFlight = controller.loadMediaLibrary(forceRefresh: true);
+    await Future<void>.delayed(Duration.zero);
+
+    await controller.signOut();
+    expect(controller.playlists, isEmpty);
+    expect(cache.entries, isEmpty);
+
+    client.gate!.complete();
+    await inFlight;
+
+    // The late response must not revive account state or rewrite the cache.
+    expect(controller.playlists, isEmpty);
+    expect(cache.entries, isEmpty);
   });
 }
 
@@ -2187,6 +2242,22 @@ Map<String, Object?> _searchResponse(String title, String id) =>
         },
       ],
     };
+
+class _GatedLibrarySidecarClient extends _FakeSidecarClient {
+  Completer<void>? gate;
+
+  @override
+  Future<Map<String, Object?>> call(
+    String method, [
+    Map<String, Object?> params = const <String, Object?>{},
+  ]) async {
+    final pending = gate;
+    if (method == 'library.media' && pending != null) {
+      await pending.future;
+    }
+    return super.call(method, params);
+  }
+}
 
 class _MemoryCredentialStore implements CredentialStore {
   String? value;

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'desktop_proxy_environment.dart';
 
@@ -24,6 +25,9 @@ class SidecarFailure {
     this.statusCode,
     this.exitCode,
     this.upstreamCode,
+    this.fallbackErrorType,
+    this.firstAttemptMessage,
+    this.diagnosticMessage,
   });
 
   final DateTime occurredAt;
@@ -35,6 +39,15 @@ class SidecarFailure {
   final int? statusCode;
   final int? exitCode;
   final String? upstreamCode;
+
+  /// Type name of the first attempt when a fallback path also failed. It tells
+  /// which path broke; the message is never recorded.
+  final String? fallbackErrorType;
+
+  /// Redacted upstream text, present only when the host enabled local
+  /// diagnostics. It is never shown in release builds.
+  final String? firstAttemptMessage;
+  final String? diagnosticMessage;
 }
 
 class SidecarException implements Exception {
@@ -187,15 +200,30 @@ class YouTubeSidecarClient {
 
     try {
       await _ensureStarted();
+      final process = _process;
+      if (process == null) {
+        throw const SidecarException(
+          'SIDECAR_EXIT',
+          'The YouTube service exited before this request.',
+        );
+      }
       final completer = Completer<Map<String, Object?>>();
       _pending[id] = completer;
-      _process!.stdin.writeln(
-        jsonEncode(<String, Object?>{
-          'id': id,
-          'method': method,
-          'params': params,
-        }),
-      );
+      try {
+        process.stdin.writeln(
+          jsonEncode(<String, Object?>{
+            'id': id,
+            'method': method,
+            'params': params,
+          }),
+        );
+      } on Object {
+        // The process exited between the check above and this write.
+        throw const SidecarException(
+          'SIDECAR_EXIT',
+          'The YouTube service exited before this request.',
+        );
+      }
       final result = await completer.future.timeout(_requestTimeout);
       final resultKeys = result.keys.toList(growable: false)..sort();
       _logDebug(
@@ -354,12 +382,13 @@ class YouTubeSidecarClient {
 
   Future<void> _start() async {
     final entry = _entryPath ?? _findEntryPath();
-    final environment =
+    final baseEnvironment =
         _processEnvironment ??
         await DesktopProxyEnvironment.resolve(
           environment: Platform.environment,
           isLinux: Platform.isLinux,
         );
+    final environment = await _withSessionCacheDirectory(baseEnvironment);
     final process = await Process.start(
       _executable ??
           SidecarBundleLocator.findNodeExecutable(
@@ -385,6 +414,37 @@ class YouTubeSidecarClient {
       }
     });
     unawaited(process.exitCode.then(_handleExit));
+  }
+
+  // Keeps the cached session data and player script in the application support
+  // directory instead of the shared OS temp directory, which other local users
+  // can read and which temp cleanup deletes between runs.
+  Future<Map<String, String>> _withSessionCacheDirectory(
+    Map<String, String> environment,
+  ) async {
+    if (environment.containsKey('OTOHA_SIDECAR_CACHE_DIR')) {
+      return environment;
+    }
+    try {
+      final support = await getApplicationSupportDirectory();
+      final directory = Directory(
+        '${support.path}${Platform.pathSeparator}youtube-session-cache',
+      );
+      await directory.create(recursive: true);
+      if (!Platform.isWindows) {
+        await Process.run('chmod', <String>[
+          '700',
+          directory.path,
+        ]).catchError((_) => ProcessResult(0, 1, '', ''));
+      }
+      return <String, String>{
+        ...environment,
+        'OTOHA_SIDECAR_CACHE_DIR': directory.path,
+      };
+    } on Object {
+      // Falling back to the temp directory keeps playback working.
+      return environment;
+    }
   }
 
   void _handleLine(String line) {
@@ -467,6 +527,9 @@ class YouTubeSidecarClient {
     final diagnosticStage = _diagnosticValue(data['diagnosticStage']);
     final sourceLocation = _sourceLocation(data['sourceLocation']);
     final upstreamCode = _diagnosticValue(data['upstreamCode']);
+    final fallbackErrorType = _diagnosticValue(data['fallbackErrorType']);
+    final firstAttemptMessage = _diagnosticMessage(data['firstAttemptMessage']);
+    final diagnosticMessage = _diagnosticMessage(data['diagnosticMessage']);
     final statusCode = data['statusCode'];
     final exitCode = data['exitCode'];
     final failure = SidecarFailure(
@@ -481,6 +544,9 @@ class YouTubeSidecarClient {
           : null,
       exitCode: exitCode is int ? exitCode : null,
       upstreamCode: upstreamCode,
+      fallbackErrorType: fallbackErrorType,
+      firstAttemptMessage: firstAttemptMessage,
+      diagnosticMessage: diagnosticMessage,
     );
     if (_recentFailures.length == 32) {
       _recentFailures.removeAt(0);
@@ -493,11 +559,26 @@ class YouTubeSidecarClient {
       '${failure.sourceLocation == null ? '' : ' source=${failure.sourceLocation}'}'
       '${failure.statusCode == null ? '' : ' status=${failure.statusCode}'}'
       '${failure.exitCode == null ? '' : ' exit=${failure.exitCode}'}'
-      '${failure.upstreamCode == null ? '' : ' upstream=${failure.upstreamCode}'}',
+      '${failure.upstreamCode == null ? '' : ' upstream=${failure.upstreamCode}'}'
+      '${failure.fallbackErrorType == null ? '' : ' fallback=${failure.fallbackErrorType}'}'
+      '${failure.firstAttemptMessage == null ? '' : ' first="${failure.firstAttemptMessage}"'}'
+      '${failure.diagnosticMessage == null ? '' : ' local="${failure.diagnosticMessage}"'}',
     );
     if (!_failures.isClosed) {
       _failures.add(failure);
     }
+  }
+
+  // Free text is accepted only for local diagnostics: bounded in length and
+  // free of control characters, so a message cannot inject extra log lines.
+  String? _diagnosticMessage(Object? value) {
+    if (value is! String || value.isEmpty || value.length > 160) {
+      return null;
+    }
+    if (RegExp(r'[\x00-\x1F\x7F]').hasMatch(value)) {
+      return null;
+    }
+    return value;
   }
 
   String? _diagnosticValue(Object? value) {

@@ -18,6 +18,16 @@ class DownloadedTrack {
     this.lyricsPath,
   });
 
+  /// Returns null for a record missing required fields so one damaged entry
+  /// cannot discard the rest of the offline library.
+  static DownloadedTrack? tryFromJson(Map<String, Object?> json) {
+    try {
+      return DownloadedTrack.fromJson(json);
+    } on Object {
+      return null;
+    }
+  }
+
   factory DownloadedTrack.fromJson(Map<String, Object?> json) {
     return DownloadedTrack(
       videoId: json['videoId']! as String,
@@ -83,6 +93,15 @@ class OfflinePlaylist {
     required this.createdAt,
     this.artworkVideoId,
   });
+
+  /// Returns null for a damaged playlist record so it cannot discard the rest.
+  static OfflinePlaylist? tryFromJson(Map<String, Object?> json) {
+    try {
+      return OfflinePlaylist.fromJson(json);
+    } on Object {
+      return null;
+    }
+  }
 
   factory OfflinePlaylist.fromJson(Map<String, Object?> json) {
     return OfflinePlaylist(

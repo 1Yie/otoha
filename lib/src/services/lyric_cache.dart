@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/youtube_library.dart';
+import 'atomic_file.dart';
 
 abstract interface class LyricCache {
   Future<List<YouTubeLyricLine>?> read(String videoId);
@@ -71,12 +72,7 @@ class FileLyricCache implements LyricCache {
 
   Future<void> _writeEntries(Map<String, Object?> entries) async {
     final file = await _file();
-    final temporary = File('${file.path}.part');
-    await temporary.writeAsString(jsonEncode(entries), flush: true);
-    if (await file.exists()) {
-      await file.delete();
-    }
-    await temporary.rename(file.path);
+    await writeFileAtomically(file, jsonEncode(entries));
   }
 
   Future<File> _file() async {

@@ -18,6 +18,22 @@ enum YouTubeLibraryError {
   actionFailed,
 }
 
+// Reported once a detail has loaded and is showing. Plain strings keep this
+// file independent of the shell's history types.
+class DetailOpenedEvent {
+  const DetailOpenedEvent({
+    required this.kind,
+    required this.id,
+    required this.reopen,
+  });
+
+  final String kind;
+  final String id;
+  // Reloads this detail from the same source arguments. Used by forward
+  // history; it must not report itself back to history.
+  final Future<void> Function() reopen;
+}
+
 class YouTubeLibraryController extends ChangeNotifier {
   static const _mediaLibraryCacheKey = 'library.media.v4';
   static const _channelCacheKey = 'account.channel.v2';
@@ -50,6 +66,10 @@ class YouTubeLibraryController extends ChangeNotifier {
   }
 
   final YouTubeSidecarClient _client;
+  // Set by the app shell so every controller, injected or created, reports
+  // opened details to workspace history.
+  void Function(DetailOpenedEvent event)? onDetailOpened;
+  bool _isRestoringDetail = false;
   final CredentialStore _credentialStore;
   final Duration _accountWriteCooldown;
   final RemoteMetadataCache? _metadataCache;
@@ -120,6 +140,7 @@ class YouTubeLibraryController extends ChangeNotifier {
   YouTubeLibraryError? _channelErrorMessage;
   bool _isLoadingChannel = false;
   int _channelRequest = 0;
+  int _accountGeneration = 0;
   String? _ratingVideoId;
   String? _followingArtistId;
   String? _savedEpisodeVideoId;
@@ -221,6 +242,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       _albums.any((album) => album.id == albumId);
 
   Future<void> initialize() async {
+    final generation = ++_accountGeneration;
     _status = YouTubeAccountStatus.restoring;
     _errorDiagnostic = null;
     notifyListeners();
@@ -250,6 +272,9 @@ class YouTubeLibraryController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      if (_isStaleGeneration(generation)) {
+        return;
+      }
       _applyProfile(result);
       _status = YouTubeAccountStatus.signedIn;
       notifyListeners();
@@ -259,11 +284,33 @@ class YouTubeLibraryController extends ChangeNotifier {
         await _credentialStore.delete();
       }
       _setError(error);
+    } finally {
+      _warmSidecarSessionWhenSignedOut();
+    }
+  }
+
+  // Retrieving and parsing the player script takes several seconds on a cold
+  // cache. Warming the sidecar while no account is signed in keeps the first
+  // sign-in or playback from paying that cost.
+  void _warmSidecarSessionWhenSignedOut() {
+    if (isSignedIn) {
+      return;
+    }
+    unawaited(_warmSidecarSession());
+  }
+
+  Future<void> _warmSidecarSession() async {
+    try {
+      await _client.call('session.warmup');
+    } on Object {
+      // Warmup is opportunistic; the next real request creates a session.
     }
   }
 
   Future<void> signInWithCookie(String cookie) async {
     _invalidateChannelRequest();
+    _invalidateAccountRequests();
+    final generation = _accountGeneration;
     _clearChannelState();
     _status = YouTubeAccountStatus.authorizing;
     _errorMessage = null;
@@ -274,6 +321,9 @@ class YouTubeLibraryController extends ChangeNotifier {
         'cookie': cookie,
         'locale': _locale,
       });
+      if (_isStaleGeneration(generation)) {
+        return;
+      }
       _applyProfile(result);
       _status = YouTubeAccountStatus.signedIn;
       notifyListeners();
@@ -288,6 +338,7 @@ class YouTubeLibraryController extends ChangeNotifier {
 
   Future<void> signOut() async {
     _invalidateChannelRequest();
+    _invalidateAccountRequests();
     try {
       await _client.call('auth.signOut');
     } on Object {
@@ -373,6 +424,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       return;
     }
     _invalidateChannelRequest();
+    _invalidateAccountRequests();
     try {
       await _client.call('session.setLocale', <String, Object?>{
         'locale': _locale,
@@ -417,6 +469,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     if (!isSignedIn || _isLoadingLibrary) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingLibrary = true;
     _errorMessage = null;
     notifyListeners();
@@ -425,17 +478,25 @@ class YouTubeLibraryController extends ChangeNotifier {
           ? null
           : await _metadataCache?.read(_mediaLibraryCacheKey);
       if (cached != null) {
-        _applyMediaLibrary(cached.data);
+        if (_isStaleAccountRequest(generation)) {
+          return;
+        }
+        _applyMediaLibrary(cached.data, generation);
         notifyListeners();
         if (cached.isFresh(const Duration(minutes: 10))) {
           return;
         }
       }
       final result = await _client.call('library.media');
-      _applyMediaLibrary(result);
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
+      _applyMediaLibrary(result, generation);
       await _metadataCache?.write(_mediaLibraryCacheKey, result);
     } on Object catch (error) {
-      _setError(error, preserveSignedIn: true);
+      if (!_isStaleAccountRequest(generation)) {
+        _setError(error, preserveSignedIn: true);
+      }
     } finally {
       _isLoadingLibrary = false;
       notifyListeners();
@@ -490,15 +551,22 @@ class YouTubeLibraryController extends ChangeNotifier {
         (_hasLoadedHistory && !forceRefresh)) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingHistory = true;
     _historyErrorMessage = null;
     notifyListeners();
     try {
       final result = await _client.call('history.get');
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _historyTracks = _decodeTracks(result);
       _hasLoadedHistory = true;
       _hasMoreHistory = result['hasMore'] as bool? ?? false;
     } on Object catch (error) {
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _historyErrorMessage = _requestErrorFor(error);
     } finally {
       _isLoadingHistory = false;
@@ -513,11 +581,15 @@ class YouTubeLibraryController extends ChangeNotifier {
         _isLoadingMoreHistory) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingMoreHistory = true;
     _historyErrorMessage = null;
     notifyListeners();
     try {
       final result = await _client.call('history.more');
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       final byVideoId = <String, YouTubeTrack>{
         for (final track in _historyTracks) track.videoId: track,
         for (final track in _decodeTracks(result)) track.videoId: track,
@@ -532,10 +604,39 @@ class YouTubeLibraryController extends ChangeNotifier {
     }
   }
 
+  // Restoring a detail from history reloads it through the normal open path;
+  // suppressing the report keeps that reload from truncating forward history.
+  void _reportDetailOpened({
+    required String kind,
+    required String id,
+    required Future<void> Function() reopen,
+  }) {
+    if (_isRestoringDetail) {
+      return;
+    }
+    onDetailOpened?.call(DetailOpenedEvent(kind: kind, id: id, reopen: reopen));
+  }
+
+  // Replays a history entry's detail without recording it again.
+  Future<void> reopenDetail(Future<void> Function() reopen) async {
+    _isRestoringDetail = true;
+    notifyListeners();
+    try {
+      await reopen();
+    } finally {
+      _isRestoringDetail = false;
+      notifyListeners();
+    }
+  }
+
+  // True while forward history reloads a detail; drives the forward button.
+  bool get isRestoringDetail => _isRestoringDetail;
+
   Future<void> openPlaylist(YouTubePlaylist playlist) async {
     if (!isSignedIn || _isLoadingPlaylist) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingPlaylist = true;
     _loadingPlaylistId = playlist.id;
     _errorMessage = null;
@@ -547,7 +648,15 @@ class YouTubeLibraryController extends ChangeNotifier {
             ? <String, Object?>{'playlistId': playlist.id}
             : <String, Object?>{'kind': playlist.specialKind},
       );
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _selectedPlaylist = YouTubePlaylistDetail.fromJson(result);
+      _reportDetailOpened(
+        kind: 'playlist',
+        id: playlist.id,
+        reopen: () => openPlaylist(playlist),
+      );
       _podcastEpisodeVideoIds.addAll(
         _selectedPlaylist!.tracks
             .where((track) => _isPodcastEpisodeItemType(track.itemType))
@@ -611,6 +720,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     if (!isSignedIn || _isLoadingHome) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingHome = true;
     _isHomeContinuationHydrated = false;
     _homeErrorMessage = null;
@@ -620,7 +730,10 @@ class YouTubeLibraryController extends ChangeNotifier {
           ? null
           : await _metadataCache?.read('feed.home.v2');
       if (cached != null) {
-        _applyHomeResult(cached.data);
+        if (_isStaleAccountRequest(generation)) {
+          return;
+        }
+        _applyHomeResult(cached.data, generation);
         _hasMoreHome = cached.data['hasMore'] == true;
         notifyListeners();
         if (!_hasMoreHome &&
@@ -630,11 +743,17 @@ class YouTubeLibraryController extends ChangeNotifier {
         }
       }
       final result = await _client.call('feed.home');
-      _applyHomeResult(result);
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
+      _applyHomeResult(result, generation);
       _hasMoreHome = result['hasMore'] == true;
       _isHomeContinuationHydrated = true;
       await _metadataCache?.write('feed.home.v2', result);
     } on Object catch (error) {
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _homeErrorMessage = _requestErrorFor(error);
       _hasMoreHome = false;
       _isHomeContinuationHydrated = false;
@@ -656,6 +775,7 @@ class YouTubeLibraryController extends ChangeNotifier {
       return;
     }
     final previousFilter = _selectedHomeFilter;
+    final generation = _accountGeneration;
     _selectedHomeFilter = value;
     _isLoadingHome = true;
     _homeErrorMessage = null;
@@ -664,10 +784,16 @@ class YouTubeLibraryController extends ChangeNotifier {
       final result = await _client.call('feed.home.filter', <String, Object?>{
         'filter': value,
       });
-      _applyHomeResult(result);
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
+      _applyHomeResult(result, generation);
       _hasMoreHome = result['hasMore'] == true;
       _isHomeContinuationHydrated = true;
     } on Object catch (error) {
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _selectedHomeFilter = previousFilter;
       _homeErrorMessage = _requestErrorFor(error);
       _hasMoreHome = false;
@@ -686,17 +812,24 @@ class YouTubeLibraryController extends ChangeNotifier {
         _isLoadingMoreHome) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingMoreHome = true;
     _homeErrorMessage = null;
     notifyListeners();
     try {
       final result = await _client.call('feed.home.more');
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _homeSections = _mergeFeedSections(
         _homeSections,
         _decodeFeedSections(result),
       );
       _hasMoreHome = result['hasMore'] == true;
     } on Object catch (error) {
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _homeErrorMessage = _requestErrorFor(error);
     } finally {
       _isLoadingMoreHome = false;
@@ -708,6 +841,7 @@ class YouTubeLibraryController extends ChangeNotifier {
     if (!isSignedIn || _isLoadingExplore) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingExplore = true;
     _hasMoreExplore = false;
     _exploreErrorMessage = null;
@@ -717,17 +851,26 @@ class YouTubeLibraryController extends ChangeNotifier {
           ? null
           : await _metadataCache?.read('feed.explore.v4');
       if (cached != null) {
-        _applyExploreSections(_decodeFeedSections(cached.data));
+        if (_isStaleAccountRequest(generation)) {
+          return;
+        }
+        _applyExploreSections(_decodeFeedSections(cached.data), generation);
         notifyListeners();
         if (cached.isFresh(const Duration(hours: 6))) {
           return;
         }
       }
       final result = await _client.call('feed.explore');
-      _applyExploreSections(_decodeFeedSections(result));
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
+      _applyExploreSections(_decodeFeedSections(result), generation);
       _hasMoreExplore = result['hasMore'] == true;
       await _metadataCache?.write('feed.explore.v4', result);
     } on Object catch (error) {
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _exploreErrorMessage = _requestErrorFor(error);
       _hasMoreExplore = false;
     } finally {
@@ -743,11 +886,15 @@ class YouTubeLibraryController extends ChangeNotifier {
         _isLoadingMoreExplore) {
       return;
     }
+    final generation = _accountGeneration;
     _isLoadingMoreExplore = true;
     _exploreErrorMessage = null;
     notifyListeners();
     try {
       final result = await _client.call('feed.explore.more');
+      if (_isStaleAccountRequest(generation)) {
+        return;
+      }
       _exploreSections = _mergeFeedSections(
         _exploreSections,
         _withoutExploreCategories(_decodeFeedSections(result)),
@@ -862,14 +1009,24 @@ class YouTubeLibraryController extends ChangeNotifier {
     if (tracks.length == 1 && item.itemType != 'album') {
       return tracks;
     }
+    final collectionId = item.itemType == 'album'
+        ? item.id
+        : item.browseIdentity;
     _selectedFeedCollection = YouTubeFeedCollectionDetail(
       source: source,
-      id: item.itemType == 'album' ? item.id : item.browseIdentity,
+      id: collectionId,
       title: item.title,
       itemType: item.itemType,
       tracks: tracks,
       artists: item.artists,
       thumbnailUrl: item.thumbnailUrl,
+    );
+    _reportDetailOpened(
+      kind: 'collection',
+      id: collectionId,
+      reopen: () async {
+        await openFeedCollection(item, source: source);
+      },
     );
     notifyListeners();
     return tracks;
@@ -1393,6 +1550,11 @@ class YouTubeLibraryController extends ChangeNotifier {
           podcast,
           source: source,
         );
+        _reportDetailOpened(
+          kind: 'podcast',
+          id: _selectedPodcastShow!.id,
+          reopen: () => openFeedBrowse(item, source: source),
+        );
       } else if (source == 'explore' && item.itemType == 'category') {
         final sections = _decodeFeedSections(result);
         _selectedFeedBrowse = null;
@@ -1430,6 +1592,11 @@ class YouTubeLibraryController extends ChangeNotifier {
           channelId: channelId,
           subscriberCount: _nonEmptyString(artist?['subscriberCount']),
           sections: sections,
+        );
+        _reportDetailOpened(
+          kind: 'browse',
+          id: item.browseIdentity,
+          reopen: () => openFeedBrowse(item, source: source),
         );
       }
     } on Object {
@@ -1478,6 +1645,27 @@ class YouTubeLibraryController extends ChangeNotifier {
       _isLoadingMorePodcast = false;
       notifyListeners();
     }
+  }
+
+  bool get hasOpenDetail =>
+      _selectedPlaylist != null ||
+      _selectedFeedCollection != null ||
+      _selectedPodcastShow != null ||
+      _selectedFeedBrowse != null;
+
+  // Used when history lands on an entry without a detail marker. Detail state
+  // is mirrored from history, so this never decides navigation on its own.
+  void closeAllDetails() {
+    if (!hasOpenDetail) {
+      return;
+    }
+    _selectedPlaylist = null;
+    _selectedFeedCollection = null;
+    _selectedFeedBrowse = null;
+    _selectedPodcastShow = null;
+    _isLoadingMorePlaylist = false;
+    _isLoadingMorePodcast = false;
+    notifyListeners();
   }
 
   void closeFeedDetail() {
@@ -1547,6 +1735,8 @@ class YouTubeLibraryController extends ChangeNotifier {
       return;
     }
     _isRecoveringSidecar = true;
+    _invalidateAccountRequests();
+    final generation = _accountGeneration;
     _status = YouTubeAccountStatus.restoring;
     notifyListeners();
     try {
@@ -1570,6 +1760,9 @@ class YouTubeLibraryController extends ChangeNotifier {
       });
       if (result['authenticated'] != true) {
         throw const SidecarException('AUTHENTICATION_REQUIRED', '');
+      }
+      if (_isStaleGeneration(generation)) {
+        return;
       }
       _applyProfile(result);
       _status = YouTubeAccountStatus.signedIn;
@@ -1623,7 +1816,10 @@ class YouTubeLibraryController extends ChangeNotifier {
         .toList(growable: false);
   }
 
-  void _applyMediaLibrary(Map<String, Object?> result) {
+  void _applyMediaLibrary(Map<String, Object?> result, int generation) {
+    if (_isStaleAccountRequest(generation)) {
+      return;
+    }
     _playlists = _decodePlaylists(result['playlists']);
     _savedCollections = _decodePlaylists(result['savedCollections']);
     _podcasts = _decodeFeedItems(result['podcasts']);
@@ -1670,13 +1866,22 @@ class YouTubeLibraryController extends ChangeNotifier {
     return tracks;
   }
 
-  void _applyExploreSections(List<YouTubeFeedSection> sections) {
+  void _applyExploreSections(
+    List<YouTubeFeedSection> sections,
+    int generation,
+  ) {
+    if (_isStaleAccountRequest(generation)) {
+      return;
+    }
     _exploreCategories = _extractExploreCategories(sections);
     _exploreSections = _withoutExploreCategories(sections);
     _selectedExploreCategoryId = null;
   }
 
-  void _applyHomeResult(Map<String, Object?> result) {
+  void _applyHomeResult(Map<String, Object?> result, int generation) {
+    if (_isStaleAccountRequest(generation)) {
+      return;
+    }
     _homeSections = _decodeFeedSections(result);
     _homeFilters = (result['filters'] as List<Object?>? ?? const <Object?>[])
         .whereType<String>()
@@ -1774,6 +1979,18 @@ class YouTubeLibraryController extends ChangeNotifier {
   void _invalidateChannelRequest() {
     _channelRequest += 1;
   }
+
+  // Signing out, signing in, or changing locale invalidates every account
+  // request already in flight so its result cannot land after the sign-out
+  // clears the account state and the metadata cache.
+  void _invalidateAccountRequests() {
+    _accountGeneration += 1;
+  }
+
+  bool _isStaleGeneration(int generation) => generation != _accountGeneration;
+
+  bool _isStaleAccountRequest(int generation) =>
+      _isStaleGeneration(generation) || !isSignedIn;
 
   void _clearChannelState() {
     _channelProfile = null;

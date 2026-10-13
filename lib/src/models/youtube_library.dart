@@ -44,6 +44,17 @@ class YouTubePlaylist {
     );
   }
 
+  // Round-trips with fromJson so history can reopen the playlist later.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'title': title,
+    'owner': owner,
+    'itemCount': itemCount,
+    'thumbnailUrl': thumbnailUrl,
+    'description': description,
+    'specialKind': specialKind,
+  };
+
   final String id;
   final String title;
   final String? owner;
@@ -451,6 +462,23 @@ class YouTubeFeedItem {
       trend: YouTubeChartTrend.fromProtocol(json['trend'] as String?),
     );
   }
+
+  // Round-trips with fromJson so history can reopen the item later.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'itemType': itemType,
+    'title': title,
+    'subtitle': subtitle,
+    'description': description,
+    'videoId': videoId,
+    'browseParams': browseParams,
+    'artists': artists,
+    'album': album,
+    'durationSeconds': durationSeconds,
+    'thumbnailUrl': thumbnailUrl,
+    'rank': rank,
+    'trend': trend?.name,
+  };
 
   final String id;
   final String itemType;

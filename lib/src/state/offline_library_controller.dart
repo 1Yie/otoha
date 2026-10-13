@@ -23,6 +23,7 @@ class OfflineLibraryController extends ChangeNotifier {
   final OfflineLibraryStore store;
   final YouTubeLibraryController youtubeLibraryController;
 
+  Future<void> _writeChain = Future<void>.value();
   List<DownloadedTrack> _downloads = const <DownloadedTrack>[];
   List<OfflinePlaylist> _playlists = const <OfflinePlaylist>[];
   String? _downloadDirectory;
@@ -364,11 +365,19 @@ class OfflineLibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _persist() => store.write(
-    OfflineLibrarySnapshot(
-      downloadDirectory: _downloadDirectory,
-      downloads: _downloads,
-      playlists: _playlists,
-    ),
-  );
+  // Writes run one at a time so overlapping edits cannot interleave on the
+  // shared library file. Each write captures the latest state when it runs.
+  Future<void> _persist() {
+    final write = _writeChain.then(
+      (_) => store.write(
+        OfflineLibrarySnapshot(
+          downloadDirectory: _downloadDirectory,
+          downloads: _downloads,
+          playlists: _playlists,
+        ),
+      ),
+    );
+    _writeChain = write.catchError((_) {});
+    return write;
+  }
 }

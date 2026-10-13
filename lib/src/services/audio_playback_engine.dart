@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -97,14 +99,21 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   factory MediaKitAudioPlaybackEngine(
     YouTubeSidecarClient client, {
     Map<String, String> proxyEnvironment = const <String, String>{},
+    SidecarDebugLogger? debugLogger,
   }) {
-    return MediaKitAudioPlaybackEngine._(client, proxyEnvironment);
+    return MediaKitAudioPlaybackEngine._(client, proxyEnvironment, debugLogger);
   }
 
-  MediaKitAudioPlaybackEngine._(this._client, this._proxyEnvironment)
-    : _player = Player(
-        configuration: const PlayerConfiguration(
-          protocolWhitelist: <String>[
+  MediaKitAudioPlaybackEngine._(
+    this._client,
+    this._proxyEnvironment,
+    this._debugLogger,
+  ) : _player = Player(
+        configuration: PlayerConfiguration(
+          // mpv's info level is only useful while diagnosing playback; release
+          // builds keep the media_kit default of errors only.
+          logLevel: kDebugMode ? MPVLogLevel.info : MPVLogLevel.error,
+          protocolWhitelist: const <String>[
             'udp',
             'rtp',
             'tcp',
@@ -143,6 +152,12 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
           );
         }
       }),
+      _player.stream.log.listen(
+        (event) => _logDebug('Otoha mpv ${event.prefix}: ${event.text}'),
+      ),
+      _player.stream.error.listen(
+        (error) => _logDebug('Otoha mpv error: $error'),
+      ),
       _player.stream.audioDevice.listen(_updateOutputDevice),
       _player.stream.audioDevices.listen(_updateOutputDevices),
     ];
@@ -150,6 +165,13 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
 
   final YouTubeSidecarClient _client;
   final Map<String, String> _proxyEnvironment;
+  final SidecarDebugLogger? _debugLogger;
+
+  // An output device can accept a stream without ever consuming it, which
+  // leaves the player reporting "playing" while the position never advances.
+  // Without this bound the UI would sit on the loading rail forever.
+  static const _readinessTimeout = Duration(seconds: 20);
+  Timer? _readinessTimer;
   final Player _player;
   VideoController? _videoController;
   final StreamController<AudioPlaybackSnapshot> _states =
@@ -359,6 +381,29 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     await _outputStates.close();
   }
 
+  void _logDebug(String message) {
+    final safe = _redactStreamUrls(message);
+    try {
+      final logger = _debugLogger;
+      if (logger != null) {
+        logger(safe);
+      } else if (kDebugMode) {
+        stderr.writeln(safe);
+      }
+    } on Object {
+      // Diagnostics must not change playback behavior.
+    }
+  }
+
+  // A resolved stream URL is a short-lived credential, so only its host may
+  // reach a log line.
+  String _redactStreamUrls(String value) {
+    return value.replaceAllMapped(RegExp(r'https?://[^\s"]+'), (match) {
+      final host = Uri.tryParse(match.group(0)!)?.host;
+      return host == null ? '<redacted-url>' : 'https://$host/<redacted>';
+    });
+  }
+
   Future<void> _configureProxyFor(String url) async {
     final platform = _player.platform;
     if (platform is! NativePlayer) {
@@ -371,6 +416,11 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
     await platform.setProperty(
       'stream-lavf-o',
       proxy == null ? '' : 'http_proxy=$proxy',
+    );
+    final proxyUri = proxy == null ? null : Uri.tryParse(proxy);
+    _logDebug(
+      'Otoha playback proxy: host=${Uri.tryParse(url)?.host ?? 'unknown'} '
+      'proxy=${proxyUri == null ? 'direct' : '${proxyUri.host}:${proxyUri.port}'}',
     );
   }
 
@@ -394,6 +444,8 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   }
 
   void _finishOpening({required bool waitForPlaybackProgress}) {
+    _readinessTimer?.cancel();
+    _readinessTimer = null;
     _isOpening = false;
     _isAwaitingPlaybackProgress = waitForPlaybackProgress;
     _hasPlaybackProgress = false;
@@ -404,6 +456,29 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
         !_nativeIsBuffering) {
       _update(isBuffering: false);
     }
+    if (waitForPlaybackProgress) {
+      _readinessTimer = Timer(_readinessTimeout, () {
+        if (!_isAwaitingPlaybackProgress || _isDisposed) {
+          return;
+        }
+        _isAwaitingPlaybackProgress = false;
+        _hasPlaybackProgress = false;
+        _logDebug(
+          'Otoha playback never progressed within '
+          '${_readinessTimeout.inSeconds}s; reporting a start failure.',
+        );
+        _update(
+          isPlaying: false,
+          isBuffering: false,
+          error: AudioPlaybackFailure.startFailed,
+        );
+      });
+    }
+    _logDebug(
+      'Otoha playback open finished: waitForProgress=$waitForPlaybackProgress '
+      'startPosition=${_playbackStartPosition.inMilliseconds}ms '
+      'sawBuffering=$_sawNativeBuffering',
+    );
   }
 
   void _handlePosition(Duration position) {
@@ -418,12 +493,18 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
         _isAwaitingPlaybackProgress = false;
         _hasPlaybackProgress = false;
         playbackStarted = true;
+        _readinessTimer?.cancel();
+        _readinessTimer = null;
+        _logDebug(
+          'Otoha playback started: position=${position.inMilliseconds}ms',
+        );
       }
     }
     _update(position: position, isBuffering: playbackStarted ? false : null);
   }
 
   void _handlePlaying(bool isPlaying) {
+    _logDebug('Otoha mpv playing=$isPlaying');
     if (_isAwaitingPlaybackProgress && isPlaying && !_nativeIsPlaying) {
       _hasPlaybackProgress = false;
       _playbackStartPosition = _player.state.position;
@@ -433,6 +514,7 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   }
 
   void _handleBuffering(bool isBuffering) {
+    _logDebug('Otoha mpv buffering=$isBuffering');
     _nativeIsBuffering = isBuffering;
     if (isBuffering) {
       _sawNativeBuffering = true;
@@ -454,6 +536,8 @@ class MediaKitAudioPlaybackEngine implements AudioPlaybackEngine {
   }
 
   void _resetPlaybackReadiness() {
+    _readinessTimer?.cancel();
+    _readinessTimer = null;
     _isOpening = false;
     _isAwaitingPlaybackProgress = false;
     _hasPlaybackProgress = false;

@@ -1,10 +1,39 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:otoha/src/services/desktop_proxy_environment.dart';
 import 'package:otoha/src/services/youtube_sidecar_client.dart';
 
 void main() {
+  test('points the sidecar at the private session cache directory', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final support = await Directory.systemTemp.createTemp('otoha-support-');
+    addTearDown(() => support.delete(recursive: true));
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      channel,
+      (call) async =>
+          call.method == 'getApplicationSupportDirectory' ? support.path : null,
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final client = YouTubeSidecarClient(
+      executable: 'node',
+      entryPath: File('test/fixtures/sidecar_env.mjs').absolute.path,
+    );
+    addTearDown(client.dispose);
+
+    final result = await client.call('cache');
+
+    final expected =
+        '${support.path}${Platform.pathSeparator}youtube-session-cache';
+    expect(result['cacheDir'], expected);
+    expect(await Directory(expected).exists(), isTrue);
+  });
+
   test('locates a bundled sidecar and Node next to a Linux executable', () {
     final directory = Directory.systemTemp.createTempSync('otoha-sidecar-test');
     addTearDown(() => directory.deleteSync(recursive: true));
@@ -237,6 +266,27 @@ void main() {
     },
   );
 
+  test('reports a dead sidecar as a typed exit, not a null error', () async {
+    final client = YouTubeSidecarClient(
+      executable: 'node',
+      entryPath: File('test/fixtures/sidecar_exits.mjs').absolute.path,
+    );
+    addTearDown(client.dispose);
+    // Let the fixture exit before the request is written.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    await expectLater(
+      client.call('feed.home'),
+      throwsA(
+        isA<SidecarException>().having(
+          (error) => error.code,
+          'code',
+          anyOf('SIDECAR_EXIT', 'SIDECAR_START_FAILED'),
+        ),
+      ),
+    );
+  });
+
   test('records safe sidecar failure diagnostics', () async {
     final client = YouTubeSidecarClient(
       executable: 'node',
@@ -268,6 +318,41 @@ void main() {
           .having((error) => error.statusCode, 'status code', 403),
     );
     expect(client.recentFailures, hasLength(1));
+  });
+
+  test('records the fallback error type of a failed rating', () async {
+    final client = YouTubeSidecarClient(
+      executable: 'node',
+      entryPath: File('test/fixtures/sidecar_echo.mjs').absolute.path,
+    );
+    addTearDown(client.dispose);
+    final failure = client.failures.first;
+
+    await expectLater(
+      client.call('fail-rating'),
+      throwsA(isA<SidecarException>()),
+    );
+
+    expect(
+      await failure,
+      isA<SidecarFailure>()
+          .having((error) => error.method, 'method', 'interaction.rate')
+          .having(
+            (error) => error.fallbackErrorType,
+            'fallback error type',
+            'TypeError',
+          )
+          .having(
+            (error) => error.diagnosticMessage,
+            'local diagnostic message',
+            'Expected an api_url, but none was found.',
+          )
+          .having(
+            (error) => error.firstAttemptMessage,
+            'first attempt message',
+            'TV action rejected: api_url missing',
+          ),
+    );
   });
 
   test('does not record optional library warnings as failures', () async {
