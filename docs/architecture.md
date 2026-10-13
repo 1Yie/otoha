@@ -5,7 +5,6 @@ lib/
 ├── main.dart                         desktop window bootstrap
 └── src/
     ├── app/                          Material app root and theme tokens
-    ├── data/                         offline mock catalog
     ├── models/                       catalog and YouTube metadata contracts
     ├── services/                     secure credential/session storage, native audio engine, and sidecar client
     ├── state/                        workspace, player, shell, and YouTube controllers

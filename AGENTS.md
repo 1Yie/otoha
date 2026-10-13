@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`otoha` is a dark-first Flutter desktop music player for Linux, macOS, and Windows. It combines a bundled fictional catalog with simulated playback and signed-in YouTube Music metadata plus on-demand native audio playback. It is not a web wrapper.
+`otoha` is a dark-first Flutter desktop music player for Linux, macOS, and Windows. Every track comes from a real source: signed-in YouTube Music metadata with on-demand native audio playback, or the user's own downloaded files. Nothing is bundled or simulated. It is not a web wrapper.
 
 ## Architecture & Data Flow
 
@@ -10,23 +10,22 @@
 - `OtohaApp` creates the long-lived workspace, player, shell, and YouTube library controllers. They outlive workspace navigation.
 - `DesktopShell` permanently owns the custom title bar, sidebar, workspace region, slide-out panel host, and integrated player.
 - `WorkspaceController` stores Home, Explore, Library, and Settings history. Only the workspace switches.
-- `PlayerController` owns catalog selection, queue order, shuffle, repeat, volume, and player UI state. Mock tracks use a local simulation; YouTube tracks use `AudioPlaybackEngine` events for position, buffering, completion, and errors. Persisted sessions restore queue, track, and position but never a transient media URL.
-- `ShellController` owns search, the active right panel, reduced-motion preference, and mock output-device selection.
+- `PlayerController` owns queue selection and order, shuffle, repeat, volume, player UI state, and output-device selection. Position, buffering, completion, and errors come only from `AudioPlaybackEngine` events; there is no local clock, so a track without a YouTube video ID or downloaded file has nothing to play. Persisted sessions restore queue, track, and position but never a transient media URL, and never the selected output device; saved tracks without a real playback source are dropped on restore.
+- `ShellController` owns the active right panel, the expanded-lyrics overlay, and the reduced-motion preference.
 - `YouTubeLibraryController` owns authentication state, secure credential persistence, account profile metadata, bounded discovery/library metadata caching, playlist synchronization, selected playlist/feed details, debounced YouTube Music search, lyric state, Home continuation state, and user-initiated rating/comment state.
 - `YouTubeSidecarClient` launches `sidecar/src/index.mjs` and exchanges newline-delimited JSON over stdin/stdout; it does not open a local network port. `playback.resolve` returns an ephemeral audio-only URL directly to the native engine.
 - The sidecar uses `youtubei.js` Cookie authentication for Home/Explore discovery, library playlist retrieval, Home continuation paging, lyric retrieval, and explicit rating/comment operations.
-- Mock `Track` records and local PNG artwork feed all workspace rows, search results, panels, and the player display.
+- `Track` records built from YouTube metadata or downloaded bundles feed workspace rows, search results, panels, and the player display. Artwork is a remote URL or a downloaded file.
 
 ## Key Directories
 
 - `lib/src/app/`: application root and theme tokens.
-- `lib/src/data/`, `lib/src/models/`: local catalog and typed music metadata.
+- `lib/src/models/`: typed music metadata.
 - `lib/src/services/`: credential/session storage, bounded artwork/metadata caches, and the local sidecar process client.
 - `lib/src/services/audio_playback_engine.dart`: native `media_kit` audio engine and transient stream resolver boundary.
 - `lib/src/state/`: focused Flutter `ChangeNotifier` controllers.
 - `lib/src/widgets/`: permanent shell layers, title bar, player, and panels.
 - `lib/src/workspaces/`: replaceable Home, Search, Explore, Library, and Settings views, including YouTube feed carousels and collection details.
-- `assets/artwork/`: eight bundled local album-art PNGs.
 - `test/`: controller and desktop-shell widget tests.
 - `docs/contexts/`: concise subsystem reference cards.
 - `sidecar/`: pinned Node ESM service and Node tests for YouTube.js integration.
@@ -69,8 +68,7 @@ Run commands from the repository root:
 - `lib/src/widgets/account_panel.dart`: Cookie login UI.
 - `lib/src/workspaces/youtube_library_workspace.dart`: playlist and track views.
 - `sidecar/src/youtube_service.mjs`: YouTube.js authentication and metadata adapter.
-- `lib/src/data/mock_catalog.dart`: local music content source.
-- `pubspec.yaml`: Dart constraint, desktop plugins, and artwork asset declaration.
+- `pubspec.yaml`: Dart constraint, desktop plugins, and the font, license, and icon assets.
 - `test/controllers_test.dart`, `test/youtube_library_controller_test.dart`, `test/desktop_shell_test.dart`: focused behavior coverage.
 
 ## Runtime/Tooling Preferences
@@ -82,14 +80,14 @@ Run commands from the repository root:
 - `window_manager` provides the Linux/macOS/Windows title-bar and window-control integration. Keep window calls outside ordinary widget tests by pumping `OtohaApp`, not `main()`.
 - The first milestone is desktop-only. Android, iOS, and web runners remain generated but have no mobile or web layout work.
 - YouTube integration uses Cookie login, discovery feeds, playlist metadata, approved on-demand audio-only stream resolution, user-initiated downloads, and user-initiated rating/comment operations. Cookie values, stream URLs, headers, and comment bodies must not be logged, committed, or persisted. Local downloads, offline playlist metadata, and timestamped LRC lyric caches use separate non-credential stores and remain available after sign-out; discovery/library metadata is cleared on sign-out. Do not add a local media proxy, uploads, automated mutations, or background account activity.
-- `media_kit` and `media_kit_libs_audio` provide native desktop playback. Keep media URL resolution lazy per selected queue item; retry a playback failure once, then surface an error without advancing simulated progress.
+- `media_kit` and `media_kit_libs_audio` provide native desktop playback. Keep media URL resolution lazy per selected queue item; retry a playback failure once, then surface an error without advancing progress.
 - Android identifiers and release signing remain generated placeholders and are out of scope for the desktop shell.
 - Pi has `pi-subagents` available. Use fresh-context `scout` or `context-builder` agents for broad read-only research; the parent agent owns synthesis and project writes.
 
 ## Testing & QA
 
 - Run `dart format lib test`, `flutter analyze`, `flutter test`, and `npm --prefix sidecar test` before completion.
-- Controller tests cover workspace history, mock simulation, native-engine state transitions, retry behavior, and session restoration.
+- Controller tests cover workspace history, native-engine state transitions, retry behavior, and session restoration. Tests build real-shaped `Track` records (a `youtubeVideoId` plus a fake engine); do not add bundled sample content back.
 - Widget tests cover persistent player state during navigation, the command palette, right panels, and user-triggered interaction controls.
 - Sidecar tests cover Cookie session mapping, parser shapes, browse/search/lyrics navigation, Home continuation, and account-write throttling without requiring a real account.
 - A manual account smoke test must confirm Cookie sign-in, secure restore, playlists, Home continuation, Explore browse cards, collection track lists, ratings, comments, and sign-out against a disposable test account.
@@ -99,5 +97,4 @@ Run commands from the repository root:
 ## Module Contexts
 
 - `docs/contexts/desktop-shell.md`: shell layers, controllers, layout, and validation.
-- `docs/contexts/mock-catalog.md`: local track contract, artwork assets, and playback boundaries.
 - `docs/contexts/youtube-integration.md`: sidecar protocol, authentication, secure storage, and remote library boundaries.

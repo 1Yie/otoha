@@ -43,6 +43,8 @@
 
 - `session.restore`
 - `session.status`
+- `session.warmup`
+- `session.refresh`
 - `auth.cookie.signIn`
 - `auth.signOut`
 - `account.channel`
@@ -137,12 +139,14 @@ songs, and artists. Flutter caches the profile and channel-home metadata under
 - Home filter labels come from the current localized `HomeFeed.filters`; applying
   one uses `HomeFeed.applyFilter()` and replaces the visible sections while
   retaining the unfiltered feed as the source for subsequent filter changes.
+- Rating writes first use the TV InnerTube action, then retry once through the WEB watch-page controls. When both fail, the failure log carries `fallback=<ErrorType>`: the type name of the first (TV) attempt. Upstream messages are never logged by default.
+- Local diagnostics: set `OTOHA_SIDECAR_LOCAL_DIAGNOSTICS=1` in the environment before launching the app to add `first=` and `local=` to failure logs. Each message is redacted (URLs, cookie and key pairs, and 12+ digit numbers are replaced) and capped at 160 characters. The flag is read only by the sidecar and is never set by the app, so release builds do not log messages.
 - Explore reads the continuation from its parsed `SectionList` because the current `youtubei.js` parser does not expose an `Explore.getContinuation()` helper. When no continuation is present, keep the finite response rather than repeating cards.
 - Feed songs, podcast episodes, and video-capable music entries start in audio
   mode and resolve an ephemeral audio-only URL. The explicit video-mode control
   reopens the same queue item and position with separate adaptive video and
   audio URLs; multi-track playlists and albums open track lists.
-- Expanded player lyrics query LRCLIB's cached exact endpoint and title/artist search in parallel, then fall back to LRCLIB's exact external lookup when neither returns timed LRC. If no synchronized result exists, YouTube Music official lyrics are shown without fabricated timing or line-level highlighting.
+- Expanded player lyrics query LRCLIB's cached exact endpoint and title/artist search in parallel, then fall back to LRCLIB's exact external lookup when neither returns timed LRC. Title/artist search results are used only when their LRCLIB `duration` is within 3 seconds of the track, so a live or remixed version cannot shift the highlight. If no synchronized result exists, YouTube Music official lyrics are shown without fabricated timing or line-level highlighting.
 - LRCLIB lookup sends current track metadata to a third party. Timestamped lyrics may be cached locally by video ID; untimed YouTube Music fallback text stays in memory and is not written to the timestamped lyric cache.
 - Artist and mood/genre cards retain their browse ID and parameters for `feed.browse`.
 - Artist/channel cards render as circular profiles and open browse results.
@@ -161,7 +165,7 @@ songs, and artists. Flutter caches the profile and channel-home metadata under
 - Horizontal feed sections use boundary-aware section-header arrow controls,
   aligned final-page offsets, and item-boundary snapping so the first visible
   card is not clipped.
-- Unknown metadata duration remains unknown; do not substitute a simulated duration.
+- Unknown metadata duration remains unknown; do not substitute an invented duration.
 - Feed-song cards without a duration resolve it through YouTube video metadata before playback.
 - `playback.resolve` is user-initiated. Audio mode returns one in-memory audio
   URL. Explicit video mode returns separately deciphered audio and video URLs;
@@ -186,6 +190,9 @@ songs, and artists. Flutter caches the profile and channel-home metadata under
   to this directory; user-selected custom roots and legacy single-file
   downloads remain valid.
 - `interaction.rate` and `comments.create` are user-initiated Cookie-authenticated account writes. Flutter and the sidecar enforce one shared two-second cooldown; never submit automatically, log comment bodies, or persist interaction request data.
+- The Innertube session cache lives in the application support directory passed through `OTOHA_SIDECAR_CACHE_DIR`, not the shared OS temp directory, so cached session data is not world readable and temp cleanup cannot force a cold player download between runs.
+- Session creation is serialized. `session.warmup` builds an anonymous session only when none exists, so a signed-out start pays the player download in the background and the first sign-in does not. A warmup must never replace an authenticated session that a concurrent restore just built.
+- A stale cached player script fails during decipher. `playback.resolve` rebuilds the session once, reusing the current Cookie, and retries the same format before surfacing an error. `download.track` deciphers inside the library's own download step and does not recover this way yet.
 - Remote artwork and Home, Explore, Library, and playlist metadata may use their bounded cache; clear the metadata cache on sign-out. Local offline downloads, local offline playlist metadata, and timestamped LRC lyrics use separate non-credential stores and remain available after sign-out. Never cache Cookies, stream URLs, headers, comment bodies, or search results.
 - My Channel profile and private channel-home metadata use a 15-minute bounded-cache freshness window and are invalidated on sign-in, sign-out, locale changes, and disposal. Stale in-flight responses must not repopulate signed-out state.
 - Channel edit and share URLs are generated only from the selected channel ID or validated handle. Flutter opens only HTTPS YouTube hosts externally and copies only the canonical public channel URL.

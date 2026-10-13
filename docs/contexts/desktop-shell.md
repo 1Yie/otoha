@@ -50,17 +50,23 @@
 - Pump `OtohaApp` in widget tests to avoid native window initialization.
 - Workspace navigation must not dispose player state.
 - Persisted playback restores queue order, current track, position, and Low/Normal/High online audio quality. A quality-only session remains valid with an empty queue. Playback never restores an expired stream URL, so a resumed YouTube track resolves a fresh stream.
-- Production startup has no mock player queue. The player remains empty until a real remote or downloaded track is selected, or a persisted real queue is restored.
+- The player starts empty. It fills only when a real remote or downloaded track is selected, or a persisted queue is restored; restore drops any saved track that has neither a YouTube video ID nor a downloaded file.
 - Linux keeps the original secure-storage namespace across the `im.ingstar.otoha` application-ID migration so existing Cookie credentials and player sessions remain readable.
-- Respect the reduced-motion setting for nonessential animation.
+- Licenses open from Settings on `OtohaLicensePage` (`lib/src/workspaces/own_license_page.dart`), not Flutter's `LicensePage`. It lists `LicenseRegistry` by package and swaps the detail with no animation, because `LicensePage` runs a fixed 500 ms detail transition that reduced motion cannot turn off.
+- The switch theme sets its own thumb and track colours. The default Material 3 hover colours washed the thumb into the surface on this dark theme.
+- Respect the reduced-motion setting for nonessential animation. Every transition (page switch, panel slide, expanded-media slide, lyric highlight, feed and filter scrolling, video control fade, progress thumb) collapses to zero duration or a direct jump. Loading spinners and the buffering pulse keep moving: a stopped spinner reads as a hang, so they are the only motion kept on purpose.
 - Keep the sidecar and account controller alive across workspace navigation.
 - On desktop, a successful tray initialization intercepts window close to hide the window while retaining the user-started player session. The tray menu is the only explicit exit path and must destroy the tray before closing the process.
 - Search is a workspace history destination opened from the title bar or `Ctrl/Cmd+K`; it is not a modal overlay or permanent sidebar item.
-- Search uses signed-in YouTube Music results with server-side type filters. Local mock song, album, and artist grouping remains the signed-out fallback.
+- Search uses signed-in YouTube Music results with server-side type filters. Signed out, it has no data source and shows a sign-in button that opens the account panel; workspace commands still match.
 - Search-owned collection and browse details return to the same in-memory query and filter.
 - The title-bar avatar opens My Channel for a signed-in account and the account panel when signed out. Channel participates in normal Back and Forward workspace history.
 - My Channel starts at the workspace top with a responsive profile banner/header. Its authenticated YouTube Music channel-home sections preserve private shelf labels and reuse the established feed queue, collection, artist/channel, and podcast detail interactions.
 - Changing online audio quality does not reopen the current stream. `PlayerController` forwards the persisted setting only when the next remote audio or video stream is resolved; local files and downloads are unaffected.
 - YouTube-track like/dislike controls are direct player actions; comments load and submit through the right-side panel without interrupting playback.
+- The expanded lyrics page shows one row under its progress bar: elapsed and total time on the left, the transport centred, and the same like/dislike controls on the right. Both surfaces use `YouTubeRatingButtons`, so they share one write path and cooldown check. It listens to `YouTubeLibraryController` itself, so a rating change repaints its icons without the hosting page rebuilding. Rating is offered only for signed-in YouTube tracks.
 - Explore moods and genres are top tabs that replace the Explore content beneath them; they are not feed cards.
 - Artwork plus discovery/library metadata use bounded caches. Cookies, audio, stream URLs, comments, lyrics, and search results stay out of persistent cache storage.
+- Output-device selection is real: `PlayerController.selectOutputDevice` forwards the chosen device to the native engine, and the device list comes from the native player. The selection is not persisted, so the next launch follows the system default again.
+- The native engine leaves its loading state only after observing playback progress: at least 50 ms of position advance while the player reports playing and not buffering. A bounded 20-second timeout turns a stalled output into a start failure instead of an indefinite loading rail.
+- An output device can accept a stream without making it audible, and player state cannot tell the two apart. A null sink consumes samples and advances the clock, so playback looks healthy while nothing is heard. An unreachable network sink stalls the clock, so playback stays on the loading rail until the readiness timeout. Diagnose both on the audio server, starting from the effective default sink, not in the player.
