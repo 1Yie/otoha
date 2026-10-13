@@ -153,9 +153,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noYouTubeMusicMatches => '没有匹配的 YouTube Music 内容';
 
   @override
-  String get noLocalMatches => '没有本地匹配项';
-
-  @override
   String get openWorkspace => '打开工作区';
 
   @override
@@ -522,13 +519,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quitApplication => '退出';
 
   @override
+  String get about => '关于';
+
+  @override
   String get diagnostics => '诊断';
 
   @override
   String get diagnosticLogging => '写入请求日志';
-
-  @override
-  String get about => '关于';
 
   @override
   String get licensesAndNotices => '许可协议与声明';

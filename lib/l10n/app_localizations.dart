@@ -386,12 +386,6 @@ abstract class AppLocalizations {
   /// **'No YouTube Music matches'**
   String get noYouTubeMusicMatches;
 
-  /// No description provided for @noLocalMatches.
-  ///
-  /// In en, this message translates to:
-  /// **'No local matches'**
-  String get noLocalMatches;
-
   /// No description provided for @openWorkspace.
   ///
   /// In en, this message translates to:
@@ -1064,6 +1058,12 @@ abstract class AppLocalizations {
   /// **'Quit'**
   String get quitApplication;
 
+  /// No description provided for @about.
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get about;
+
   /// No description provided for @diagnostics.
   ///
   /// In en, this message translates to:
@@ -1075,12 +1075,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Write request logs'**
   String get diagnosticLogging;
-
-  /// No description provided for @about.
-  ///
-  /// In en, this message translates to:
-  /// **'About'**
-  String get about;
 
   /// No description provided for @licensesAndNotices.
   ///

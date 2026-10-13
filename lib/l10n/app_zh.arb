@@ -48,7 +48,6 @@
   ,"searchShortcut": "搜索（Ctrl/Cmd + K）"
   ,"searchSongsArtistsAlbumsOrCommands": "搜索歌曲、艺人、专辑或命令"
   ,"noYouTubeMusicMatches": "没有匹配的 YouTube Music 内容"
-  ,"noLocalMatches": "没有本地匹配项"
   ,"openWorkspace": "打开工作区"
   ,"command": "命令"
   ,"previous": "上一首"
@@ -175,9 +174,9 @@
   ,"unableToStartAudioPlayback": "无法开始播放此歌曲。"
   ,"showWindow": "显示窗口"
   ,"quitApplication": "退出"
+  ,"about": "关于"
   ,"diagnostics": "诊断"
   ,"diagnosticLogging": "写入请求日志"
-  ,"about": "关于"
   ,"licensesAndNotices": "许可协议与声明"
   ,"appVersion": "版本 {version}"
   ,"@appVersion": {

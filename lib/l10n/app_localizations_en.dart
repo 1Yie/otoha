@@ -156,9 +156,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noYouTubeMusicMatches => 'No YouTube Music matches';
 
   @override
-  String get noLocalMatches => 'No local matches';
-
-  @override
   String get openWorkspace => 'Open workspace';
 
   @override
@@ -535,13 +532,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quitApplication => 'Quit';
 
   @override
+  String get about => 'About';
+
+  @override
   String get diagnostics => 'Diagnostics';
 
   @override
   String get diagnosticLogging => 'Write request logs';
-
-  @override
-  String get about => 'About';
 
   @override
   String get licensesAndNotices => 'Licenses and notices';

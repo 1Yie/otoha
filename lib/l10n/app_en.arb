@@ -48,7 +48,6 @@
   ,"searchShortcut": "Search (Ctrl/Cmd + K)"
   ,"searchSongsArtistsAlbumsOrCommands": "Search songs, artists, albums, or commands"
   ,"noYouTubeMusicMatches": "No YouTube Music matches"
-  ,"noLocalMatches": "No local matches"
   ,"openWorkspace": "Open workspace"
   ,"command": "Command"
   ,"previous": "Previous"
@@ -175,9 +174,9 @@
   ,"unableToStartAudioPlayback": "Unable to start audio playback for this track."
   ,"showWindow": "Show window"
   ,"quitApplication": "Quit"
+  ,"about": "About"
   ,"diagnostics": "Diagnostics"
   ,"diagnosticLogging": "Write request logs"
-  ,"about": "About"
   ,"licensesAndNotices": "Licenses and notices"
   ,"appVersion": "Version {version}"
   ,"@appVersion": {
