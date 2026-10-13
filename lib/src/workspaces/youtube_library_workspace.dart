@@ -37,6 +37,7 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
         }
         if (!controller.isSignedIn) {
           return _SignedOutLibrary(
+            title: l10n.library,
             shellController: shellController,
             signInLabel: l10n.signInToYouTubeMusic,
           );
@@ -160,10 +161,12 @@ class YouTubeLibraryWorkspace extends StatelessWidget {
 
 class _SignedOutLibrary extends StatelessWidget {
   const _SignedOutLibrary({
+    required this.title,
     required this.shellController,
     required this.signInLabel,
   });
 
+  final String title;
   final ShellController shellController;
   final String signInLabel;
 
@@ -171,11 +174,18 @@ class _SignedOutLibrary extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       key: const Key('youtube-library-signed-out'),
-      child: FilledButton.icon(
-        key: const Key('youtube-library-sign-in'),
-        onPressed: () => shellController.togglePanel(SidePanel.account),
-        icon: const Icon(Icons.login_rounded),
-        label: Text(signInLabel),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(title, style: Theme.of(context).textTheme.displaySmall),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            key: const Key('youtube-library-sign-in'),
+            onPressed: () => shellController.togglePanel(SidePanel.account),
+            icon: const Icon(Icons.login_rounded),
+            label: Text(signInLabel),
+          ),
+        ],
       ),
     );
   }
