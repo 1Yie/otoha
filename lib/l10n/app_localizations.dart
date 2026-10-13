@@ -1046,6 +1046,18 @@ abstract class AppLocalizations {
   /// **'Quit'**
   String get quitApplication;
 
+  /// No description provided for @diagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostics'**
+  String get diagnostics;
+
+  /// No description provided for @diagnosticLogging.
+  ///
+  /// In en, this message translates to:
+  /// **'Write request logs'**
+  String get diagnosticLogging;
+
   /// No description provided for @about.
   ///
   /// In en, this message translates to:

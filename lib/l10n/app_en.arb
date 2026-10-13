@@ -172,6 +172,8 @@
   ,"unableToStartAudioPlayback": "Unable to start audio playback for this track."
   ,"showWindow": "Show window"
   ,"quitApplication": "Quit"
+  ,"diagnostics": "Diagnostics"
+  ,"diagnosticLogging": "Write request logs"
   ,"about": "About"
   ,"licensesAndNotices": "Licenses and notices"
   ,"appVersion": "Version {version}"

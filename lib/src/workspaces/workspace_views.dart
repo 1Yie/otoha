@@ -8,6 +8,7 @@ import '../app/theme.dart';
 import '../models/catalog.dart';
 import '../services/audio_playback_engine.dart';
 import '../state/app_locale_controller.dart';
+import '../state/diagnostic_log_controller.dart';
 import '../state/desktop_shell_controllers.dart';
 import '../state/offline_library_controller.dart';
 import '../state/youtube_library_controller.dart';
@@ -29,6 +30,7 @@ class WorkspaceView extends StatelessWidget {
     required this.youtubeLibraryController,
     required this.offlineLibraryController,
     required this.localeController,
+    required this.diagnosticLogController,
     super.key,
   });
 
@@ -39,6 +41,7 @@ class WorkspaceView extends StatelessWidget {
   final YouTubeLibraryController youtubeLibraryController;
   final OfflineLibraryController offlineLibraryController;
   final AppLocaleController localeController;
+  final DiagnosticLogController diagnosticLogController;
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +92,7 @@ class WorkspaceView extends StatelessWidget {
         shellController: shellController,
         localeController: localeController,
         offlineLibraryController: offlineLibraryController,
+        diagnosticLogController: diagnosticLogController,
       ),
     };
   }
@@ -122,6 +126,7 @@ class SettingsWorkspace extends StatelessWidget {
     required this.shellController,
     required this.localeController,
     required this.offlineLibraryController,
+    required this.diagnosticLogController,
     super.key,
   });
 
@@ -129,6 +134,7 @@ class SettingsWorkspace extends StatelessWidget {
   final ShellController shellController;
   final AppLocaleController localeController;
   final OfflineLibraryController offlineLibraryController;
+  final DiagnosticLogController diagnosticLogController;
 
   @override
   Widget build(BuildContext context) {
@@ -246,6 +252,27 @@ class SettingsWorkspace extends StatelessWidget {
         _SectionHeading(l10n.downloads),
         const SizedBox(height: 16),
         _DownloadLocationSetting(controller: offlineLibraryController),
+        const SizedBox(height: 32),
+        _SectionHeading(l10n.diagnostics),
+        const SizedBox(height: 16),
+        AnimatedBuilder(
+          animation: diagnosticLogController,
+          builder: (context, _) {
+            return Material(
+              color: OtohaColors.surface,
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppMetrics.radius),
+              ),
+              child: SwitchListTile.adaptive(
+                key: const Key('diagnostic-log-switch'),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: Text(l10n.diagnosticLogging),
+                value: diagnosticLogController.enabled,
+                onChanged: diagnosticLogController.setEnabled,
+              ),
+            );
+          },
+        ),
         const SizedBox(height: 32),
         _SectionHeading(l10n.about),
         const SizedBox(height: 16),

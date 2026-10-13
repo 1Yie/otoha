@@ -14,6 +14,7 @@ import '../services/player_session_store.dart';
 import '../services/remote_metadata_cache.dart';
 import '../services/youtube_sidecar_client.dart';
 import '../state/desktop_shell_controllers.dart';
+import '../state/diagnostic_log_controller.dart';
 import '../state/app_locale_controller.dart';
 import '../state/offline_library_controller.dart';
 import '../state/youtube_library_controller.dart';
@@ -30,6 +31,7 @@ class OtohaApp extends StatefulWidget {
     this.localeController,
     this.desktopTrayController,
     this.proxyEnvironment = const <String, String>{},
+    this.diagnosticLogController,
     super.key,
   });
 
@@ -40,6 +42,7 @@ class OtohaApp extends StatefulWidget {
   final AppLocaleController? localeController;
   final DesktopTrayController? desktopTrayController;
   final Map<String, String> proxyEnvironment;
+  final DiagnosticLogController? diagnosticLogController;
 
   @override
   State<OtohaApp> createState() => _OtohaAppState();
@@ -53,6 +56,8 @@ class _OtohaAppState extends State<OtohaApp> {
   late final YouTubeLibraryController _youtubeLibraryController;
   late final OfflineLibraryController _offlineLibraryController;
   late final AppLocaleController _localeController;
+  late final DiagnosticLogController _diagnosticLogController;
+  late final bool _ownsDiagnosticLogController;
   late final bool _ownsYouTubeLibraryController;
   late final bool _ownsOfflineLibraryController;
   late final bool _ownsLocaleController;
@@ -73,8 +78,17 @@ class _OtohaAppState extends State<OtohaApp> {
     _ownsYouTubeLibraryController = widget.youtubeLibraryController == null;
     _restoresPlayerSession =
         _ownsYouTubeLibraryController || widget.playerSessionStore != null;
+    _ownsDiagnosticLogController = widget.diagnosticLogController == null;
+    _diagnosticLogController =
+        widget.diagnosticLogController ?? DiagnosticLogController();
+    if (_ownsDiagnosticLogController) {
+      unawaited(_diagnosticLogController.restore());
+    }
     final sidecarClient = _ownsYouTubeLibraryController
-        ? YouTubeSidecarClient(processEnvironment: widget.proxyEnvironment)
+        ? YouTubeSidecarClient(
+            processEnvironment: widget.proxyEnvironment,
+            debugLogger: _diagnosticLogController.record,
+          )
         : null;
     _playerController = PlayerController(
       widget.initialTracks,
@@ -141,6 +155,9 @@ class _OtohaAppState extends State<OtohaApp> {
     if (_ownsYouTubeLibraryController) {
       _youtubeLibraryController.dispose();
     }
+    if (_ownsDiagnosticLogController) {
+      _diagnosticLogController.dispose();
+    }
     super.dispose();
   }
 
@@ -172,6 +189,7 @@ class _OtohaAppState extends State<OtohaApp> {
                 youtubeLibraryController: _youtubeLibraryController,
                 offlineLibraryController: _offlineLibraryController,
                 localeController: _localeController,
+                diagnosticLogController: _diagnosticLogController,
               );
             },
           ),

@@ -172,6 +172,8 @@
   ,"unableToStartAudioPlayback": "无法开始播放此歌曲。"
   ,"showWindow": "显示窗口"
   ,"quitApplication": "退出"
+  ,"diagnostics": "诊断"
+  ,"diagnosticLogging": "写入请求日志"
   ,"about": "关于"
   ,"licensesAndNotices": "许可协议与声明"
   ,"appVersion": "版本 {version}"

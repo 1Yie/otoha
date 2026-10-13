@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../app/theme.dart';
 import '../models/catalog.dart';
 import '../state/app_locale_controller.dart';
+import '../state/diagnostic_log_controller.dart';
 import '../state/desktop_shell_controllers.dart';
 import '../state/offline_library_controller.dart';
 import '../state/youtube_library_controller.dart';
@@ -24,6 +25,7 @@ class DesktopShell extends StatelessWidget {
     required this.youtubeLibraryController,
     required this.offlineLibraryController,
     required this.localeController,
+    required this.diagnosticLogController,
     super.key,
   });
 
@@ -34,6 +36,7 @@ class DesktopShell extends StatelessWidget {
   final YouTubeLibraryController youtubeLibraryController;
   final OfflineLibraryController offlineLibraryController;
   final AppLocaleController localeController;
+  final DiagnosticLogController diagnosticLogController;
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +91,8 @@ class DesktopShell extends StatelessWidget {
                               offlineLibraryController:
                                   offlineLibraryController,
                               localeController: localeController,
+                              diagnosticLogController:
+                                  diagnosticLogController,
                             ),
                           ),
                         ),
@@ -361,6 +366,7 @@ class _WorkspaceRegion extends StatelessWidget {
     required this.youtubeLibraryController,
     required this.offlineLibraryController,
     required this.localeController,
+    required this.diagnosticLogController,
   });
 
   final WorkspaceController workspaceController;
@@ -369,6 +375,7 @@ class _WorkspaceRegion extends StatelessWidget {
   final YouTubeLibraryController youtubeLibraryController;
   final OfflineLibraryController offlineLibraryController;
   final AppLocaleController localeController;
+  final DiagnosticLogController diagnosticLogController;
 
   @override
   Widget build(BuildContext context) {
@@ -379,6 +386,7 @@ class _WorkspaceRegion extends StatelessWidget {
         youtubeLibraryController,
         offlineLibraryController,
         localeController,
+        diagnosticLogController,
       ]),
       builder: (context, _) {
         final duration = shellController.reduceMotion
@@ -410,6 +418,7 @@ class _WorkspaceRegion extends StatelessWidget {
               youtubeLibraryController: youtubeLibraryController,
               offlineLibraryController: offlineLibraryController,
               localeController: localeController,
+              diagnosticLogController: diagnosticLogController,
             ),
           ),
         );

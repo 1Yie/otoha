@@ -512,6 +512,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quitApplication => '退出';
 
   @override
+  String get diagnostics => '诊断';
+
+  @override
+  String get diagnosticLogging => '写入请求日志';
+
+  @override
   String get about => '关于';
 
   @override

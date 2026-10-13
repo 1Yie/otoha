@@ -523,6 +523,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quitApplication => 'Quit';
 
   @override
+  String get diagnostics => 'Diagnostics';
+
+  @override
+  String get diagnosticLogging => 'Write request logs';
+
+  @override
   String get about => 'About';
 
   @override
